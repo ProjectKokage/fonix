@@ -1,0 +1,3 @@
+# Generated ONNX protobuf models and external tensor payloads are binary.
+*.onnx binary
+*.bin binary

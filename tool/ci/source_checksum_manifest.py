@@ -42,6 +42,7 @@ SOURCE_DIRECTORIES = frozenset(
 )
 SOURCE_ROOT_FILES = frozenset(
     {
+        ".gitattributes",
         ".gitignore",
         "AGENTS.md",
         "CHANGELOG.md",

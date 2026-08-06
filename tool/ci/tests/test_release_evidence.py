@@ -276,6 +276,7 @@ class SourceChecksumManifestTests(unittest.TestCase):
             (repository / "docs").mkdir()
             (repository / "docs" / "z.md").write_bytes(b"z\n")
             (repository / "docs" / "a.md").write_bytes(b"a\n")
+            (repository / ".gitattributes").write_bytes(b"*.onnx binary\n")
             (repository / "pubspec.yaml").write_bytes(b"name: fonix\n")
             output = repository / "MANIFEST.sha256"
 
@@ -287,7 +288,7 @@ class SourceChecksumManifestTests(unittest.TestCase):
             self.assertEqual(first_bytes, output.read_bytes())
             self.assertEqual(
                 [path for path, _ in source_checksum_manifest.parse_manifest(first_bytes)],
-                ["docs/a.md", "docs/z.md", "pubspec.yaml"],
+                [".gitattributes", "docs/a.md", "docs/z.md", "pubspec.yaml"],
             )
             self.assertEqual(first, source_checksum_manifest.check_manifest(repository, output))
 

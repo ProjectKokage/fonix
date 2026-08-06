@@ -1,3 +1,4 @@
+c3683a956cff301a767565347c91186d29d100c5d4fddac70004092b9807194e  ./.gitattributes
 fdb882312c5ae2e01ea82847a7a6756f8b8c96aebbf866b63df8c5ae74e421f4  ./.github/workflows/ci.yml
 db4f877b25146d77914d90226f93160619f0bb05776c00c8e36ff7fcaf760990  ./.gitignore
 a102a803aeb36b2bd8b3154e1859b6b502a9746a1ce22c04f51969ce69f7e02b  ./AGENTS.md
@@ -182,7 +183,7 @@ f5556ce119d98638d1f81b3325564cc513b82b4e4bdace69fccbe7d1ecf2282e  ./tool/ci/maco
 e043f422e2904b1dbae39d177dcb6488d12b9303e47ce619831ab2c3661dab52  ./tool/ci/run_macos_application_gate.py
 b35a7b1b953907daf34c89bcbce6684dd843cb4bd2db5d11b9aeecb5e6e821a2  ./tool/ci/run_native_tests.py
 7cd8c1d8f4faa951661b57d7f0fe8452264b3abcd9528b834dc0c6dcef48f70a  ./tool/ci/run_phase3_fixture_tests.py
-0598173bb61b4c027eaefb45655cb67e83616d44289d1821d10b1b334b7194ae  ./tool/ci/source_checksum_manifest.py
+fc8ec25e3db3d32bcaa5c0b8448876d9f7d8881f492b1ae5b96077bd6a2a8aa2  ./tool/ci/source_checksum_manifest.py
 7a02113a8128f53b5a0b96c5c4c18ee30f8eca4847bfb2bde8c7b91f8a7be6d5  ./tool/ci/tests/test_android_compatibility_manifest.py
 36b93fe90faea378582eea4f145539b6c4ed9a448d06167c1d13a141b0b9215c  ./tool/ci/tests/test_apple_application_audit.py
 962e89a537f879ebbb27f56579b7990eafc52256ee9879c9748cb5472a47fb9d  ./tool/ci/tests/test_benchmark_receipt.py
@@ -190,7 +191,7 @@ b35a7b1b953907daf34c89bcbce6684dd843cb4bd2db5d11b9aeecb5e6e821a2  ./tool/ci/run_
 e9163ecdc5a72d0b1271f12f15d922b5ec3bd0a2dab1a25c5d134dbc55ddbebe  ./tool/ci/tests/test_ci_scripts.py
 13dbdd1d8a7f8321227741b90297598433bd875c44fcc71b7f4fcddb7b7d2575  ./tool/ci/tests/test_macos_application_gate.py
 12dc0b482d46023edc753be633e5013abc53d6074d0db14f23c0c388e5d20347  ./tool/ci/tests/test_qnn_qualification_receipt.py
-65364d8401c265d950f6a2c0f474da5c96fa5f3ee3c049dcfb8af9443c4a9dcd  ./tool/ci/tests/test_release_evidence.py
+54b8b4afabbada535c0cdd28a857be073ebe5d1b9047634e4fcbd3c7f9ceade2  ./tool/ci/tests/test_release_evidence.py
 ebc5dc9422c0df12eb91908977172b980ed3e50391d91117dde7b7302b6863fc  ./tool/ci/tests/test_sherpa_aligned_build.py
 d7ab9a0f37404df86b01dea833e6e4344f9d966494be1d38a5aea4e300b03cec  ./tool/ci/validate_benchmark_receipt.py
 ee18ff52c86de7a8b5b0d7df3750396e35deef742337dfc4b07b627931d52a17  ./tool/ci/validate_qnn_qualification_receipt.py
