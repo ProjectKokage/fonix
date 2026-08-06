@@ -1,0 +1,337 @@
+name: Fonix CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fonix-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DART_SUPPRESS_ANALYTICS: "true"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  dart:
+    name: Dart ${{ matrix.sdk }} format, analyze, and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ["3.11.5", stable]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Dart ${{ matrix.sdk }}
+        uses: dart-lang/setup-dart@e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c
+        with:
+          sdk: ${{ matrix.sdk }}
+      - name: Resolve the committed dependency graph
+        run: dart pub get --enforce-lockfile
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze with fatal infos
+        run: dart analyze --fatal-infos
+      - name: Run Dart tests
+        run: dart test --reporter expanded
+
+  bindings-regenerate:
+    name: Regenerate FFI bindings in an isolated directory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up minimum Dart SDK
+        uses: dart-lang/setup-dart@e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c
+        with:
+          sdk: "3.11.5"
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Resolve the committed dependency graph
+        run: dart pub get --enforce-lockfile
+      - name: Compare isolated ffigen outputs
+        run: python -B tool/ci/verify_bindings.py
+
+  python-verifiers:
+    name: Python CI and Android verifier tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Run CI-script tests without bytecode writes
+        run: >-
+          python -B -m unittest discover
+          -s tool/ci/tests -p 'test_*.py' -v
+      - name: Check repository-owned C source format and lint hygiene
+        run: python -B tool/ci/check_c_source_quality.py --repository .
+      - name: Run all standalone verifier tests without bytecode writes
+        run: >-
+          python -B -m unittest discover
+          -s tool/tests -p 'test_*.py' -v
+
+  release-evidence:
+    name: Offline deterministic release-evidence verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Test offline release metadata, SPDX, and tamper rejection
+        run: >-
+          python -B -m unittest discover
+          -s tool/ci/tests -p 'test_release_evidence.py' -v
+      - name: Verify the deterministic closed source manifest
+        run: >-
+          python -B tool/ci/source_checksum_manifest.py check
+          --repository . --manifest MANIFEST.sha256
+
+  phase3-fixture-bytes:
+    name: Phase-3 deterministic fixture bytes (${{ matrix.host }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: Linux
+            runner: ubuntu-24.04
+          - host: macOS
+            runner: macos-14
+          - host: Windows
+            runner: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Verify every generated fixture byte
+        run: python -B tool/ci/run_phase3_fixture_tests.py check
+
+  native-linux-x64-asan:
+    name: Linux x64 full native CTest with ASan and UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = x86_64
+      - name: Build, enumerate, and run the sanitizer suite
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite posix
+          --sanitizers
+          --build-dir "$RUNNER_TEMP/fonix-native-linux-asan"
+      - name: Verify the adjacent bundled-runtime loader
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite bundled
+          --build-dir "$RUNNER_TEMP/fonix-bundled-linux"
+
+  native-macos-arm64:
+    name: macOS arm64 full native CTest with ASan and UBSan (no LSan)
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = arm64
+      - name: Build, enumerate, and run the native suite
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite posix
+          --sanitizers
+          --build-dir "$RUNNER_TEMP/fonix-native-macos"
+      - name: Verify the adjacent bundled-runtime loader
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite bundled
+          --build-dir "$RUNNER_TEMP/fonix-bundled-macos"
+
+  native-windows-x64-shim-contract:
+    name: Windows x64 shim CTest (no ORT runtime execution)
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Build, enumerate, and run the Windows shim contract
+        shell: pwsh
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite windows-contract
+          --build-dir "$env:RUNNER_TEMP\fonix-native-windows"
+      - name: Verify the adjacent bundled-runtime loader
+        shell: pwsh
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite bundled
+          --build-dir "$env:RUNNER_TEMP\fonix-bundled-windows"
+
+  real-ort-macos-arm64:
+    name: macOS arm64 real ORT 1.27.1 runtime and session integration
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = arm64
+      - name: Set up minimum Dart SDK
+        uses: dart-lang/setup-dart@e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c
+        with:
+          sdk: "3.11.5"
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Install the exact Flutter revision used by the final-app gate
+        run: |
+          mkdir "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" init
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth=1 origin bd1e75d918605c91b411e8789fb911e6c9a84534
+          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics
+          "$RUNNER_TEMP/flutter/bin/flutter" precache --macos
+      - name: Resolve the committed dependency graph
+        run: dart pub get --enforce-lockfile
+      - name: Download and verify only the lock-pinned ORT archive
+        id: ort
+        run: >-
+          python -B tool/ci/fetch_pinned_macos_ort.py
+          --lock native/versions.lock.yaml
+          --output-dir "$RUNNER_TEMP/fonix-ort-1.27.1"
+          --archive-cache-dir "$RUNNER_TEMP/fonix-ort-archive-cache"
+          --github-output "$GITHUB_OUTPUT"
+      - name: Audit the pinned Mach-O runtime contract
+        run: >-
+          python -B tool/ci/check_macos_runtime.py
+          --runtime "${{ steps.ort.outputs.ort_path }}"
+          --lock native/versions.lock.yaml
+      - name: Exercise the offline bundled build hook with the pinned archive
+        env:
+          FONIX_TEST_MACOS_ORT_ARCHIVE_DIR: ${{ steps.ort.outputs.ort_archive_dir }}
+        run: >-
+          dart test test/build_hook_test.dart
+          --plain-name "bundled hook emits the exact offline macOS ORT code asset"
+          --reporter expanded
+          --concurrency 1
+      - name: Exercise exact Flutter asset publication and idempotent rerun
+        env:
+          FONIX_TEST_MACOS_ORT_ARCHIVE_DIR: ${{ steps.ort.outputs.ort_archive_dir }}
+        run: >-
+          dart test test/prepare_flutter_assets_test.dart
+          --plain-name "executable publishes exact locked assets twice"
+          --reporter expanded
+          --concurrency 1
+      - name: Build and run native tests before Dart integration
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite posix
+          --build-dir "$RUNNER_TEMP/fonix-native-real-ort"
+          --real-ort "${{ steps.ort.outputs.ort_path }}"
+          --real-model "${{ github.workspace }}/test/fixtures/mul_1.onnx"
+      - name: Run the native bridge against the built strict fake runtimes
+        env:
+          FONIX_TEST_SHIM_PATH: ${{ runner.temp }}/fonix-native-real-ort/fonix_shim_build/libfonix_shim.dylib
+          FONIX_TEST_ORT_PATH: ${{ runner.temp }}/fonix-native-real-ort/fake/allowed/libfake_ort_good.dylib
+          FONIX_TEST_UNSUPPORTED_ORT_PATH: ${{ runner.temp }}/fonix-native-real-ort/fake/unsupported/libfake_ort_unsupported.dylib
+        run: >-
+          dart test test/runtime_ffi_test.dart
+          --reporter expanded
+          --concurrency 1
+      - name: Run worker lifecycle against the fake and exact runtimes
+        env:
+          FONIX_TEST_FAKE_ORT_PATH: ${{ runner.temp }}/fonix-native-real-ort/fake/allowed/libfake_ort_good.dylib
+          FONIX_TEST_REAL_ORT_PATH: ${{ steps.ort.outputs.ort_path }}
+        run: >-
+          dart test test/isolate_session_test.dart
+          --reporter expanded
+          --concurrency 1
+      - name: Build, enumerate, and run the standalone Phase-3 fixture harness
+        run: >-
+          python -B tool/ci/run_phase3_fixture_tests.py
+          real-runtime
+          --build-dir "$RUNNER_TEMP/fonix-phase3-fixtures"
+          --real-ort "${{ steps.ort.outputs.ort_path }}"
+          --expected-ort-version "1.27.1"
+      - name: Run the env-gated real runtime and session suite
+        env:
+          FONIX_TEST_REAL_ORT_PATH: ${{ steps.ort.outputs.ort_path }}
+        run: >-
+          dart test test/cpu_inference_test.dart
+          --reporter expanded
+          --concurrency 1
+      - name: Run the complete generated Phase-3 Dart corpus against real ORT
+        env:
+          FONIX_TEST_REAL_ORT_PATH: ${{ steps.ort.outputs.ort_path }}
+        run: >-
+          dart test test/phase3_cpu_inference_test.dart
+          --reporter expanded
+          --concurrency 1
+      - name: Prove CPU and CoreML assignment, parity, cache, and worker transport
+        env:
+          FONIX_TEST_REAL_ORT_PATH: ${{ steps.ort.outputs.ort_path }}
+        run: >-
+          dart test test/provider_profile_integration_test.dart
+          --reporter expanded
+          --concurrency 1
+      - name: Build and audit a fresh final Flutter macOS application
+        run: >-
+          python -B tool/ci/run_macos_application_gate.py
+          --flutter "$RUNNER_TEMP/flutter/bin/flutter"
+          --artifact-cache "${{ steps.ort.outputs.ort_archive_dir }}"
+          --reference-runtime "${{ steps.ort.outputs.ort_path }}"
+          --work-dir "$RUNNER_TEMP/fonix-macos-application-gate"

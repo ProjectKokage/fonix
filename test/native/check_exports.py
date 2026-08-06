@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Reject public symbols outside the project-owned dort_* ABI allowlist."""
+
+from __future__ import annotations
+
+import platform
+import subprocess
+import sys
+
+
+ALLOWED = {
+    "dort_get_abi_version",
+    "dort_get_ort_api_compatibility_floor",
+    "dort_get_build_manifest_json",
+    "dort_string_release",
+    "dort_status_domain",
+    "dort_status_code",
+    "dort_status_ort_code",
+    "dort_status_operation",
+    "dort_status_message",
+    "dort_status_release",
+    "dort_runtime_open",
+    "dort_runtime_retain",
+    "dort_runtime_release",
+    "dort_runtime_info_json",
+    "dort_runtime_available_providers_json",
+    "dort_session_options_create",
+    "dort_session_options_retain",
+    "dort_session_options_release",
+    "dort_session_create_from_bytes",
+    "dort_session_create_from_file",
+    "dort_session_create_from_bytes_with_external_data",
+    "dort_session_retain",
+    "dort_session_release",
+    "dort_session_metadata_json",
+    "dort_session_type_metadata_json",
+    "dort_session_model_metadata_json",
+    "dort_buffer_allocate",
+    "dort_buffer_retain",
+    "dort_buffer_release",
+    "dort_buffer_byte_length",
+    "dort_buffer_write",
+    "dort_buffer_read",
+    "dort_buffer_data_acquire",
+    "dort_tensor_create_copy",
+    "dort_tensor_create_with_buffer",
+    "dort_tensor_create_strings_copy",
+    "dort_value_retain",
+    "dort_value_release",
+    "dort_value_kind",
+    "dort_value_child_count",
+    "dort_value_child_get",
+    "dort_sequence_create",
+    "dort_map_create",
+    "dort_optional_none_create",
+    "dort_optional_some_create",
+    "dort_tensor_info_json",
+    "dort_tensor_copy_data",
+    "dort_tensor_string_count",
+    "dort_tensor_string_get",
+    "dort_tensor_data_acquire",
+    "dort_data_lease_retain",
+    "dort_data_lease_release",
+    "dort_run_options_create",
+    "dort_run_options_retain",
+    "dort_run_options_release",
+    "dort_run_options_set_terminate",
+    "dort_run_options_unset_terminate",
+    "dort_run_options_profiling_start",
+    "dort_run_options_profiling_finish",
+    "dort_cancel_token_register",
+    "dort_cancel_token_request",
+    "dort_cancel_token_finish",
+    "dort_session_run",
+    "dort_run_result_retain",
+    "dort_run_result_release",
+    "dort_run_result_count",
+    "dort_run_result_get",
+}
+
+
+def exported_symbols(library: str) -> set[str]:
+    if platform.system() == "Darwin":
+        command = ["nm", "-gU", library]
+    else:
+        command = ["nm", "-D", "--defined-only", library]
+    output = subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    symbols: set[str] = set()
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        symbol = line.split()[-1]
+        if symbol.startswith("_") and platform.system() == "Darwin":
+            symbol = symbol[1:]
+        symbol = symbol.split("@@", 1)[0]
+        if symbol == "FONIX_DORT_1.0":
+            continue
+        symbols.add(symbol)
+    return symbols
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print("usage: check_exports.py <native-library>", file=sys.stderr)
+        return 2
+    actual = exported_symbols(sys.argv[1])
+    missing = sorted(ALLOWED - actual)
+    unexpected = sorted(actual - ALLOWED)
+    if missing or unexpected:
+        if missing:
+            print("missing exports: " + ", ".join(missing), file=sys.stderr)
+        if unexpected:
+            print("unexpected exports: " + ", ".join(unexpected), file=sys.stderr)
+        return 1
+    print(f"Export allowlist matched {len(ALLOWED)} project-owned symbols.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,965 @@
+{
+  "schema": 1,
+  "generator": "generate_phase3_fixtures.py",
+  "onnxIrVersion": 8,
+  "defaultOpset": 17,
+  "fixtures": [
+    {
+      "path": "bfloat16_identity.onnx",
+      "size": 241,
+      "sha256": "6e20c7b93417097afbddead850ded4305eb11a8768d0de68d820273bac04c52f",
+      "kind": "bfloat16_raw_bits_identity",
+      "input": {
+        "name": "bfloat16_input",
+        "type": "tensor(bfloat16)",
+        "shape": [
+          7
+        ]
+      },
+      "output": {
+        "name": "bfloat16_output",
+        "type": "tensor(bfloat16)",
+        "shape": [
+          7
+        ]
+      },
+      "rawBitsHex": [
+        "0000",
+        "8000",
+        "3f80",
+        "0001",
+        "0080",
+        "7f80",
+        "7fc0"
+      ],
+      "cases": [
+        "+0",
+        "-0",
+        "+1",
+        "minimum positive subnormal",
+        "minimum positive normal",
+        "+infinity",
+        "quiet NaN"
+      ],
+      "comparison": "exact uint16 bit equality"
+    },
+    {
+      "path": "bool_identity.onnx",
+      "size": 236,
+      "sha256": "9a8fddfd9cf621d562fd23d0e0f9a0066ad17402ef9b5a08752c9959e5eecab3",
+      "kind": "normalized_bool_identity",
+      "input": {
+        "name": "flags/input",
+        "type": "tensor(bool)",
+        "shape": [
+          6
+        ],
+        "values": [
+          false,
+          true,
+          true,
+          false,
+          true,
+          false
+        ]
+      },
+      "output": {
+        "name": "flags.normalized",
+        "type": "tensor(bool)",
+        "shape": [
+          6
+        ],
+        "expectedValues": [
+          false,
+          true,
+          true,
+          false,
+          true,
+          false
+        ]
+      },
+      "storageContract": "each wrapper byte and returned byte is exactly 0 or 1"
+    },
+    {
+      "path": "dynamic_add.onnx",
+      "size": 297,
+      "sha256": "36ccafb14c045d798620c412fa94fa3cceb69da75a0edb609ec60a4071ab38dd",
+      "kind": "dynamic_shape_float32_add",
+      "inputs": [
+        {
+          "name": "lhs.matrix",
+          "type": "tensor(float32)",
+          "shape": [
+            null,
+            null
+          ],
+          "symbols": [
+            "rows",
+            "columns"
+          ]
+        },
+        {
+          "name": "rhs/matrix",
+          "type": "tensor(float32)",
+          "shape": [
+            null,
+            null
+          ],
+          "symbols": [
+            "rows",
+            "columns"
+          ]
+        }
+      ],
+      "output": {
+        "name": "sum.matrix",
+        "type": "tensor(float32)",
+        "shape": [
+          null,
+          null
+        ],
+        "symbols": [
+          "rows",
+          "columns"
+        ]
+      },
+      "referenceCases": [
+        {
+          "shape": [
+            2,
+            3
+          ],
+          "lhs": [
+            1.0,
+            -2.0,
+            3.0,
+            4.5,
+            -5.5,
+            6.0
+          ],
+          "rhs": [
+            10.0,
+            20.0,
+            -30.0,
+            0.5,
+            5.5,
+            -6.0
+          ],
+          "expectedOutput": [
+            11.0,
+            18.0,
+            -27.0,
+            5.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "shape": [
+            1,
+            4
+          ],
+          "lhs": [
+            -1.0,
+            0.25,
+            8.0,
+            100.0
+          ],
+          "rhs": [
+            1.0,
+            0.75,
+            -3.0,
+            -25.0
+          ],
+          "expectedOutput": [
+            0.0,
+            1.0,
+            5.0,
+            75.0
+          ]
+        }
+      ],
+      "comparison": "exact values chosen for binary32 addition"
+    },
+    {
+      "path": "dynamic_matmul.onnx",
+      "size": 321,
+      "sha256": "707ac51db26223140cb55a98391513c29ef0d853bb87a8a5383369134b986bdd",
+      "kind": "dynamic_shape_float32_matmul",
+      "inputs": [
+        {
+          "name": "left.matrix",
+          "type": "tensor(float32)",
+          "shape": [
+            null,
+            null
+          ],
+          "symbols": [
+            "rows",
+            "inner"
+          ]
+        },
+        {
+          "name": "right/matrix",
+          "type": "tensor(float32)",
+          "shape": [
+            null,
+            null
+          ],
+          "symbols": [
+            "inner",
+            "columns"
+          ]
+        }
+      ],
+      "output": {
+        "name": "product.matrix",
+        "type": "tensor(float32)",
+        "shape": [
+          null,
+          null
+        ],
+        "symbols": [
+          "rows",
+          "columns"
+        ]
+      },
+      "referenceCases": [
+        {
+          "leftShape": [
+            2,
+            3
+          ],
+          "rightShape": [
+            3,
+            2
+          ],
+          "outputShape": [
+            2,
+            2
+          ],
+          "left": [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0
+          ],
+          "right": [
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+            11.0,
+            12.0
+          ],
+          "expectedOutput": [
+            58.0,
+            64.0,
+            139.0,
+            154.0
+          ]
+        },
+        {
+          "leftShape": [
+            1,
+            2
+          ],
+          "rightShape": [
+            2,
+            3
+          ],
+          "outputShape": [
+            1,
+            3
+          ],
+          "left": [
+            -1.0,
+            2.0
+          ],
+          "right": [
+            3.0,
+            4.0,
+            5.0,
+            -6.0,
+            7.0,
+            8.0
+          ],
+          "expectedOutput": [
+            -15.0,
+            10.0,
+            11.0
+          ]
+        }
+      ],
+      "comparison": "exact values chosen for binary32 multiplication and accumulation"
+    },
+    {
+      "path": "external_data/escape/model.onnx",
+      "size": 332,
+      "sha256": "73208f9bbf171ac4976a8590fa4571a440aecc525f147233c1277f5fdf1bac5a",
+      "kind": "external_data_path_escape",
+      "externalLocation": "../outside.bin",
+      "sandboxPolicy": "reject before ORT even though the target exists",
+      "allowedRoot": "external_data/escape",
+      "escapedTarget": "external_data/outside.bin"
+    },
+    {
+      "path": "external_data/missing/model.onnx",
+      "size": 329,
+      "sha256": "455d3ea3680fc761cd198e5b65dc205e9bdd516949d3a767cc364dc803ac5fc6",
+      "kind": "external_data_missing_file",
+      "externalLocation": "missing.bin",
+      "sandboxPolicy": "fail closed without revealing unrelated paths"
+    },
+    {
+      "path": "external_data/outside.bin",
+      "size": 16,
+      "sha256": "6537c8650e574b7ca280103779686d2e639585d0e69980113b935d360213d0f1",
+      "kind": "path_escape_sentinel",
+      "elementType": "float32",
+      "shape": [
+        4
+      ],
+      "values": [
+        9.0,
+        9.0,
+        9.0,
+        9.0
+      ]
+    },
+    {
+      "path": "external_data/valid/model.onnx",
+      "size": 329,
+      "sha256": "31d7d3be3ab31f63e0d935ee17ff077fcf3dc391d426276535b3341ce91b794e",
+      "kind": "external_data_model",
+      "externalLocation": "weights.bin",
+      "sandboxPolicy": "accept when allowed root is external_data/valid",
+      "input": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "expectedOutput": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ]
+    },
+    {
+      "path": "external_data/valid/weights.bin",
+      "size": 16,
+      "sha256": "ad73b9acd6e4a74b2f5bb5386658ce3bb146cd040a1867646ab3b973fb6632b1",
+      "kind": "external_tensor_bytes",
+      "elementType": "float32",
+      "shape": [
+        4
+      ],
+      "values": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ]
+    },
+    {
+      "path": "fixed_width_integer_identities.onnx",
+      "size": 1242,
+      "sha256": "d136cbffbcf092f0954ea53bc5e0143d9b63cb5122a76815ac3d27c2659a87e3",
+      "kind": "multiple_named_fixed_width_integer_identities",
+      "inputs": [
+        {
+          "name": "signed/int8.input",
+          "type": "tensor(int8)",
+          "shape": [
+            4
+          ],
+          "values": [
+            -128,
+            -1,
+            0,
+            127
+          ]
+        },
+        {
+          "name": "unsigned/uint8.input",
+          "type": "tensor(uint8)",
+          "shape": [
+            4
+          ],
+          "values": [
+            0,
+            1,
+            254,
+            255
+          ]
+        },
+        {
+          "name": "signed/int16.input",
+          "type": "tensor(int16)",
+          "shape": [
+            4
+          ],
+          "values": [
+            -32768,
+            -1,
+            0,
+            32767
+          ]
+        },
+        {
+          "name": "unsigned/uint16.input",
+          "type": "tensor(uint16)",
+          "shape": [
+            4
+          ],
+          "values": [
+            0,
+            1,
+            65534,
+            65535
+          ]
+        },
+        {
+          "name": "signed/int32.input",
+          "type": "tensor(int32)",
+          "shape": [
+            4
+          ],
+          "values": [
+            -2147483648,
+            -1,
+            0,
+            2147483647
+          ]
+        },
+        {
+          "name": "unsigned/uint32.input",
+          "type": "tensor(uint32)",
+          "shape": [
+            4
+          ],
+          "values": [
+            0,
+            1,
+            4294967294,
+            4294967295
+          ]
+        },
+        {
+          "name": "signed/int64.input",
+          "type": "tensor(int64)",
+          "shape": [
+            4
+          ],
+          "values": [
+            -9223372036854775808,
+            -1,
+            0,
+            9223372036854775807
+          ]
+        },
+        {
+          "name": "unsigned/uint64.input",
+          "type": "tensor(uint64)",
+          "shape": [
+            4
+          ],
+          "values": [
+            0,
+            1,
+            4294967296,
+            9223372036854775807
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signed/int8.output",
+          "type": "tensor(int8)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            -128,
+            -1,
+            0,
+            127
+          ]
+        },
+        {
+          "name": "unsigned/uint8.output",
+          "type": "tensor(uint8)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            0,
+            1,
+            254,
+            255
+          ]
+        },
+        {
+          "name": "signed/int16.output",
+          "type": "tensor(int16)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            -32768,
+            -1,
+            0,
+            32767
+          ]
+        },
+        {
+          "name": "unsigned/uint16.output",
+          "type": "tensor(uint16)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            0,
+            1,
+            65534,
+            65535
+          ]
+        },
+        {
+          "name": "signed/int32.output",
+          "type": "tensor(int32)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            -2147483648,
+            -1,
+            0,
+            2147483647
+          ]
+        },
+        {
+          "name": "unsigned/uint32.output",
+          "type": "tensor(uint32)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            0,
+            1,
+            4294967294,
+            4294967295
+          ]
+        },
+        {
+          "name": "signed/int64.output",
+          "type": "tensor(int64)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            -9223372036854775808,
+            -1,
+            0,
+            9223372036854775807
+          ]
+        },
+        {
+          "name": "unsigned/uint64.output",
+          "type": "tensor(uint64)",
+          "shape": [
+            4
+          ],
+          "expectedValues": [
+            0,
+            1,
+            4294967296,
+            9223372036854775807
+          ]
+        }
+      ],
+      "runOutputOrder": [
+        "unsigned/uint64.output",
+        "signed/int64.output",
+        "unsigned/uint32.output",
+        "signed/int32.output",
+        "unsigned/uint16.output",
+        "signed/int16.output",
+        "unsigned/uint8.output",
+        "signed/int8.output"
+      ],
+      "comparison": "exact fixed-width byte equality"
+    },
+    {
+      "path": "float16_identity.onnx",
+      "size": 235,
+      "sha256": "67fc24ba18b947d7bddf5440873be3ceb30cef7482ea3d3ba98d8e94ef7ae8b2",
+      "kind": "float16_raw_bits_identity",
+      "input": {
+        "name": "float16_input",
+        "type": "tensor(float16)",
+        "shape": [
+          7
+        ]
+      },
+      "output": {
+        "name": "float16_output",
+        "type": "tensor(float16)",
+        "shape": [
+          7
+        ]
+      },
+      "rawBitsHex": [
+        "0000",
+        "8000",
+        "3c00",
+        "0001",
+        "0400",
+        "7c00",
+        "7e00"
+      ],
+      "cases": [
+        "+0",
+        "-0",
+        "+1",
+        "minimum positive subnormal",
+        "minimum positive normal",
+        "+infinity",
+        "quiet NaN"
+      ],
+      "comparison": "exact uint16 bit equality"
+    },
+    {
+      "path": "metadata_identity.onnx",
+      "size": 546,
+      "sha256": "758a6bf5703cf30f3452b1256d09e3a80870c06b1d188f1cf3557b6402324aa7",
+      "kind": "complete_model_metadata",
+      "input": {
+        "name": "入力",
+        "type": "tensor(float32)",
+        "shape": [
+          null,
+          2
+        ],
+        "symbols": [
+          "batch",
+          null
+        ]
+      },
+      "output": {
+        "name": "出力",
+        "type": "tensor(float32)",
+        "shape": [
+          null,
+          2
+        ],
+        "symbols": [
+          "batch",
+          null
+        ]
+      },
+      "producerName": "fonix-fixtures",
+      "producerVersion": "phase3-v1",
+      "domain": "dev.fonix.fixtures.metadata",
+      "modelVersion": 42,
+      "graphName": "メタデータグラフ",
+      "modelDescription": "Model description with UTF-8: 木陰 and café.",
+      "graphDescription": "Graph description with UTF-8: 木陰.",
+      "customMetadata": {
+        "empty": "",
+        "purpose": "model metadata contract",
+        "unicode": "こんにちは🌿"
+      }
+    },
+    {
+      "path": "optional_empty_tensor.onnx",
+      "size": 218,
+      "sha256": "0445ad24468e921f4f45a9b119c44ea49d311dd91eaf867e39cdeb559bb09c60",
+      "kind": "empty_optional_tensor",
+      "inputs": [],
+      "output": {
+        "name": "maybe_value",
+        "type": "optional<tensor(float32,[2])>"
+      },
+      "reference": {
+        "present": false
+      }
+    },
+    {
+      "path": "optional_has_element.onnx",
+      "size": 240,
+      "sha256": "63266df2ba15cbb8802d7b8dde835288d7abaa82e1f478ea4f40545c9fe02a80",
+      "kind": "optional_input_presence",
+      "input": {
+        "name": "maybe_value",
+        "type": "optional<tensor(float32,[2])>"
+      },
+      "output": {
+        "name": "has_value",
+        "type": "tensor(bool)",
+        "shape": []
+      },
+      "referenceCases": [
+        {
+          "input": "present tensor [5.0,6.0]",
+          "hasValue": true
+        },
+        {
+          "input": "omitted optional input",
+          "hasValue": false
+        }
+      ],
+      "api27PresentRepresentation": "supply the contained tensor OrtValue",
+      "api27NoneRepresentation": "omit the optional graph input from Run"
+    },
+    {
+      "path": "optional_tensor.onnx",
+      "size": 211,
+      "sha256": "b0c11c494e02cac15c022d021c0225f55af8629847adca53a7207303ec3df57c",
+      "kind": "optional_tensor",
+      "input": {
+        "name": "value",
+        "type": "tensor(float32)",
+        "shape": [
+          2
+        ]
+      },
+      "output": {
+        "name": "maybe_value",
+        "type": "optional<tensor(float32,[2])>"
+      },
+      "reference": {
+        "value": [
+          5.0,
+          6.0
+        ],
+        "present": true
+      }
+    },
+    {
+      "path": "scalar_float64_identity.onnx",
+      "size": 232,
+      "sha256": "e04dfff23d4412ddab05298670f32895d0b44b973bd870d9f67238e9dbba9d1a",
+      "kind": "rank_zero_float64_identity",
+      "input": {
+        "name": "scalar.input",
+        "type": "tensor(float64)",
+        "shape": []
+      },
+      "output": {
+        "name": "scalar/output",
+        "type": "tensor(float64)",
+        "shape": []
+      },
+      "inputValue": -3.25,
+      "expectedOutput": -3.25,
+      "comparison": "exact binary64 equality"
+    },
+    {
+      "path": "sequence_construct.onnx",
+      "size": 244,
+      "sha256": "89ff477bbbde1a4518550505b333e8ebea42c99814aa49fd071fbac5087a55a4",
+      "kind": "sequence_of_tensors",
+      "inputs": [
+        {
+          "name": "first",
+          "type": "tensor(float32)",
+          "shape": [
+            2
+          ]
+        },
+        {
+          "name": "second",
+          "type": "tensor(float32)",
+          "shape": [
+            2
+          ]
+        }
+      ],
+      "output": {
+        "name": "values",
+        "type": "sequence<tensor(float32,[2])>"
+      },
+      "reference": {
+        "first": [
+          1.0,
+          2.0
+        ],
+        "second": [
+          3.0,
+          4.0
+        ]
+      }
+    },
+    {
+      "path": "string_identity.onnx",
+      "size": 190,
+      "sha256": "4dcb41d066aa618feb59c5db1e1df08f19bfe0e73ec41cf4deccc38fd93f93b0",
+      "kind": "string_tensor_identity",
+      "input": {
+        "name": "text",
+        "type": "tensor(string)",
+        "shape": [
+          4
+        ]
+      },
+      "output": {
+        "name": "echo",
+        "type": "tensor(string)",
+        "shape": [
+          4
+        ]
+      },
+      "contractCases": [
+        "empty string",
+        "ASCII",
+        "UTF-8: こんにちは🌿",
+        "4096-byte ASCII string generated at test time"
+      ],
+      "embeddedNulPolicy": "wrapper rejects before FFI"
+    },
+    {
+      "path": "unknown_rank_identity.onnx",
+      "size": 228,
+      "sha256": "297d2a545dfa09f598234ea7e4fbc26fa397284365ee20cb2c266da78b54cb11",
+      "kind": "unknown_rank_tensor_identity",
+      "input": {
+        "name": "unknown_input",
+        "type": "tensor(float32)",
+        "hasShape": false,
+        "shape": null
+      },
+      "output": {
+        "name": "unknown_output",
+        "type": "tensor(float32)",
+        "hasShape": false,
+        "shape": null
+      },
+      "referenceCases": [
+        {
+          "shape": [
+            3
+          ],
+          "values": [
+            1.0,
+            2.0,
+            3.0
+          ]
+        },
+        {
+          "shape": [
+            2,
+            2
+          ],
+          "values": [
+            4.0,
+            5.0,
+            6.0,
+            7.0
+          ]
+        }
+      ]
+    },
+    {
+      "path": "zero_length_float32_identity.onnx",
+      "size": 253,
+      "sha256": "77819e3cdeee9cf94e505f35ce7723e6d0efad8203011ca256bb8d760d3a853f",
+      "kind": "zero_length_float32_identity",
+      "input": {
+        "name": "empty/input",
+        "type": "tensor(float32)",
+        "shape": [
+          0,
+          3
+        ],
+        "values": []
+      },
+      "output": {
+        "name": "empty.output",
+        "type": "tensor(float32)",
+        "shape": [
+          0,
+          3
+        ],
+        "expectedValues": []
+      },
+      "expectedElementCount": 0
+    },
+    {
+      "path": "zipmap_int64.onnx",
+      "size": 276,
+      "sha256": "e544930a3d809a9923085659c80e7bd3bcedf1c31e15b25f1e70da80904db54c",
+      "kind": "onnx_ml_sequence_map",
+      "input": {
+        "name": "probabilities",
+        "type": "tensor(float32)",
+        "shape": [
+          null,
+          2
+        ]
+      },
+      "output": {
+        "name": "scores",
+        "type": "sequence<map<int64,tensor(float32)>>"
+      },
+      "labels": [
+        10,
+        20
+      ],
+      "reference": {
+        "probabilities": [
+          [
+            0.125,
+            0.875
+          ]
+        ],
+        "scores": [
+          {
+            "10": 0.125,
+            "20": 0.875
+          }
+        ]
+      }
+    },
+    {
+      "path": "zipmap_string.onnx",
+      "size": 284,
+      "sha256": "6f82ea0e0477ce9873b9e7b0669b4a782de213524790e458d273f7125089efc0",
+      "kind": "onnx_ml_sequence_map",
+      "input": {
+        "name": "probabilities",
+        "type": "tensor(float32)",
+        "shape": [
+          null,
+          2
+        ]
+      },
+      "output": {
+        "name": "scores",
+        "type": "sequence<map<string,tensor(float32)>>"
+      },
+      "labels": [
+        "cat",
+        "dog"
+      ],
+      "reference": {
+        "probabilities": [
+          [
+            0.25,
+            0.75
+          ]
+        ],
+        "scores": [
+          {
+            "cat": 0.25,
+            "dog": 0.75
+          }
+        ]
+      }
+    }
+  ]
+}
