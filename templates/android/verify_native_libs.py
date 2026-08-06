@@ -65,6 +65,7 @@ ANDROID_SYSTEM_LIBRARIES = frozenset(
 )
 
 POLICY_MODES = ("generic", "sherpa-audit", "fonix-standalone-final")
+FLUTTER_AOT_NAME = "libapp.so"
 
 # These are deliberately closed expectations for the exact standalone Fonix
 # package design. A changed NDK/runtime graph must update the policy and its
@@ -900,7 +901,13 @@ def _validate_standalone_fonix(report: dict, required_abis: list[str]) -> list[s
         packaged_names = {entry["name"] for entry in abi_entries}
         for entry in abi_entries:
             soname = entry["elf"]["soname"]
-            if soname != entry["name"]:
+            # Flutter's final AOT image is filename-addressed and does not carry
+            # DT_SONAME. Keep this exception exact and local to the standalone
+            # final-package policy; every other library remains basename-bound.
+            flutter_aot_without_soname = (
+                entry["name"] == FLUTTER_AOT_NAME and soname is None
+            )
+            if soname != entry["name"] and not flutter_aot_without_soname:
                 errors.append(
                     f"{report['artifact']}: {entry['path']} has SONAME "
                     f"{soname!r}; expected its final basename {entry['name']!r}"

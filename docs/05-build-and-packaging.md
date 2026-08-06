@@ -337,6 +337,50 @@ Native libraries appear under ABI-specific paths in AAR/APK/AAB artifacts. The f
 
 The wrapper may package its pinned `libonnxruntime.so` and shim. It must not also add a Java ONNX Runtime dependency that contributes another copy unless the build is intentionally unified and verified.
 
+### Standalone reference gate
+
+The committed arm64-v8a reference app is built and audited from a clean external
+copy with a revision-pinned Flutter SDK, byte-pinned bundletool and ORT inputs,
+and version-gated Android SDK, NDK, build-tools, command-line tools, and JDK:
+
+```bash
+python3 -B tool/ci/run_android_reference_app_gate.py \
+  --repository /absolute/path/to/fonix \
+  --flutter /absolute/flutter/bin/flutter \
+  --artifact-cache /absolute/offline/cache \
+  --work-dir /absolute/new/fonix-android-reference-gate \
+  --android-sdk /absolute/Android/sdk \
+  --java-home /absolute/openjdk-21.0.12 \
+  --bundletool /absolute/bundletool-all-1.18.3.jar \
+  --avd-name api35-arm64-avd
+```
+
+The gate pins Flutter revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534`, command-line tools 20.0,
+build-tools 36.0.0, NDK 28.2.13676358, OpenJDK 21.0.12, and bundletool 1.18.3.
+It reproduces the committed Android manifest/notices, analyzes and tests the
+app, builds an R8-minified development-signed Release APK and AAB, and invokes
+`tool/ci/audit_android_application.py` on both final artifacts before any
+install.
+
+The auditor and gate require only the `base` AAB module, the exact manifest and
+permission/component allowlist, the exact model/manifest/notices, four arm64
+libraries (`libapp.so`, `libflutter.so`, `libfonix_shim.so`, and
+`libonnxruntime.so`), one ORT owner, closed SONAME/`DT_NEEDED` sets, 67 shim
+exports plus `OrtGetApiBase`, complete matching APK/AAB development signatures,
+APK `zipalign -P 16`, and static 16 KiB-compatible ELF load segments. Android
+stripping changes the ORT whole-file SHA-256, so the auditor separately records
+that packaged hash and requires every ordered `PT_LOAD` segment to match the
+lock-selected source runtime.
+
+With a named AVD, the same audited APK must report ORT 1.27.1, application-owned
+bundled CPU, active provider `cpu`, full assignment, output
+`[1,4,9,16,25,36]`, and idempotent double close. The 2026-08-07 run used an API
+35 arm64 emulator with a queried 4096-byte page size. API 24 remains only the
+manifest/build floor: this receipt does not prove API 24 execution, an actual
+16 KiB runtime, a physical device, x86_64, an installed AAB split, XNNPACK,
+QNN, or sherpa coexistence.
+
 ### sherpa-owned process mode
 
 The wrapper packages only the shim. It must not contribute `libonnxruntime.so`. The shim dynamically resolves the sherpa/application-owned runtime. See document 7.

@@ -2,13 +2,21 @@ import 'dart:async';
 
 import 'package:fonix_reference/src/inference_backend.dart';
 
-InferenceStartupReceipt fakeStartupReceipt() => InferenceStartupReceipt(
+InferenceStartupReceipt fakeStartupReceipt({
+  String platform = 'macos',
+  String architecture = 'arm64',
+  String shimBuildId = 'fonix-reference-test',
+  String artifactSha256 =
+      'e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6',
+}) => InferenceStartupReceipt(
   runtimeVersion: '1.27.1',
   runtimeSource: 'bundled',
   runtimeOwner: 'wrapper',
   artifactFlavor: 'cpu',
-  platform: 'macos',
-  architecture: 'arm64',
+  platform: platform,
+  architecture: architecture,
+  shimBuildId: shimBuildId,
+  artifactSha256: artifactSha256,
   modelSha256: referenceModelSha256,
   registeredProviders: const <String>['cpu'],
 );

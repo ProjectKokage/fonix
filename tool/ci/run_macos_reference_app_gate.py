@@ -44,6 +44,7 @@ COPY_CHUNK_BYTES = 1024 * 1024
 ASSET_NAMES = frozenset(
     {"fonix-native-artifact-manifest.json", "ThirdPartyNotices.txt"}
 )
+ANDROID_SIDECAR_DIRECTORY = "android-arm64-v8a"
 
 # These are exact paths relative to example/. A prefix is excluded only when it
 # is this path or a child of it; similarly named source paths remain included.
@@ -55,6 +56,13 @@ GENERATED_EXCLUSIONS = frozenset(
         ".idea",
         ".pub",
         ".pub-cache",
+        "android/.gradle",
+        "android/.kotlin",
+        "android/app/.cxx",
+        "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+        "android/captures",
+        "android/fonix_reference_android.iml",
+        "android/local.properties",
         "build",
         "coverage",
         "fonix_reference.iml",
@@ -71,6 +79,10 @@ EXPECTED_REFERENCE_RECEIPT: dict[str, object] = {
     "artifactFlavor": "cpu",
     "platform": "macos",
     "architecture": "arm64",
+    "shimBuildId": ARTIFACT_ID,
+    "artifactSha256": (
+        "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6"
+    ),
     "modelSha256": MODEL_SHA256,
     "outputValues": [1, 4, 9, 16, 25, 36],
     "activeProviders": ["cpu"],
@@ -677,15 +689,32 @@ def _verify_flutter(flutter: Path) -> dict[str, object]:
 def _asset_pair(directory: Path, label: str) -> dict[str, bytes]:
     directory = _directory(directory, label)
     entries = sorted(directory.iterdir(), key=lambda path: path.name)
-    if {entry.name for entry in entries} != ASSET_NAMES:
+    expected_entries = set(ASSET_NAMES) | {ANDROID_SIDECAR_DIRECTORY}
+    if {entry.name for entry in entries} != expected_entries:
         raise MacOsReferenceAppGateError(
-            f"{label} must contain exactly the committed Fonix manifest and notice"
+            f"{label} must contain exactly the committed Fonix manifest, notice, "
+            "and Android sidecar"
         )
     result: dict[str, bytes] = {}
     for entry in entries:
-        result[entry.name] = _regular_file(
-            entry, f"{label} {entry.name}", maximum=MAX_ASSET_BYTES
-        ).read_bytes()
+        if entry.name in ASSET_NAMES:
+            result[entry.name] = _regular_file(
+                entry, f"{label} {entry.name}", maximum=MAX_ASSET_BYTES
+            ).read_bytes()
+            continue
+        sidecar = _directory(entry, f"{label} Android sidecar")
+        sidecar_entries = sorted(sidecar.iterdir(), key=lambda path: path.name)
+        if {candidate.name for candidate in sidecar_entries} != ASSET_NAMES:
+            raise MacOsReferenceAppGateError(
+                f"{label} Android sidecar inventory changed"
+            )
+        for candidate in sidecar_entries:
+            relative = f"{ANDROID_SIDECAR_DIRECTORY}/{candidate.name}"
+            result[relative] = _regular_file(
+                candidate,
+                f"{label} {relative}",
+                maximum=MAX_ASSET_BYTES,
+            ).read_bytes()
     return result
 
 

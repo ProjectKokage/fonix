@@ -1,0 +1,84 @@
+{
+  "schema": 2,
+  "artifactId": "onnxruntime-1.27.1-android-arm64-v8a-cpu",
+  "lock": {
+    "path": "native/versions.lock.yaml",
+    "sha256": "5cde32cc7633387632542996ac23492721f47b68434472b013dcc6db27d2392b",
+    "snapshotDate": "2026-08-06",
+    "releaseState": "unreleased-preview"
+  },
+  "target": {
+    "os": "android",
+    "architecture": "arm64-v8a",
+    "variant": "default",
+    "minimumOs": "24",
+    "flavor": "cpu",
+    "runtimeMode": "bundled"
+  },
+  "source": {
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg",
+    "sourceRevision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+    "archive": "zip",
+    "sha256": "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383",
+    "sizeBytes": 135152698
+  },
+  "containers": [
+    {
+      "depth": 1,
+      "path": "runtimes/android/native/onnxruntime.aar",
+      "archive": "zip",
+      "sha256": "6c4390433cf5ad9c38aa7e515f4e22d405613f3b872c0ed2b7d27cf1a714f32d",
+      "sizeBytes": 44522169
+    }
+  ],
+  "payloadFiles": [
+    {
+      "archivePath": "jni/arm64-v8a/libonnxruntime.so",
+      "stagedPath": "libonnxruntime.so",
+      "sha256": "a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2",
+      "sizeBytes": 27983536
+    }
+  ],
+  "verifiedSymlinks": [],
+  "notices": [
+    {
+      "id": "MIT",
+      "containerDepth": 0,
+      "archivePath": "LICENSE",
+      "stagedPath": "notices/LICENSE",
+      "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
+      "sizeBytes": 1094
+    },
+    {
+      "id": "ThirdPartyNotices",
+      "containerDepth": 0,
+      "archivePath": "ThirdPartyNotices.txt",
+      "stagedPath": "notices/ThirdPartyNotices.txt",
+      "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
+      "sizeBytes": 331175
+    }
+  ],
+  "archiveInspections": [
+    {
+      "depth": 0,
+      "format": "zip",
+      "memberCount": 49,
+      "regularFileCount": 49,
+      "directoryCount": 0,
+      "symbolicLinkCount": 0,
+      "compressedBytes": 135144668,
+      "uncompressedBytes": 213482687
+    },
+    {
+      "depth": 1,
+      "format": "zip",
+      "memberCount": 36,
+      "regularFileCount": 25,
+      "directoryCount": 11,
+      "symbolicLinkCount": 0,
+      "compressedBytes": 44516967,
+      "uncompressedBytes": 117418063
+    }
+  ],
+  "claimBoundary": "Successful staging proves exact archive and member bytes only. It does not prove loading, linking, provider registration, inference, packaging, signing, or target-device support."
+}

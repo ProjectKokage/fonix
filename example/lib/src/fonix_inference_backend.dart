@@ -82,6 +82,13 @@ final class FonixInferenceBackend implements InferenceBackend {
       }
       _session = session;
       final OrtDiagnostics diagnostics = session.diagnostics;
+      final String? artifactSha256 = diagnostics.artifactSha256;
+      if (artifactSha256 == null) {
+        throw const InferenceBackendFailure(
+          summary: 'The bundled runtime reported no artifact identity.',
+          backendUnusable: true,
+        );
+      }
       return InferenceStartupReceipt(
         runtimeVersion: diagnostics.runtimeVersion,
         runtimeSource: diagnostics.runtimeMode.name,
@@ -89,6 +96,8 @@ final class FonixInferenceBackend implements InferenceBackend {
         artifactFlavor: diagnostics.artifactFlavor,
         platform: diagnostics.platform,
         architecture: diagnostics.architecture,
+        shimBuildId: diagnostics.shimBuildId,
+        artifactSha256: artifactSha256,
         modelSha256: referenceModelSha256,
         registeredProviders: diagnostics.providers
             .where(

@@ -289,7 +289,9 @@ static dort_status_t* dort_validate_runtime_config(
             DORT_ERROR_INVALID_ARGUMENT,
             0,
             "runtime_open",
-            "Bundled runtime configuration must not contain loader paths or names; the pinned runtime is resolved adjacent to the shim.");
+            "Bundled runtime configuration must not contain loader paths or "
+            "names; the pinned runtime is resolved from the shim-owned "
+            "application bundle.");
       }
       break;
     case DORT_RUNTIME_SOURCE_PROCESS:

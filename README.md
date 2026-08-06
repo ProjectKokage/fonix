@@ -88,7 +88,7 @@ Choose one source mode deliberately:
 | Source | Intended use |
 | --- | --- |
 | `OrtRuntimeSource.linked()` | Current linked profile: iOS arm64 device/simulator only |
-| `OrtRuntimeSource.bundled()` | A lock-pinned runtime adjacent to the Fonix shim |
+| `OrtRuntimeSource.bundled()` | A lock-pinned runtime in the shim-owned application bundle |
 | `OrtRuntimeSource.process()` | One application/process-owned runtime, including Android sherpa coexistence |
 | `OrtRuntimeSource.file(...)` | A trusted absolute desktop runtime beneath an optional allow-root |
 
@@ -138,20 +138,22 @@ asset-preparation command. Android applications integrating sherpa-onnx must
 follow the one-runtime contract in
 [Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md).
 
-## Committed macOS reference application
+## Committed Flutter reference application
 
-[`example/`](example/) is a macOS arm64 Flutter reference application that
-imports only `package:fonix/fonix.dart`. It loads the lock-selected bundled
-runtime, creates a bounded worker-isolate session, runs an exact CPU-assignment
-smoke model, and owns retry, cancellation, suspension/resume, stale-result
-suppression, and idempotent shutdown. The fixture is deliberately tiny and is
-not a benchmark.
+[`example/`](example/) is a shared macOS arm64 and Android arm64-v8a Flutter
+reference application that imports only `package:fonix/fonix.dart`. It loads the
+lock-selected bundled runtime, creates a bounded worker-isolate session, runs an
+exact CPU-assignment smoke model, and owns retry, cancellation,
+suspension/resume, stale-result suppression, and idempotent shutdown. The
+fixture is deliberately tiny and is not a benchmark.
 
 The committed directory is a source template nested inside this package, so it
 must be copied outside the checkout before Flutter builds its native assets.
-The documented gate performs that copy, reproduces app-owned notices, analyzes
-and tests the app, builds Release, audits the packaged bytes, and then launches
-the final executable. See the [reference-app guide](example/README.md).
+The platform gates perform that copy, reproduce app-owned notices, analyze and
+test the app, build Release, audit the packaged bytes, and then launch the final
+macOS executable or install the final Android APK. The Android gate also audits
+the AAB, but does not install an AAB-derived split. See the
+[reference-app guide](example/README.md).
 
 ## Verification
 
@@ -173,9 +175,13 @@ actually executed and, equally importantly, what it does not prove.
 Current evidence includes both a freshly generated final macOS arm64
 application CPU run and the committed public-API reference application's exact
 packaged CPU receipt, plus an exact ORT 1.27.1 CoreML `CPUOnly`
-assignment/parity run. iOS, Android, Linux, and Windows source or cross-build
-gates exist, but their outstanding target-host, device, packaging, and
-provider qualification gaps remain explicit release gates.
+assignment/parity run. The committed Android arm64-v8a reference app also has
+audited, development-signed R8 Release APK/AAB bytes and an exact
+CPU/full-assignment APK receipt from an API 35 arm64 emulator with a queried
+4096-byte page size. This does not prove API 24 execution, an actual 16 KiB
+runtime, physical-device behavior, AAB split installation, x86_64 execution,
+XNNPACK, QNN, or sherpa coexistence. iOS, Linux, and the deferred Windows
+target-host gaps remain explicit release gates.
 
 ## Documentation
 
@@ -185,6 +191,7 @@ provider qualification gaps remain explicit release gates.
 - [Native C ABI](docs/04-native-c-abi.md)
 - [Build and Packaging](docs/05-build-and-packaging.md)
 - [Execution Providers](docs/06-execution-providers.md)
+- [Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md)
 - [Testing, Benchmarking, and CI](docs/08-testing-benchmarking-and-ci.md)
 - [Security, Release, and Maintenance](docs/09-security-release-and-maintenance.md)
 - [Implementation Plan](docs/10-implementation-plan.md)

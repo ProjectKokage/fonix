@@ -8,9 +8,10 @@ The current development sequence is narrower than the phase inventory below:
 
 1. keep the committed macOS arm64 public-API reference app and its packaged
    lifecycle/inference gate green;
-2. build the Android standalone CPU vertical slice, qualify XNNPACK on the
-   available emulator/device targets, then integrate and exercise the exact
-   sherpa-owned process-runtime composition in both load orders;
+2. keep the completed Android arm64 standalone CPU package/runtime gate green,
+   qualify XNNPACK on the available emulator/device targets, then integrate and
+   exercise the exact sherpa-owned process-runtime composition in both load
+   orders;
 3. produce the iOS arm64 CPU/CoreML reference app, simulator gate, and
    physical-device lifecycle/assignment evidence;
 4. produce and exercise the Linux x86_64 CPU reference package on a clean
@@ -145,7 +146,7 @@ claims.
 - Android 16 KB page-size checks pass.
 - Apple/Windows packaged application load succeeds, not just unit tests.
 
-Implementation checkpoint (2026-08-06): a committed macOS arm64 Flutter
+Implementation checkpoint (2026-08-07): a committed macOS arm64 Flutter
 reference app now exercises only the public Fonix library through one bounded
 worker-isolate CPU session. App-owned tests cover startup/run retry,
 cancellation and stale completion, suspend/resume replacement and oscillation,
@@ -153,9 +154,14 @@ shutdown during startup/run/suspend, synchronous-listener reentrancy, double
 close, and compact UI layout. Its clean-copy gate
 reproduces exact assets, analyzes/tests/builds Release, verifies the local
 ad-hoc signing exception, runs the independent final-bundle audit, and obtains
-an exact full-CPU-assignment receipt from the packaged executable. This closes
-the macOS development-reference slice only; the iOS, Android, Linux, and
-deferred Windows target gates above remain open.
+an exact full-CPU-assignment receipt from the packaged executable. The shared
+reference source now also produces a closed arm64-v8a R8 Release APK/AAB; both
+final packages pass exact static audits, and the audited APK produces a full
+CPU-assignment/double-close receipt on an API 35 arm64 emulator with a queried
+4096-byte page size. This closes the macOS and Android standalone development
+reference slices only. Android API 24 execution, actual 16 KiB runtime,
+physical-device/x86_64 execution, XNNPACK, sherpa coexistence, iOS, Linux, and
+the deferred Windows target-host gates remain open.
 
 ## Phase 5: async worker and throughput primitives
 
@@ -235,15 +241,16 @@ claims.
 - Incompatible runtime fails cleanly.
 - No `pickFirst` or merge-order workaround exists.
 
-Implementation checkpoint (2026-08-06): Android composition requires the
+Implementation checkpoint (2026-08-07): Android composition requires the
 closed `sherpa` or `application` runtime owner, emits respectively a process
 shim or a bundled exact artifact, and embeds schema-3 owner/source policy.
 Locked arm64-v8a and x86_64 shims cross-build at API 24 and pass static 16 KiB,
 dependency, and single-ORT inventory checks. The deterministic compatibility
 record generator binds final package bytes and requires both load orders plus
-4/16 KiB receipts. No exact product sherpa artifact, Flutter APK/AAB, target
-load-order/workload receipt, or Android device run exists, so acceptance is
-only partially complete.
+4/16 KiB receipts. A separate application-owned CPU reference APK/AAB now
+passes final-package inspection and an API 35 arm64/4 KiB emulator run, but no
+exact product sherpa artifact, target load-order/workload receipt, or 16 KiB
+runtime exists. Phase 7 acceptance therefore remains only partially complete.
 
 ## Phase 8: desktop accelerated flavors
 

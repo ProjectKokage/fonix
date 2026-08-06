@@ -36,16 +36,36 @@ final class InferenceRequest {
 
 final class InferenceStartupReceipt {
   InferenceStartupReceipt({
-    required this.runtimeVersion,
-    required this.runtimeSource,
-    required this.runtimeOwner,
-    required this.artifactFlavor,
-    required this.platform,
-    required this.architecture,
-    required this.modelSha256,
+    required String runtimeVersion,
+    required String runtimeSource,
+    required String runtimeOwner,
+    required String artifactFlavor,
+    required String platform,
+    required String architecture,
+    required String shimBuildId,
+    required String artifactSha256,
+    required String modelSha256,
     required Iterable<String> registeredProviders,
-  }) : registeredProviders = UnmodifiableListView<String>(
-         List<String>.of(registeredProviders),
+  }) : runtimeVersion = _closedToken(
+         runtimeVersion,
+         'runtimeVersion',
+         maximumLength: 128,
+       ),
+       runtimeSource = _closedToken(runtimeSource, 'runtimeSource'),
+       runtimeOwner = _closedToken(runtimeOwner, 'runtimeOwner'),
+       artifactFlavor = _closedToken(artifactFlavor, 'artifactFlavor'),
+       platform = _closedToken(platform, 'platform'),
+       architecture = _closedToken(architecture, 'architecture'),
+       shimBuildId = _closedToken(
+         shimBuildId,
+         'shimBuildId',
+         maximumLength: 128,
+       ),
+       artifactSha256 = _lowercaseSha256(artifactSha256, 'artifactSha256'),
+       modelSha256 = _lowercaseSha256(modelSha256, 'modelSha256'),
+       registeredProviders = _closedProviderList(
+         registeredProviders,
+         'registeredProviders',
        );
 
   final String runtimeVersion;
@@ -54,6 +74,8 @@ final class InferenceStartupReceipt {
   final String artifactFlavor;
   final String platform;
   final String architecture;
+  final String shimBuildId;
+  final String artifactSha256;
   final String modelSha256;
   final List<String> registeredProviders;
 }
@@ -67,14 +89,15 @@ final class InferenceRunReceipt {
   }) : outputValues = UnmodifiableListView<double>(
          List<double>.of(outputValues),
        ),
-       activeProviders = UnmodifiableListView<String>(
-         List<String>.of(activeProviders),
+       activeProviders = _closedProviderList(
+         activeProviders,
+         'activeProviders',
        ) {
     if (this.outputValues.length != 6 ||
         this.outputValues.any((double value) => !value.isFinite)) {
       throw ArgumentError('Inference output must contain six finite values.');
     }
-    if (elapsed.isNegative) {
+    if (elapsed.isNegative || elapsed > const Duration(minutes: 10)) {
       throw ArgumentError.value(elapsed, 'elapsed');
     }
   }
@@ -97,4 +120,35 @@ final class InferenceBackendFailure implements Exception {
 
   @override
   String toString() => summary;
+}
+
+String _closedToken(String value, String name, {int maximumLength = 64}) {
+  if (value.isEmpty ||
+      value.length > maximumLength ||
+      !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._+-]*$').hasMatch(value)) {
+    throw ArgumentError.value(value, name, 'Must be a bounded identity token.');
+  }
+  return value;
+}
+
+String _lowercaseSha256(String value, String name) {
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(value)) {
+    throw ArgumentError.value(value, name, 'Must be a lowercase SHA-256.');
+  }
+  return value;
+}
+
+List<String> _closedProviderList(Iterable<String> values, String name) {
+  final List<String> copied = List<String>.of(values);
+  if (copied.isEmpty || copied.length > 8) {
+    throw ArgumentError.value(copied, name, 'Must contain 1 to 8 providers.');
+  }
+  final Set<String> unique = <String>{};
+  for (final String value in copied) {
+    final String provider = _closedToken(value, name);
+    if (!unique.add(provider)) {
+      throw ArgumentError.value(copied, name, 'Must not contain duplicates.');
+    }
+  }
+  return UnmodifiableListView<String>(copied);
 }

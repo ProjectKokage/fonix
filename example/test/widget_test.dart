@@ -16,6 +16,8 @@ void main() {
 
     await tester.pumpWidget(FonixReferenceApp(createBackend: factory.call));
     final FakeInferenceBackend backend = factory.backends.single;
+    expect(find.text('Fonix reference'), findsOneWidget);
+    expect(find.textContaining('macOS reference'), findsNothing);
     expect(find.byKey(const Key('status-text')), findsOneWidget);
     expect(find.text('Starting worker…'), findsOneWidget);
     backend.startup.complete(fakeStartupReceipt());
@@ -32,6 +34,14 @@ void main() {
     expect(find.text('[1, 4]\n[9, 16]\n[25, 36]'), findsOneWidget);
     expect(
       find.text('Active: cpu · full CPU assignment: true'),
+      findsOneWidget,
+    );
+    expect(find.text('Shim: fonix-reference-test'), findsOneWidget);
+    expect(
+      find.text(
+        'Artifact SHA-256: '
+        'e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6',
+      ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

@@ -109,7 +109,7 @@ final class _ReferenceInferenceScreenState
         state.phase != InferencePhase.starting;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Fonix macOS reference')),
+      appBar: AppBar(title: const Text('Fonix reference')),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -297,6 +297,8 @@ final class _DiagnosticsCard extends StatelessWidget {
             '${startup.platform} ${startup.architecture} · ${startup.artifactFlavor}',
           ),
           Text('Owner: ${startup.runtimeOwner}'),
+          Text('Shim: ${startup.shimBuildId}'),
+          Text('Artifact SHA-256: ${startup.artifactSha256}'),
           Text('Registered: ${startup.registeredProviders.join(', ')}'),
           Text(
             run == null

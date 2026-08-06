@@ -185,6 +185,13 @@ rehashes and audits it before emitting `libonnxruntime.so`. The shim embeds the
 complete lock-selected artifact identity and a build ID of the form
 `android-owner-application-source-bundled-artifact-<artifact-id>`.
 
+At runtime, that bundled shim accepts only its own installed
+`/data/app/.../*.apk!/lib/<closed-abi>/libfonix_shim.so` identity and asks
+Bionic's application linker namespace for exactly `libonnxruntime.so`. It does
+not canonicalize the APK member as a filesystem path and has no caller path,
+working-directory, alternate-name, or global-path fallback. A malformed or
+extracted shim location fails before any runtime lookup.
+
 For both owners:
 
 - `android_runtime_owner` is mandatory and closed to `sherpa` or
@@ -251,15 +258,24 @@ For the current standalone contract, `libonnxruntime.so` must depend on exactly 
 Every final-package invocation must explicitly include `--require-16k-page-alignment`. The verifier rejects `--require-final-single-ort` and the standalone-final policy without that switch. For example:
 
 ```bash
-python3 tool/verify_native_libs.py \
+python3 templates/android/verify_native_libs.py \
   --artifact build/app/outputs/flutter-apk/app-release.apk \
   --policy fonix-standalone-final \
   --require-16k-page-alignment \
-  --require-abi arm64-v8a \
-  --require-abi x86_64
+  --require-abi arm64-v8a
 ```
 
+Add `--require-abi x86_64` only when x86_64 is deliberately delivered in that
+same final artifact; the committed standalone reference package is arm64-only.
+
 This static gate proves PT_LOAD alignment and offset/virtual-address congruence in the inspected bytes. It does not replace the required 16 KB Android emulator/device run or final split-APK inspection.
+
+Standalone checkpoint (2026-08-07): the application-owned arm64 CPU reference
+app passed its exact R8 Release APK/AAB audits, and the audited APK produced a
+full-CPU-assignment receipt on an API 35 arm64 emulator with a queried
+4096-byte page size. This is not sherpa coexistence evidence: no exact sherpa
+AAR was supplied, neither Dart-first nor sherpa-first was exercised, no
+alternating speech workload ran, and no 16 KiB runtime was tested.
 
 When auditing multiple wrapper/sherpa/provider inputs, also pass `--reject-multiple-ort-owners` and `--reject-multiple-libcxx-owners`. Those checks operate across the named input artifacts; the standalone-final policy separately rejects ambiguous `libc++_shared.so` paths or unresolved ownership in each final package.
 

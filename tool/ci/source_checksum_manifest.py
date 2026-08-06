@@ -68,11 +68,21 @@ IGNORED_SOURCE_DIRECTORIES = frozenset(
         "example/.dart_tool",
         "example/.fonix-artifact-cache",
         "example/.idea",
+        "example/android/.gradle",
+        "example/android/.kotlin",
+        "example/android/app/.cxx",
+        "example/android/captures",
         "example/build",
         "example/macos/Flutter/ephemeral",
     }
 )
-IGNORED_SOURCE_FILES = frozenset({"example/.flutter-plugins-dependencies"})
+IGNORED_SOURCE_FILES = frozenset(
+    {
+        "example/.flutter-plugins-dependencies",
+        "example/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+        "example/android/local.properties",
+    }
+)
 IGNORED_EXAMPLE_IDE_FILE_SUFFIXES = (".iml", ".ipr", ".iws")
 MANIFEST_NAME = "MANIFEST.sha256"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")

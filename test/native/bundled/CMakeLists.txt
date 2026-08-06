@@ -87,6 +87,59 @@ add_test(
   COMMAND "$<TARGET_FILE:fonix_bundled_runtime_test>"
 )
 
+if(NOT WIN32)
+  function(fonix_add_android_bundled_loader_test target abi_definition)
+    add_executable(
+      ${target}
+      android_bundled_loader_test.c
+      "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_loader_posix.c"
+      "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_core.c"
+      "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_status.c"
+    )
+    target_include_directories(
+      ${target}
+      PRIVATE
+      "${CMAKE_CURRENT_LIST_DIR}/../../../src"
+      "${ONNXRUNTIME_INCLUDE_DIR}"
+    )
+    target_compile_definitions(
+      ${target} PRIVATE
+      FONIX_RUNTIME_PROFILE_BUNDLED=1
+      FONIX_RUNTIME_PROFILE="bundled"
+      FONIX_SHIM_BUILD_ID="android-bundled-loader-test"
+      FONIX_TEST_ANDROID_BUNDLED_LOADER=1
+      ${abi_definition}=1
+      dladdr=fonix_test_dladdr
+      dlopen=fonix_test_dlopen
+      dlsym=fonix_test_dlsym
+      dlerror=fonix_test_dlerror
+      dlclose=fonix_test_dlclose
+    )
+    target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
+    target_compile_options(
+      ${target} PRIVATE
+      -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+    )
+  endfunction()
+
+  fonix_add_android_bundled_loader_test(
+    fonix_android_arm64_bundled_loader_test
+    FONIX_TEST_ANDROID_ABI_ARM64
+  )
+  fonix_add_android_bundled_loader_test(
+    fonix_android_x86_64_bundled_loader_test
+    FONIX_TEST_ANDROID_ABI_X86_64
+  )
+  add_test(
+    NAME bundled-runtime-android-arm64-apk-namespace
+    COMMAND "$<TARGET_FILE:fonix_android_arm64_bundled_loader_test>"
+  )
+  add_test(
+    NAME bundled-runtime-android-x86-64-apk-namespace
+    COMMAND "$<TARGET_FILE:fonix_android_x86_64_bundled_loader_test>"
+  )
+endif()
+
 if(APPLE)
   set(
     _fonix_flutter_frameworks

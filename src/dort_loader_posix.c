@@ -235,11 +235,142 @@ static dort_status_t* dort_open_file(
   return status;
 }
 
+#if defined(__ANDROID__) || defined(FONIX_TEST_ANDROID_BUNDLED_LOADER)
+static const char* dort_android_bundled_shim_suffix(void) {
+#if defined(FONIX_TEST_ANDROID_ABI_ARM64)
+  return "!/lib/arm64-v8a/libfonix_shim.so";
+#elif defined(FONIX_TEST_ANDROID_ABI_X86_64)
+  return "!/lib/x86_64/libfonix_shim.so";
+#elif defined(__aarch64__)
+  return "!/lib/arm64-v8a/libfonix_shim.so";
+#elif defined(__x86_64__)
+  return "!/lib/x86_64/libfonix_shim.so";
+#else
+  return NULL;
+#endif
+}
+
+static int dort_android_archive_path_is_valid(
+    const char* path,
+    size_t path_length) {
+  static const char install_root[] = "/data/app/";
+  static const char archive_suffix[] = ".apk";
+  size_t segment_start = 1u;
+  size_t index = 0u;
+
+  if (path_length <= sizeof(install_root) - 1u ||
+      strncmp(path, install_root, sizeof(install_root) - 1u) != 0 ||
+      path_length < sizeof(archive_suffix) - 1u ||
+      memcmp(
+          path + path_length - (sizeof(archive_suffix) - 1u),
+          archive_suffix,
+          sizeof(archive_suffix) - 1u) != 0) {
+    return 0;
+  }
+  for (index = 0u; index < path_length; ++index) {
+    const unsigned char character = (unsigned char)path[index];
+    if (character <= 0x20u || character >= 0x7fu || character == '\\' ||
+        character == '!') {
+      return 0;
+    }
+  }
+  for (index = 1u; index <= path_length; ++index) {
+    if (index == path_length || path[index] == '/') {
+      const size_t segment_length = index - segment_start;
+      if (segment_length == 0u ||
+          (segment_length == 1u && path[segment_start] == '.') ||
+          (segment_length == 2u && path[segment_start] == '.' &&
+           path[segment_start + 1u] == '.')) {
+        return 0;
+      }
+      segment_start = index + 1u;
+    }
+  }
+  return 1;
+}
+
+static int dort_android_bundled_shim_path_is_valid(const char* shim_path) {
+  const char* shim_suffix = dort_android_bundled_shim_suffix();
+  size_t path_length = 0u;
+  size_t suffix_length = 0u;
+  int validation = DORT_ERROR_NONE;
+
+  if (shim_suffix == NULL) {
+    return 0;
+  }
+  validation = dort_bounded_utf8_length(
+      shim_path, DORT_MAX_PATH_BYTES, 0, &path_length);
+  if (validation != DORT_ERROR_NONE) {
+    return 0;
+  }
+  suffix_length = strlen(shim_suffix);
+  if (path_length <= suffix_length ||
+      memcmp(
+          shim_path + path_length - suffix_length,
+          shim_suffix,
+          suffix_length) != 0) {
+    return 0;
+  }
+  return dort_android_archive_path_is_valid(
+      shim_path, path_length - suffix_length);
+}
+
+static dort_status_t* dort_open_android_bundled(
+    const char* shim_path,
+    dort_loaded_library_t* out_library) {
+  static const char runtime_name[] = "libonnxruntime.so";
+  void* handle = NULL;
+  void* symbol = NULL;
+  const char* loader_error = NULL;
+  dort_status_t* status = NULL;
+
+  if (!dort_android_bundled_shim_path_is_valid(shim_path)) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_PLATFORM,
+        0,
+        "runtime_open",
+        "The bundled Fonix shim is not in the exact Android APK ABI layout.");
+  }
+
+  /*
+   * Bionic resolves this exact basename in the calling shim's application
+   * linker namespace. Do not add a file path, search list, or cwd fallback.
+   */
+  dlerror();
+  handle = dlopen(runtime_name, RTLD_NOW | RTLD_LOCAL);
+  if (handle == NULL) {
+    (void)dlerror();
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "Could not load the bundled ONNX Runtime from the Android application "
+        "linker namespace; loader details were redacted.");
+  }
+  dlerror();
+  symbol = dlsym(handle, "OrtGetApiBase");
+  loader_error = dlerror();
+  if (loader_error != NULL || symbol == NULL) {
+    dlclose(handle);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_SYMBOL_NOT_FOUND,
+        0,
+        "runtime_open",
+        "The bundled ONNX Runtime does not export OrtGetApiBase.");
+  }
+  status = dort_assign_symbol(handle, symbol, runtime_name, 1, out_library);
+  if (status != NULL) {
+    dlclose(handle);
+  }
+  return status;
+}
+#else
 static const char* dort_bundled_runtime_name(void) {
 #if defined(__APPLE__)
   return "libonnxruntime.1.dylib";
-#elif defined(__ANDROID__)
-  return "libonnxruntime.so";
 #else
   return "libonnxruntime.so.1";
 #endif
@@ -354,6 +485,7 @@ static dort_status_t* dort_open_macos_flutter_framework_runtime(
   return status;
 }
 #endif
+#endif
 
 static dort_status_t* dort_open_bundled(
     const dort_runtime_config_t* config,
@@ -362,6 +494,7 @@ static dort_status_t* dort_open_bundled(
       const dort_runtime_config_t*, dort_loaded_library_t*) = dort_loader_open;
   void* loader_address = NULL;
   Dl_info shim_info;
+#if !defined(__ANDROID__) && !defined(FONIX_TEST_ANDROID_BUNDLED_LOADER)
   char* shim_path = NULL;
   char* shim_directory = NULL;
   char* separator = NULL;
@@ -371,6 +504,9 @@ static dort_status_t* dort_open_bundled(
   struct stat adjacent_status;
   dort_runtime_config_t adjacent_config = *config;
   dort_status_t* status = NULL;
+#else
+  (void)config;
+#endif
 
   _Static_assert(
       sizeof(loader_function) == sizeof(loader_address),
@@ -385,6 +521,9 @@ static dort_status_t* dort_open_bundled(
         "runtime_open",
         "Could not identify the bundled Fonix shim location.");
   }
+#if defined(__ANDROID__) || defined(FONIX_TEST_ANDROID_BUNDLED_LOADER)
+  return dort_open_android_bundled(shim_info.dli_fname, out_library);
+#else
   shim_path = realpath(shim_info.dli_fname, NULL);
   if (shim_path == NULL) {
     return dort_status_create(
@@ -442,6 +581,7 @@ static dort_status_t* dort_open_bundled(
   free(shim_directory);
   free(shim_path);
   return status;
+#endif
 }
 
 static dort_status_t* dort_open_process(

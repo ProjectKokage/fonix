@@ -409,6 +409,72 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_standalone_policy_accepts_flutter_aot_without_soname(self) -> None:
+        artifact = self.make_archive(
+            "flutter-release.apk",
+            [
+                *self.standalone_entries("arm64-v8a"),
+                (
+                    "lib/arm64-v8a/libapp.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname=None,
+                        needed=("libc.so",),
+                    ),
+                ),
+            ],
+        )
+
+        result = self.run_verifier(*self.standalone_arguments(artifact))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_standalone_policy_rejects_other_library_without_soname(self) -> None:
+        artifact = self.make_archive(
+            "missing-plugin-soname.apk",
+            [
+                *self.standalone_entries("arm64-v8a"),
+                (
+                    "lib/arm64-v8a/libplugin.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname=None,
+                        needed=("libc.so",),
+                    ),
+                ),
+            ],
+        )
+
+        result = self.run_verifier(*self.standalone_arguments(artifact))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("lib/arm64-v8a/libplugin.so", result.stderr)
+        self.assertIn("has SONAME None", result.stderr)
+        self.assertIn("expected its final basename 'libplugin.so'", result.stderr)
+
+    def test_standalone_policy_rejects_wrong_flutter_aot_soname(self) -> None:
+        artifact = self.make_archive(
+            "wrong-flutter-soname.apk",
+            [
+                *self.standalone_entries("arm64-v8a"),
+                (
+                    "lib/arm64-v8a/libapp.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libwrong.so",
+                        needed=("libc.so",),
+                    ),
+                ),
+            ],
+        )
+
+        result = self.run_verifier(*self.standalone_arguments(artifact))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("lib/arm64-v8a/libapp.so", result.stderr)
+        self.assertIn("has SONAME 'libwrong.so'", result.stderr)
+        self.assertIn("expected its final basename 'libapp.so'", result.stderr)
+
     def test_standalone_policy_rejects_wrong_soname(self) -> None:
         artifact = self.make_archive(
             "wrong-soname.apk",

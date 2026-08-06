@@ -1,6 +1,6 @@
 # Validation Report
 
-- Validation date: 2026-08-06
+- Validation date: 2026-08-07
 - Package: `fonix 0.1.0-dev.1`
 - Host: macOS 26.5.2 (25F84), arm64
 
@@ -8,9 +8,9 @@
 
 The source implementation is complete for Fonix's declared development API
 and locally controllable package boundary. No known source, analysis, unit,
-native-shim, exact-runtime, artifact-audit, or macOS application-gate failure
-remains in this snapshot. Both the freshly generated gate application and the
-committed public-API reference application load and execute their exact
+native-shim, exact-runtime, artifact-audit, macOS application-gate, or Android
+standalone reference-gate failure remains in this snapshot. The macOS gate
+applications and the audited Android arm64-v8a APK load and execute their exact
 packaged CPU paths.
 
 This is not a redistribution or five-platform release approval. The package
@@ -40,10 +40,11 @@ the active documentation:
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
   release-evidence checks; and
-- a committed macOS arm64 Flutter reference app over the public Fonix library,
-  with bounded worker ownership, exact model/runtime identity, cancellation,
-  retry, lifecycle replacement, stale-result suppression, and deterministic
-  cleanup.
+- a committed macOS arm64 and Android arm64-v8a Flutter reference app over the
+  public Fonix library, with bounded worker ownership, exact model/runtime
+  identity, cancellation, retry, lifecycle replacement, stale-result
+  suppression, deterministic cleanup, and platform-specific final-package
+  gates.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM remain explicitly outside this API rather than unfinished
@@ -53,30 +54,31 @@ paths.
 
 | Gate | Result |
 | --- | --- |
-| Dart formatting | 71 files, 0 changes |
+| Dart formatting | 75 files, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 182 passed, 15 explicitly provisioned skips |
+| Ordinary offline Dart suite | 184 passed, 15 explicitly provisioned skips |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 128/128 passed |
-| Standalone Python verifier tests | 33/33 passed |
+| Python CI-script tests | 173/173 passed |
+| Standalone Python verifier tests | 36/36 passed |
+| C source quality | 34/34 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
 | Deterministic fixture inventory | 23 files and 23 closed model/data paths |
 | Exact ORT standalone fixture CTests | 2/2 passed |
 | Native POSIX CTests with exact ORT | 14/14 passed |
 | Native POSIX ASan+UBSan CTests with exact ORT | 14/14 passed; Apple LeakSanitizer unavailable |
-| Adjacent bundled-runtime CTests | 3/3 passed |
-| C source-quality gate | 33 files, 713,667 bytes |
+| Adjacent/bundled-loader CTests | 5/5 passed, including Android arm64/x86_64 APK namespace paths and desktop regressions |
 | Five-artifact offline audit | 8/8 passed |
 | macOS/iOS build-hook suite with exact archives | 28/28 passed |
 | Android API-24 build/audit suite | 4/4 passed |
 | Linux x64/arm64 and Windows x64 Zig cross-build | 1/1 passed |
 | Flutter asset publication | 7/7 passed |
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
-| Committed macOS public-API reference application gate | 26 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
+| Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
+| Committed Android arm64 public-API reference application gate | 31 app tests, development-signed R8 Release APK/AAB audits, installed-byte binding, and exact API 35 arm64/4096-byte emulator CPU receipt passed |
 | Closed source checksum manifest | Regenerated from and verified against this final tree |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
@@ -105,8 +107,9 @@ entries, missing paths, and bounded-walk violations.
 Native compilation used Apple Clang 21.0.0, CMake 4.4.2, and warnings as
 errors. The normal and ASan+UBSan suites each passed all 14 CTests against the
 exact runtime; Apple Clang does not provide LeakSanitizer on this host. The
-bundled loader passed adjacency, Flutter-framework, and unexpected-layout
-tests.
+bundled loader passed adjacency, Flutter-framework, unexpected-layout, and
+closed Android arm64/x86_64 APK-namespace tests, including malformed paths and
+missing runtime/symbol failures.
 
 The offline artifact cache contained the exact lock-selected macOS arm64,
 iOS arm64 XCFramework, Android arm64-v8a/x86_64, Linux x86_64/arm64, and
@@ -133,8 +136,9 @@ runtime, then loaded only through the packaged shim/framework layout and
 produced the expected CPU outputs.
 
 The separate committed-reference gate copied `example/` outside the package
-checkout, reproduced the exact manifest/notices, passed 26 controller/widget
-tests and analysis, built Release, and verified signatures, hardened runtime,
+checkout, reproduced the exact manifest/notices, passed 31 controller,
+channel, smoke, and widget tests plus analysis, built Release, and verified
+signatures, hardened runtime,
 the sandbox, and the explicit local ad-hoc library-validation exception. The
 independent final-application audit ran before the named Flutter executable was
 launched directly. The packaged public-API path then reported ORT 1.27.1,
@@ -150,6 +154,59 @@ and worker-isolate transport. CoreML required normal host filesystem access to
 create its separate OS-managed compilation workspace. This proves neither GPU
 nor Apple Neural Engine execution.
 
+## Android application evidence
+
+The final standalone gate used Flutter revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter 3.47.0-0.1.pre),
+command-line tools 20.0, build-tools 36.0.0, NDK 28.2.13676358, OpenJDK
+21.0.12, and bundletool 1.18.3. Flutter was revision-pinned; the Android and
+Java toolchains were path/version-gated; bundletool and the ORT archive and
+payload were size/SHA-256 pinned. Both offline `pub get` passes enforced and
+preserved the copied lockfile, and the generated `local.properties` matched the
+supplied Android SDK. The bundletool jar was 32,520,401 bytes with SHA-256
+`a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29`.
+
+The source archive was 135,152,698 bytes with SHA-256
+`9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383`.
+The packaged model SHA-256 was
+`71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10`,
+and the packaged notice SHA-256 was
+`fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866`.
+
+The audited arm64-v8a artifacts were:
+
+- APK: 42,765,915 bytes, SHA-256
+  `4f64a111a746c277705442fab89e189a416ffd48fb45f479df1a439befb7a3a2`;
+- AAB: 25,553,294 bytes, SHA-256
+  `42438ed3b738e0f42348b85d047df57d4d86bcd1d09a6a86505033cde159a7ef`;
+- matching development-signing certificate SHA-256
+  `37b0508e9b25075e5c2831fb02927010cf19efccd204e018950aae4205aca1b3`;
+- packaged shim SHA-256
+  `67a24ae781a1ce483e4691a4b9ef10ceff08ae57a7d65fae28ee6831815337b2`;
+  and
+- packaged stripped ORT SHA-256
+  `dd5d6aa51f32f26c0c77d4a4cd5b62f5de80072369bf32a946a32608ee3f5774`,
+  whose ordered loaded segments matched the 27,983,536-byte lock-selected ORT
+  payload with SHA-256
+  `a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2`.
+
+Each artifact contained exactly four arm64 native libraries and passed the
+closed manifest, dependency, export, model, notice, one-ORT, and static 16 KiB
+ELF checks. The APK also passed `zipalign -P 16`; the AAB contained only the
+`base` module and 79 signed entries under the exact expected JAR-signature
+metadata inventory.
+
+The gate then installed that exact audited APK on the named API 35 arm64
+emulator. The queried page size was 4096 bytes, and the installed `base.apk`
+SHA-256 matched the audited APK. A structured logcat receipt was bound to the
+package UID; the short-lived process exited before a separate PID observation,
+so the gate retained the receipt's PID while making only the UID provenance
+claim. It reported ORT 1.27.1, application-owned bundled CPU, active provider
+`cpu`, full CPU assignment, output `[1,4,9,16,25,36]`, exact model, archive,
+and shim identities, and idempotent double close. The app was force-stopped and
+uninstalled with verified absence, and the gate verified that its owned
+emulator serial disappeared.
+
 ## Required CI coverage
 
 The checked workflow requires minimum/stable Dart format-analysis-tests,
@@ -162,14 +219,22 @@ native-asset bindings and the explicit dynamic-adapter seam against the same
 strict fake runtimes. It also runs the committed reference application from a
 clean external copy after the independent bundle audit.
 
+Android auditor/orchestration tamper tests run in the Python CI collection. The
+full Android Gradle package gate and emulator receipt recorded here were run
+locally with explicitly provisioned revision-pinned, byte-pinned, and
+version-gated inputs described above; they are not yet a hosted CI lane or a
+reproducible release build, and Gradle dependency-verification metadata remains
+absent.
+
 ## Evidence not produced and release blockers
 
 The following are deliberately not claimed:
 
 - signed final iOS application packaging, simulator execution, or physical
   iOS CPU/CoreML/XNNPACK/ANE evidence;
-- a Flutter-produced Android APK/AAB, both sherpa/Fonix load-order runs, 4 KiB
-  and 16 KiB device execution, physical-device inference, or aligned exact
+- Android API 24 execution, an actual 16 KiB Android runtime, physical-device or
+  x86_64 inference, an installed AAB-derived split, XNNPACK, either
+  sherpa/Fonix load order, alternating speech workload, or aligned exact
   sherpa/QNN product receipts;
 - Linux or Windows target-host loading/inference, final Flutter packages,
   installers, or clean-machine runs;

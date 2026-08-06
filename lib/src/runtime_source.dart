@@ -12,7 +12,8 @@ sealed class OrtRuntimeSource {
   /// Resolves the ORT symbol linked into the application image.
   const factory OrtRuntimeSource.linked() = OrtLinkedRuntimeSource;
 
-  /// Resolves the package-pinned runtime adjacent to the shim.
+  /// Resolves the package-pinned runtime from the shim-owned application
+  /// bundle.
   const factory OrtRuntimeSource.bundled() = OrtBundledRuntimeSource;
 
   /// Resolves an application-owned runtime from constrained library names.

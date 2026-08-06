@@ -37,6 +37,11 @@ class MacOsReferenceAppGateCopyTest(unittest.TestCase):
             "lib/main.dart": b"void main() {}\n",
             ".dart_tool-backup/keep.txt": b"keep\n",
             "build-cache/keep.txt": b"keep\n",
+            "android/.gradle-copy/keep.txt": b"keep\n",
+            "android/.kotlin-copy/keep.txt": b"keep\n",
+            "android/app/.cxx-copy/keep.txt": b"keep\n",
+            "android/captures-copy/keep.txt": b"keep\n",
+            "android/local.properties.example": b"keep\n",
             "macos/Flutter/ephemeral-copy/keep.txt": b"keep\n",
         }
         excluded = {
@@ -46,6 +51,13 @@ class MacOsReferenceAppGateCopyTest(unittest.TestCase):
             ".idea/workspace.xml": b"drop\n",
             ".pub/generated": b"drop\n",
             ".pub-cache/generated": b"drop\n",
+            "android/.gradle/generated": b"drop\n",
+            "android/.kotlin/generated": b"drop\n",
+            "android/app/.cxx/generated": b"drop\n",
+            "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java": b"drop\n",
+            "android/captures/generated": b"drop\n",
+            "android/fonix_reference_android.iml": b"drop\n",
+            "android/local.properties": b"drop\n",
             "build/output": b"drop\n",
             "coverage/lcov.info": b"drop\n",
             "fonix_reference.iml": b"drop\n",
@@ -118,6 +130,31 @@ class MacOsReferenceAppGateConfigurationTest(unittest.TestCase):
                 self.pubspec, self.repository
             )
         )
+
+    def test_asset_inventory_includes_the_closed_android_sidecar(self) -> None:
+        assets = self.root / "assets/fonix"
+        sidecar = assets / run_macos_reference_app_gate.ANDROID_SIDECAR_DIRECTORY
+        sidecar.mkdir(parents=True)
+        expected: dict[str, bytes] = {}
+        for name in sorted(run_macos_reference_app_gate.ASSET_NAMES):
+            generic_data = f"generic:{name}".encode()
+            sidecar_data = f"android:{name}".encode()
+            (assets / name).write_bytes(generic_data)
+            (sidecar / name).write_bytes(sidecar_data)
+            expected[name] = generic_data
+            expected[f"{sidecar.name}/{name}"] = sidecar_data
+
+        self.assertEqual(
+            run_macos_reference_app_gate._asset_pair(assets, "test assets"),
+            expected,
+        )
+
+        (sidecar / "unexpected.bin").write_bytes(b"unexpected")
+        with self.assertRaisesRegex(
+            run_macos_reference_app_gate.MacOsReferenceAppGateError,
+            "sidecar inventory changed",
+        ):
+            run_macos_reference_app_gate._asset_pair(assets, "test assets")
 
     def test_patch_rejects_another_dependency_path(self) -> None:
         self.pubspec.write_text(

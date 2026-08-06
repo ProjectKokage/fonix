@@ -1,3 +1,10 @@
 # Generated ONNX protobuf models and external tensor payloads are binary.
 *.onnx binary
 *.bin binary
+
+# The pinned Flutter-generated Android wrapper launcher is a binary archive.
+example/android/gradle/wrapper/gradle-wrapper.jar binary
+
+# Preserve exact generated/external CRLF bytes without text normalization.
+example/android/gradlew.bat binary
+example/assets/fonix/android-arm64-v8a/ThirdPartyNotices.txt binary

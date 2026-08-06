@@ -143,6 +143,16 @@ assignment, and idempotent double close. Process output, time, copied entries,
 copied bytes, assets, paths, JSON, and receipt fields are all bounded; loader
 override environment variables are removed before launch.
 
+`tool/ci/run_android_reference_app_gate.py` uses the same committed source from
+a separate clean copy. It reproduces the Android sidecars, runs Flutter
+analysis/tests, builds R8 Release APK/AAB bytes, and audits both before any
+install. The package evidence covers exact assets, a closed base-only AAB,
+manifest/security inventory, singular native ownership, ELF identity/exports,
+complete matching development signatures, and static 16 KiB alignment. When a
+named AVD is supplied, a separate receipt binds the installed APK hash and app
+UID to the exact API/ABI/page-size environment and CPU result. Omitting the AVD
+produces no runtime evidence.
+
 ## 8.7 Android coexistence tests
 
 See document 7 for the full matrix. Automated gates include:
@@ -158,6 +168,12 @@ See document 7 for the full matrix. Automated gates include:
 - final-package `--require-16k-page-alignment` ELF gate plus a 16 KB page-size environment;
 - aligned QNN build on selected hardware;
 - intentionally incompatible runtime produces a controlled error, not a crash.
+
+Standalone checkpoint (2026-08-07): the application-owned arm64 CPU reference
+APK/AAB passed the package gate, and the audited APK ran on an API 35 arm64
+emulator with a queried 4096-byte page size. This validates neither an actual
+16 KiB runtime nor any sherpa AAR, load order, alternating workload, or
+coexistence behavior.
 
 ## 8.8 Provider qualification
 
@@ -336,6 +352,12 @@ The checked-in pull-request/push workflow currently runs:
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
 
+The Python job includes unit and tamper coverage for the Android auditor and
+reference-gate orchestration. The full Gradle package gate and emulator run are
+currently explicitly provisioned local evidence, not a hosted CI lane; its
+Gradle dependency graph also lacks dependency-verification metadata, so it is a
+CI Release-mode package gate rather than a reproducible release build.
+
 The inexpensive C source-quality lane is deliberately offline and
 toolchain-independent. `tool/ci/check_c_source_quality.py` walks the closed
 repository-owned C/H roots and rejects symlinks, inventory/size overflow,
@@ -346,17 +368,20 @@ markers. The native CMake jobs remain the semantic compiler-lint gate through
 elsewhere. This lexical gate does not claim `clang-tidy` static-analysis
 coverage; adding a pinned cross-platform analyzer remains separate work.
 
-Flutter iOS/Android/Linux/Windows final-application smoke, Android emulator
-CPU/XNNPACK and sherpa coexistence, and Windows/Linux target-host real-ORT
-inference are not present CI jobs. They remain target-evidence requirements
-before promoting the corresponding support rows; a cross-build or source test
-must not be reported as a substitute.
+Flutter iOS/Linux/Windows final-application smoke, Android XNNPACK and sherpa
+coexistence, and Windows/Linux target-host real-ORT inference are not present CI
+jobs. The Android standalone CPU gate has local API 35 arm64/4 KiB evidence but
+no hosted job, API 24 runtime, actual 16 KiB runtime, physical arm64 run,
+x86_64 run, or installed AAB-derived split. These remain target-evidence
+requirements before promoting the corresponding support rows; a cross-build or
+source test must not be reported as a substitute.
 
 ### Future nightly/scheduled lanes
 
 - Linux arm64 and Windows arm64 where infrastructure permits.
 - Physical iOS device CoreML/XNNPACK.
 - Physical Android arm64 and 16 KB configuration.
+- Android API 24 and x86_64 standalone reference runs.
 - QNN device qualification.
 - CUDA/TensorRT GPU runner.
 - DirectML representative adapters.
