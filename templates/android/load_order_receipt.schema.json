@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/android-load-order-receipt-v1.json",
+  "title": "Fonix Android load-order evidence receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "result",
+    "abi",
+    "loadOrder",
+    "buildType",
+    "finalArtifactSha256",
+    "runtimeVersion",
+    "requiredOrtApi",
+    "ortSha256",
+    "pageSizeBytes",
+    "device",
+    "harnessSha256",
+    "fixtures",
+    "workload"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "result": { "const": "passed" },
+    "abi": {
+      "enum": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+    },
+    "loadOrder": { "enum": ["dart-first", "sherpa-first"] },
+    "buildType": { "enum": ["debug", "release-minified"] },
+    "finalArtifactSha256": { "$ref": "#/$defs/sha256" },
+    "runtimeVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "requiredOrtApi": { "const": 27 },
+    "ortSha256": { "$ref": "#/$defs/sha256" },
+    "pageSizeBytes": { "enum": [4096, 16384] },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "modelToken", "androidApi"],
+      "properties": {
+        "kind": { "enum": ["physical", "emulator"] },
+        "modelToken": { "$ref": "#/$defs/token" },
+        "androidApi": { "type": "integer", "minimum": 24, "maximum": 100 }
+      }
+    },
+    "harnessSha256": { "$ref": "#/$defs/sha256" },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dartModelSha256", "sherpaFixtureSha256"],
+      "properties": {
+        "dartModelSha256": { "$ref": "#/$defs/sha256" },
+        "sherpaFixtureSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dartInferenceRuns",
+        "sherpaSmokeRuns",
+        "alternatingCycles"
+      ],
+      "properties": {
+        "dartInferenceRuns": { "$ref": "#/$defs/runCount" },
+        "sherpaSmokeRuns": { "$ref": "#/$defs/runCount" },
+        "alternatingCycles": { "$ref": "#/$defs/runCount" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "runCount": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+  }
+}

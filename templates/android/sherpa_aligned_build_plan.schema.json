@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/android-sherpa-aligned-build-plan-v1.json",
+  "title": "Fonix Android sherpa aligned-build plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sherpa",
+    "android",
+    "onnxRuntime",
+    "patches",
+    "qnn"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "sherpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "buildsByAbi"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^https://[^/].*[^/]$",
+          "maxLength": 2048
+        },
+        "revision": { "$ref": "#/$defs/revision" },
+        "buildsByAbi": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 4,
+          "propertyNames": { "$ref": "#/$defs/abi" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["script", "output"],
+            "properties": {
+              "script": { "$ref": "#/$defs/path" },
+              "output": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).*/libsherpa-onnx-jni\\.so$",
+                "maxLength": 1024
+              }
+            }
+          }
+        }
+      }
+    },
+    "android": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumApi", "ndk"],
+      "properties": {
+        "minimumApi": { "type": "integer", "minimum": 24, "maximum": 100 },
+        "ndk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "hostTag",
+            "sourcePropertiesSha256",
+            "clangPath",
+            "clangSha256",
+            "cmakeToolchainPath",
+            "cmakeToolchainSha256"
+          ],
+          "properties": {
+            "revision": { "$ref": "#/$defs/token" },
+            "hostTag": { "$ref": "#/$defs/token" },
+            "sourcePropertiesSha256": { "$ref": "#/$defs/sha256" },
+            "clangPath": { "$ref": "#/$defs/path" },
+            "clangSha256": { "$ref": "#/$defs/sha256" },
+            "cmakeToolchainPath": { "$ref": "#/$defs/path" },
+            "cmakeToolchainSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "onnxRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "requiredApi", "byAbi"],
+      "properties": {
+        "version": { "$ref": "#/$defs/semver" },
+        "requiredApi": { "const": 27 },
+        "byAbi": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 4,
+          "propertyNames": { "$ref": "#/$defs/abi" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifactId", "includeDir", "headers", "library"],
+            "properties": {
+              "artifactId": { "$ref": "#/$defs/token" },
+              "includeDir": { "$ref": "#/$defs/path" },
+              "headers": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 256,
+                "items": { "$ref": "#/$defs/fileIdentity" }
+              },
+              "library": { "$ref": "#/$defs/fileIdentity" }
+            }
+          }
+        }
+      }
+    },
+    "patches": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "fileName", "sizeBytes", "sha256"],
+        "properties": {
+          "id": { "$ref": "#/$defs/token" },
+          "fileName": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16777216
+          },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "qnn": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["manifestSha256", "backendId"],
+          "properties": {
+            "manifestSha256": { "$ref": "#/$defs/sha256" },
+            "backendId": { "$ref": "#/$defs/token" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "abi": {
+      "enum": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^/]+(?:/[^/]+)*$",
+      "maxLength": 1024
+    },
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sizeBytes", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483648
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

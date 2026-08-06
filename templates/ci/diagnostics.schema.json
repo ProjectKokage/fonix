@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/onnxruntime-dart-diagnostics.schema.json",
+  "title": "ONNX Runtime Dart diagnostics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "dartPackageVersion",
+    "shimAbiVersion",
+    "shimBuildId",
+    "requiredOrtApiVersion",
+    "negotiatedOrtApiVersion",
+    "runtimeVersion",
+    "runtimeOwner",
+    "runtimeMode",
+    "runtimeIdentity",
+    "platform",
+    "architecture",
+    "artifactFlavor",
+    "artifactSha256",
+    "modelId",
+    "session",
+    "providers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dartPackageVersion": {
+      "type": "string"
+    },
+    "shimAbiVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "shimBuildId": {
+      "type": "string"
+    },
+    "requiredOrtApiVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "negotiatedOrtApiVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "runtimeVersion": {
+      "type": "string"
+    },
+    "runtimeOwner": {
+      "enum": [
+        "wrapper",
+        "sherpa",
+        "application",
+        "system"
+      ]
+    },
+    "runtimeMode": {
+      "enum": [
+        "linked",
+        "bundled",
+        "process",
+        "aligned",
+        "file"
+      ]
+    },
+    "runtimeIdentity": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "architecture": {
+      "type": "string"
+    },
+    "artifactFlavor": {
+      "type": "string"
+    },
+    "artifactSha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "modelId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "session": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "executionMode",
+        "graphOptimization",
+        "intraOpThreads",
+        "interOpThreads",
+        "memoryPattern",
+        "fallbackPolicy"
+      ],
+      "properties": {
+        "executionMode": {
+          "type": "string"
+        },
+        "graphOptimization": {
+          "type": "string"
+        },
+        "intraOpThreads": {
+          "type": "integer"
+        },
+        "interOpThreads": {
+          "type": "integer"
+        },
+        "memoryPattern": {
+          "type": "boolean"
+        },
+        "fallbackPolicy": {
+          "type": "string"
+        }
+      }
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "wrapperId",
+          "registrationMechanism",
+          "registrationName",
+          "reportedName",
+          "compiled",
+          "discoverable",
+          "registered",
+          "active",
+          "qualified",
+          "assignmentEvidence",
+          "fallbackReason",
+          "options"
+        ],
+        "properties": {
+          "wrapperId": {
+            "type": "string"
+          },
+          "registrationMechanism": {
+            "enum": [
+              "implicit",
+              "generic",
+              "provider-specific",
+              "plugin",
+              "unknown"
+            ]
+          },
+          "registrationName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportedName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compiled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "discoverable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "registered": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "qualified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "assignmentEvidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fallbackReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

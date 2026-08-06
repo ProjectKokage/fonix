@@ -1,0 +1,42 @@
+name: FonixNativeAssetBindings
+description: Native-asset bindings for the project-owned Fonix C shim.
+output: lib/src/ffi/generated_native_asset_bindings.dart
+preamble: |
+  // Regenerate with: dart run ffigen --config ffigen.native_assets.yaml
+ffi-native:
+  asset-id: package:fonix/fonix_shim
+headers:
+  entry-points:
+    - src/dort.h
+functions:
+  include:
+    - dort_.*
+  symbol-address:
+    include:
+      - dort_.*
+structs:
+  include:
+    - dort_.*
+enums:
+  include:
+    - dort_.*
+  as-int:
+    include:
+      - dort_.*
+typedefs:
+  include:
+    - dort_.*
+macros:
+  include:
+    - DORT_ABI_VERSION
+    - DORT_ORT_API_COMPATIBILITY_FLOOR
+globals:
+  exclude:
+    - .*
+unions:
+  exclude:
+    - .*
+compiler-opts:
+  - -Isrc
+  - -Ithird_party/onnxruntime/include
+silence-enum-warning: true

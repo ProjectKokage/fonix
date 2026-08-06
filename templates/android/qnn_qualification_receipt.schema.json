@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/android-qnn-qualification-receipt-v1.json",
+  "title": "Fonix Android QNN qualification receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "result",
+    "build",
+    "model",
+    "runtime",
+    "qnn",
+    "device",
+    "assignment",
+    "executions",
+    "contextCache",
+    "loadOrders"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "result": { "const": "passed" },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildType", "finalApkSha256", "alignedBuildReceiptSha256"],
+      "properties": {
+        "buildType": { "enum": ["debug", "release-minified"] },
+        "finalApkSha256": { "$ref": "#/$defs/sha256" },
+        "alignedBuildReceiptSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "onnxSha256",
+        "qdqConfigSha256",
+        "inputFixtureSha256",
+        "referenceOutputSha256"
+      ],
+      "properties": {
+        "onnxSha256": { "$ref": "#/$defs/sha256" },
+        "qdqConfigSha256": { "$ref": "#/$defs/sha256" },
+        "inputFixtureSha256": { "$ref": "#/$defs/sha256" },
+        "referenceOutputSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ortVersion", "requiredOrtApi", "ortSha256"],
+      "properties": {
+        "ortVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "requiredOrtApi": { "const": 27 },
+        "ortSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "qnn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sdkManifestSha256",
+        "backendId",
+        "backendLibrarySha256",
+        "providerOptions",
+        "providerOptionsSha256"
+      ],
+      "properties": {
+        "sdkManifestSha256": { "$ref": "#/$defs/sha256" },
+        "backendId": { "$ref": "#/$defs/token" },
+        "backendLibrarySha256": { "$ref": "#/$defs/sha256" },
+        "providerOptions": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "#/$defs/token" },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "providerOptionsSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelToken",
+        "socToken",
+        "androidApi",
+        "abi",
+        "firmwareSha256",
+        "driverToken"
+      ],
+      "properties": {
+        "modelToken": { "$ref": "#/$defs/token" },
+        "socToken": { "$ref": "#/$defs/token" },
+        "androidApi": { "type": "integer", "minimum": 24, "maximum": 100 },
+        "abi": {
+          "enum": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+        },
+        "firmwareSha256": { "$ref": "#/$defs/sha256" },
+        "driverToken": { "$ref": "#/$defs/token" }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceSha256",
+        "totalNodes",
+        "qnnNodes",
+        "cpuNodes",
+        "fallbackPolicy"
+      ],
+      "properties": {
+        "evidenceSha256": { "$ref": "#/$defs/sha256" },
+        "totalNodes": { "$ref": "#/$defs/nodeCount" },
+        "qnnNodes": { "$ref": "#/$defs/nodeCount" },
+        "cpuNodes": { "const": 0 },
+        "fallbackPolicy": { "const": "reject-cpu" }
+      }
+    },
+    "executions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cold", "cacheHit", "parity"],
+      "properties": {
+        "cold": { "$ref": "#/$defs/execution" },
+        "cacheHit": { "$ref": "#/$defs/execution" },
+        "parity": { "const": true }
+      }
+    },
+    "contextCache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "keyInputsSha256",
+        "cacheArtifactSha256",
+        "invalidationEvidenceSha256",
+        "changedInput",
+        "staleCacheRejected"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^fonix-qnn-v1-[0-9a-f]{64}$"
+        },
+        "keyInputsSha256": { "$ref": "#/$defs/sha256" },
+        "cacheArtifactSha256": { "$ref": "#/$defs/sha256" },
+        "invalidationEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "changedInput": {
+          "enum": [
+            "model",
+            "qdq-config",
+            "ort-runtime",
+            "qnn-sdk",
+            "provider-options",
+            "firmware",
+            "driver"
+          ]
+        },
+        "staleCacheRejected": { "const": true }
+      }
+    },
+    "loadOrders": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "loadOrder",
+          "evidenceSha256",
+          "outputSha256",
+          "durationMicroseconds",
+          "parity"
+        ],
+        "properties": {
+          "loadOrder": { "enum": ["dart-first", "sherpa-first"] },
+          "evidenceSha256": { "$ref": "#/$defs/sha256" },
+          "outputSha256": { "$ref": "#/$defs/sha256" },
+          "durationMicroseconds": { "$ref": "#/$defs/duration" },
+          "parity": { "const": true }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    },
+    "nodeCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "duration": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000000
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceSha256",
+        "outputSha256",
+        "durationMicroseconds",
+        "referenceMatch"
+      ],
+      "properties": {
+        "evidenceSha256": { "$ref": "#/$defs/sha256" },
+        "outputSha256": { "$ref": "#/$defs/sha256" },
+        "durationMicroseconds": { "$ref": "#/$defs/duration" },
+        "referenceMatch": { "const": true }
+      }
+    }
+  }
+}

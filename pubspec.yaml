@@ -1,0 +1,24 @@
+name: fonix
+description: Safe, diagnosable ONNX Runtime inference for Dart and Flutter.
+version: 0.1.0-dev.1
+publish_to: none
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  code_assets: ^1.2.1
+  crypto: ^3.0.7
+  ffi: ^2.2.0
+  hooks: ^2.0.2
+  native_toolchain_c: ^0.19.3
+  path: ^1.9.0
+
+dev_dependencies:
+  ffigen: ^20.1.1
+  lints: ^6.0.0
+  test: ^1.25.6
+
+flutter:
+  licenses:
+    - third_party/onnxruntime/LICENSE

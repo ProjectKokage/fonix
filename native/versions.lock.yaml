@@ -1,0 +1,328 @@
+{
+  "schema": 2,
+  "snapshot_date": "2026-08-06",
+  "release_state": "unreleased-preview",
+  "shim": {
+    "abi": 1,
+    "required_ort_api": 27,
+    "source_revision": null
+  },
+  "onnxruntime": {
+    "compatibility_floor": {
+      "c_api": 27,
+      "header": {
+        "version": "1.27.1",
+        "source_repository": "https://github.com/microsoft/onnxruntime",
+        "source_ref": "v1.27.1",
+        "path": "third_party/onnxruntime/include/onnxruntime_c_api.h",
+        "sha256": "523131bab81173fe287c578f7dda344e1dc5c749fa3f70b55fbbf8f210850313",
+        "size_bytes": 392401
+      },
+      "ep_header": {
+        "version": "1.27.1",
+        "source_repository": "https://github.com/microsoft/onnxruntime",
+        "source_ref": "v1.27.1",
+        "path": "third_party/onnxruntime/include/onnxruntime_ep_c_api.h",
+        "sha256": "f65ac849718cabe3ff4902698dd2de643c3b3dbe0010242b2b0407548e7ee00c",
+        "size_bytes": 149810
+      },
+      "license": {
+        "version": "1.27.1",
+        "source_repository": "https://github.com/microsoft/onnxruntime",
+        "source_ref": "v1.27.1",
+        "path": "third_party/onnxruntime/LICENSE",
+        "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+        "size_bytes": 1073
+      }
+    }
+  },
+  "release_targets": [
+    { "os": "ios", "architecture": "arm64", "variant": "device", "flavor": "cpu" },
+    { "os": "ios", "architecture": "arm64", "variant": "simulator", "flavor": "cpu" },
+    { "os": "macos", "architecture": "arm64", "variant": "default", "flavor": "cpu" },
+    { "os": "android", "architecture": "arm64-v8a", "variant": "default", "flavor": "cpu" },
+    { "os": "android", "architecture": "x86_64", "variant": "default", "flavor": "cpu" },
+    { "os": "linux", "architecture": "x86_64", "variant": "default", "flavor": "cpu" },
+    { "os": "linux", "architecture": "arm64", "variant": "default", "flavor": "cpu" },
+    { "os": "windows", "architecture": "x64", "variant": "default", "flavor": "cpu" }
+  ],
+  "artifacts": [
+    {
+      "id": "onnxruntime-1.27.1-ios-arm64-device-cpu",
+      "target": { "os": "ios", "architecture": "arm64", "variant": "device", "min_os": "15.1" },
+      "flavor": "cpu",
+      "runtime_mode": "linked",
+      "source": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383",
+        "size_bytes": 135152698,
+        "archive": "zip"
+      },
+      "containers": [
+        {
+          "path": "runtimes/ios/native/onnxruntime.xcframework.zip",
+          "sha256": "114a7d16de8f7b387cbb0686670739a0be938c5ee15b0e098b481cdc400d5967",
+          "size_bytes": 53857752,
+          "archive": "zip"
+        }
+      ],
+      "expected_files": [
+        {
+          "path": "onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime",
+          "staged_path": "onnxruntime.framework/onnxruntime",
+          "sha256": "c3096235ea4d14c28000001ce0467355575b8a6e27f9e363a0b2edfeac6332f3",
+          "size_bytes": 43684568
+        },
+        {
+          "path": "onnxruntime.xcframework/ios-arm64/onnxruntime.framework/Info.plist",
+          "staged_path": "onnxruntime.framework/Info.plist",
+          "sha256": "1567ffbc87b7bbedcaa4982c38bff499bc1b47efc2ccaf673f4e8f44b22cc0fb",
+          "size_bytes": 670
+        }
+      ],
+      "expected_symlinks": [],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "LICENSE", "staged_path": "notices/LICENSE", "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674", "size_bytes": 1094 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866", "size_bytes": 331175 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "coreml", "reported_name": null }
+      ],
+      "build": { "source_built": false, "toolchain": "official Microsoft.ML.OnnxRuntime 1.27.1 NuGet XCFramework", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-ios-arm64-simulator-cpu",
+      "target": { "os": "ios", "architecture": "arm64", "variant": "simulator", "min_os": "15.1" },
+      "flavor": "cpu",
+      "runtime_mode": "linked",
+      "source": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383",
+        "size_bytes": 135152698,
+        "archive": "zip"
+      },
+      "containers": [
+        { "path": "runtimes/ios/native/onnxruntime.xcframework.zip", "sha256": "114a7d16de8f7b387cbb0686670739a0be938c5ee15b0e098b481cdc400d5967", "size_bytes": 53857752, "archive": "zip" }
+      ],
+      "expected_files": [
+        { "path": "onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime", "staged_path": "onnxruntime.framework/onnxruntime", "sha256": "c89260dbff67795fc3a96e40e389a38e52e29f0e2f5660ae202f670b9c79af0f", "size_bytes": 90003328 },
+        { "path": "onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/Info.plist", "staged_path": "onnxruntime.framework/Info.plist", "sha256": "1567ffbc87b7bbedcaa4982c38bff499bc1b47efc2ccaf673f4e8f44b22cc0fb", "size_bytes": 670 }
+      ],
+      "expected_symlinks": [],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "LICENSE", "staged_path": "notices/LICENSE", "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674", "size_bytes": 1094 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866", "size_bytes": 331175 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "coreml", "reported_name": null }
+      ],
+      "build": { "source_built": false, "toolchain": "official Microsoft.ML.OnnxRuntime 1.27.1 NuGet XCFramework", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-macos-arm64-cpu",
+      "target": { "os": "macos", "architecture": "arm64", "variant": "default", "min_os": "14.0" },
+      "flavor": "cpu",
+      "runtime_mode": "bundled",
+      "source": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/onnxruntime-osx-arm64-1.27.1.tgz",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6",
+        "size_bytes": 31959937,
+        "archive": "tgz"
+      },
+      "containers": [],
+      "expected_files": [
+        { "path": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.1.27.1.dylib", "staged_path": "libonnxruntime.1.dylib", "sha256": "a441a94433ebf38f1918009aba0199f88c6f877251b9946d89816427839964c8", "size_bytes": 38502216 },
+        { "path": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.dylib", "staged_path": "libonnxruntime.dylib", "sha256": "a441a94433ebf38f1918009aba0199f88c6f877251b9946d89816427839964c8", "size_bytes": 38502216 }
+      ],
+      "expected_symlinks": [
+        { "path": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.1.dylib", "target": "libonnxruntime.1.27.1.dylib" }
+      ],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "onnxruntime-osx-arm64-1.27.1/LICENSE", "staged_path": "notices/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "onnxruntime-osx-arm64-1.27.1/ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2", "size_bytes": 325054 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "coreml", "reported_name": "CoreMLExecutionProvider" },
+        { "wrapper_id": "webgpu", "reported_name": "WebGpuExecutionProvider" }
+      ],
+      "build": { "source_built": false, "toolchain": "official-prebuilt; Mach-O SDK 26.2; ld 1230.1", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-android-arm64-v8a-cpu",
+      "target": { "os": "android", "architecture": "arm64-v8a", "variant": "default", "min_os": "24" },
+      "flavor": "cpu",
+      "runtime_mode": "bundled",
+      "source": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383",
+        "size_bytes": 135152698,
+        "archive": "zip"
+      },
+      "containers": [
+        { "path": "runtimes/android/native/onnxruntime.aar", "sha256": "6c4390433cf5ad9c38aa7e515f4e22d405613f3b872c0ed2b7d27cf1a714f32d", "size_bytes": 44522169, "archive": "zip" }
+      ],
+      "expected_files": [
+        { "path": "jni/arm64-v8a/libonnxruntime.so", "staged_path": "libonnxruntime.so", "sha256": "a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2", "size_bytes": 27983536 }
+      ],
+      "expected_symlinks": [],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "LICENSE", "staged_path": "notices/LICENSE", "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674", "size_bytes": 1094 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866", "size_bytes": 331175 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "nnapi", "reported_name": null },
+        { "wrapper_id": "webgpu", "reported_name": null }
+      ],
+      "build": { "source_built": false, "toolchain": "official Microsoft.ML.OnnxRuntime 1.27.1 NuGet AAR; minSdk 24", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-android-x86_64-cpu",
+      "target": { "os": "android", "architecture": "x86_64", "variant": "default", "min_os": "24" },
+      "flavor": "cpu",
+      "runtime_mode": "bundled",
+      "source": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383",
+        "size_bytes": 135152698,
+        "archive": "zip"
+      },
+      "containers": [
+        { "path": "runtimes/android/native/onnxruntime.aar", "sha256": "6c4390433cf5ad9c38aa7e515f4e22d405613f3b872c0ed2b7d27cf1a714f32d", "size_bytes": 44522169, "archive": "zip" }
+      ],
+      "expected_files": [
+        { "path": "jni/x86_64/libonnxruntime.so", "staged_path": "libonnxruntime.so", "sha256": "537f69f341367cbbdc61d0b5f73d8aa26e913c47532e461b16634b29975e79af", "size_bytes": 33975528 }
+      ],
+      "expected_symlinks": [],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "LICENSE", "staged_path": "notices/LICENSE", "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674", "size_bytes": 1094 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866", "size_bytes": 331175 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "nnapi", "reported_name": null },
+        { "wrapper_id": "webgpu", "reported_name": null }
+      ],
+      "build": { "source_built": false, "toolchain": "official Microsoft.ML.OnnxRuntime 1.27.1 NuGet AAR; minSdk 24", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-linux-x86_64-cpu",
+      "target": { "os": "linux", "architecture": "x86_64", "variant": "default", "min_os": "glibc-2.27" },
+      "flavor": "cpu",
+      "runtime_mode": "bundled",
+      "source": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/onnxruntime-linux-x64-1.27.1.tgz",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "25b1ef1fea1acd210d63f8f24dc870ad6e077795ce1f54876252c6d3803c15af",
+        "size_bytes": 8828892,
+        "archive": "tgz"
+      },
+      "containers": [],
+      "expected_files": [
+        { "path": "onnxruntime-linux-x64-1.27.1/lib/libonnxruntime.so.1.27.1", "staged_path": "libonnxruntime.so.1", "sha256": "50e214fa23276cf2f3fb96d90d8e7ca9fc5ba29f42e298eccf3b23f7d8a81ae2", "size_bytes": 23658512 },
+        { "path": "onnxruntime-linux-x64-1.27.1/lib/libonnxruntime_providers_shared.so", "staged_path": "libonnxruntime_providers_shared.so", "sha256": "086ec1d5388f64153d9c63470d126693db9a182c8ce236d3a1119068471b8a0d", "size_bytes": 14632 }
+      ],
+      "expected_symlinks": [
+        { "path": "onnxruntime-linux-x64-1.27.1/lib/libonnxruntime.so", "target": "libonnxruntime.so.1" },
+        { "path": "onnxruntime-linux-x64-1.27.1/lib/libonnxruntime.so.1", "target": "libonnxruntime.so.1.27.1" }
+      ],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "onnxruntime-linux-x64-1.27.1/LICENSE", "staged_path": "notices/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "onnxruntime-linux-x64-1.27.1/ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2", "size_bytes": 325054 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" }
+      ],
+      "build": { "source_built": false, "toolchain": "official-prebuilt; ELF GLIBC_2.27 and GLIBCXX_3.4.21 maxima", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-linux-arm64-cpu",
+      "target": { "os": "linux", "architecture": "arm64", "variant": "default", "min_os": "glibc-2.27" },
+      "flavor": "cpu",
+      "runtime_mode": "bundled",
+      "source": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/onnxruntime-linux-aarch64-1.27.1.tgz",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "33c67e33d1e25b816878366ea276589a024f71f000e7ff955c4b33224d639edd",
+        "size_bytes": 7812402,
+        "archive": "tgz"
+      },
+      "containers": [],
+      "expected_files": [
+        { "path": "onnxruntime-linux-aarch64-1.27.1/lib/libonnxruntime.so.1.27.1", "staged_path": "libonnxruntime.so.1", "sha256": "2aede08815e740c8c1fce21af1e94353d32190127219759cc7978fb8f2de30f7", "size_bytes": 20001880 },
+        { "path": "onnxruntime-linux-aarch64-1.27.1/lib/libonnxruntime_providers_shared.so", "staged_path": "libonnxruntime_providers_shared.so", "sha256": "3b6be288fbfb7dff8770d08a23defdde18e8f7e0f5a2b344a0e5e238c999ea88", "size_bytes": 198792 }
+      ],
+      "expected_symlinks": [
+        { "path": "onnxruntime-linux-aarch64-1.27.1/lib/libonnxruntime.so", "target": "libonnxruntime.so.1" },
+        { "path": "onnxruntime-linux-aarch64-1.27.1/lib/libonnxruntime.so.1", "target": "libonnxruntime.so.1.27.1" }
+      ],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "onnxruntime-linux-aarch64-1.27.1/LICENSE", "staged_path": "notices/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "onnxruntime-linux-aarch64-1.27.1/ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2", "size_bytes": 325054 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" }
+      ],
+      "build": { "source_built": false, "toolchain": "official-prebuilt; ELF GLIBC_2.27 and GLIBCXX_3.4.21 maxima", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    },
+    {
+      "id": "onnxruntime-1.27.1-windows-x64-cpu",
+      "target": { "os": "windows", "architecture": "x64", "variant": "default", "min_os": "10.0" },
+      "flavor": "cpu",
+      "runtime_mode": "bundled",
+      "source": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/onnxruntime-win-x64-1.27.1.zip",
+        "source_revision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+        "sha256": "2e00414a63fdef0914cd5a5ede6c707844878e0c08e1b6693842f0451b2df2a1",
+        "size_bytes": 77242362,
+        "archive": "zip"
+      },
+      "containers": [],
+      "expected_files": [
+        { "path": "onnxruntime-win-x64-1.27.1/lib/onnxruntime.dll", "staged_path": "onnxruntime.dll", "sha256": "79df49bcbefb604c019785925daef859c0348280616364e28103d73d4152f6d7", "size_bytes": 15383864 },
+        { "path": "onnxruntime-win-x64-1.27.1/lib/onnxruntime_providers_shared.dll", "staged_path": "onnxruntime_providers_shared.dll", "sha256": "b8ecc1b05e21d1226dda18dd3cb70c7fff16713fcdcef050cacea83b8cbf315c", "size_bytes": 21856 }
+      ],
+      "expected_symlinks": [],
+      "notices": [
+        { "id": "MIT", "container_depth": 0, "path": "onnxruntime-win-x64-1.27.1/LICENSE", "staged_path": "notices/LICENSE", "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674", "size_bytes": 1094 },
+        { "id": "ThirdPartyNotices", "container_depth": 0, "path": "onnxruntime-win-x64-1.27.1/ThirdPartyNotices.txt", "staged_path": "notices/ThirdPartyNotices.txt", "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866", "size_bytes": 331175 }
+      ],
+      "providers": [
+        { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" }
+      ],
+      "build": { "source_built": false, "toolchain": "official-prebuilt; MSVC runtime-linked PE/COFF", "flags": [], "patches": [] },
+      "licenses": [
+        { "id": "MIT", "notice_path": "third_party/onnxruntime/LICENSE", "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", "size_bytes": 1073 }
+      ]
+    }
+  ]
+}

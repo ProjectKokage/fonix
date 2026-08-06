@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/native-versions-lock-v2.json",
+  "title": "Fonix native dependency lock",
+  "description": "The .yaml lock uses the strict JSON subset of YAML 1.2 so build hooks can parse it without an ambient YAML implementation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "snapshot_date",
+    "release_state",
+    "shim",
+    "onnxruntime",
+    "release_targets",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": { "const": 2 },
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "maxLength": 10
+    },
+    "release_state": {
+      "enum": ["unreleased-preview", "release"]
+    },
+    "shim": { "$ref": "#/$defs/shim" },
+    "onnxruntime": { "$ref": "#/$defs/onnxruntime" },
+    "release_targets": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/releaseTarget" }
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/artifact" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "release_state": { "const": "release" } },
+        "required": ["release_state"]
+      },
+      "then": {
+        "properties": {
+          "shim": {
+            "properties": {
+              "source_revision": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$"
+              }
+            }
+          },
+          "artifacts": { "minItems": 8 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "httpsUrl": {
+      "type": "string",
+      "pattern": "^https://[^/?#\\s]+(?:/[^?#\\s]*)?$",
+      "maxLength": 2048
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[^\\u0000]+$",
+      "maxLength": 1024
+    },
+    "shim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["abi", "required_ort_api", "source_revision"],
+      "properties": {
+        "abi": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "required_ort_api": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "source_revision": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$"
+        }
+      }
+    },
+    "sourceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "source_repository",
+        "source_ref",
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "source_repository": { "$ref": "#/$defs/httpsUrl" },
+        "source_ref": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    },
+    "onnxruntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibility_floor"],
+      "properties": {
+        "compatibility_floor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["c_api", "header", "ep_header", "license"],
+          "properties": {
+            "c_api": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+            "header": { "$ref": "#/$defs/sourceInput" },
+            "ep_header": { "$ref": "#/$defs/sourceInput" },
+            "license": { "$ref": "#/$defs/sourceInput" }
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "variant", "min_os"],
+      "properties": {
+        "os": { "enum": ["android", "ios", "macos", "linux", "windows"] },
+        "architecture": {
+          "enum": ["arm64-v8a", "x86_64", "armeabi-v7a", "x86", "arm64", "x64"]
+        },
+        "variant": { "enum": ["default", "device", "simulator"] },
+        "min_os": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+        }
+      }
+    },
+    "artifactSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "source_revision", "sha256", "size_bytes", "archive"],
+      "properties": {
+        "url": { "$ref": "#/$defs/httpsUrl" },
+        "source_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "archive": { "enum": ["zip", "tar.gz", "tgz"] }
+      }
+    },
+    "artifactContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "archive"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "archive": { "enum": ["zip", "tar.gz", "tgz"] }
+      }
+    },
+    "releaseTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "variant", "flavor"],
+      "properties": {
+        "os": { "enum": ["android", "ios", "macos", "linux", "windows"] },
+        "architecture": {
+          "enum": ["arm64-v8a", "x86_64", "arm64", "x64"]
+        },
+        "variant": { "enum": ["default", "device", "simulator"] },
+        "flavor": { "const": "cpu" }
+      }
+    },
+    "expectedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "staged_path", "sha256", "size_bytes"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "staged_path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "artifactNotice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "container_depth", "path", "staged_path", "sha256", "size_bytes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "container_depth": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "staged_path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "expectedSymlink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "target"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "target": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wrapper_id", "reported_name"],
+      "properties": {
+        "wrapper_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "reported_name": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "sha256"],
+      "properties": {
+        "url": { "$ref": "#/$defs/httpsUrl" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_built", "toolchain", "flags", "patches"],
+      "properties": {
+        "source_built": { "type": "boolean" },
+        "toolchain": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "flags": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "patches": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/patch" }
+        }
+      }
+    },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "notice_path", "sha256", "size_bytes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "notice_path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "target",
+        "flavor",
+        "runtime_mode",
+        "source",
+        "containers",
+        "expected_files",
+        "expected_symlinks",
+        "notices",
+        "providers",
+        "build",
+        "licenses"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+        "target": { "$ref": "#/$defs/target" },
+        "flavor": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "runtime_mode": { "enum": ["linked", "bundled", "process", "aligned", "file"] },
+        "source": { "$ref": "#/$defs/artifactSource" },
+        "containers": {
+          "description": "Ordered nested archive members, beginning in source and ending at the container that owns expected_files.",
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/artifactContainer" }
+        },
+        "expected_files": {
+          "description": "Complete allowlist of regular runtime payload members promoted from the archive; non-runtime archive metadata, headers, and documentation are outside this list.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2048,
+          "items": { "$ref": "#/$defs/expectedFile" }
+        },
+        "expected_symlinks": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/expectedSymlink" }
+        },
+        "notices": {
+          "description": "Exact upstream notice members. container_depth zero names source archive members.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/artifactNotice" }
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/provider" }
+        },
+        "build": { "$ref": "#/$defs/build" },
+        "licenses": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/license" }
+        }
+      }
+    }
+  }
+}

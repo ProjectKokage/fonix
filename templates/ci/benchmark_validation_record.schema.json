@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/benchmark-validation-record-v1.json",
+  "title": "Fonix validated benchmark evidence aggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "result",
+    "claimStatus",
+    "validatorSha256",
+    "receiptSha256",
+    "receiptId",
+    "bindings",
+    "model",
+    "build",
+    "runtime",
+    "provider",
+    "environment",
+    "workload",
+    "statistics",
+    "resources",
+    "claimBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "result": { "const": "validated" },
+    "claimStatus": { "const": "measurement-only" },
+    "validatorSha256": { "$ref": "#/$defs/sha256" },
+    "receiptSha256": { "$ref": "#/$defs/sha256" },
+    "receiptId": { "$ref": "#/$defs/token" },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "inputFixture",
+        "referenceOutput",
+        "nativeBuildManifest",
+        "runtimeLibrary",
+        "finalArtifact",
+        "assignmentEvidence"
+      ],
+      "properties": {
+        "model": { "$ref": "#/$defs/fileIdentity" },
+        "inputFixture": { "$ref": "#/$defs/fileIdentity" },
+        "referenceOutput": { "$ref": "#/$defs/fileIdentity" },
+        "nativeBuildManifest": { "$ref": "#/$defs/fileIdentity" },
+        "runtimeLibrary": { "$ref": "#/$defs/fileIdentity" },
+        "finalArtifact": { "$ref": "#/$defs/fileIdentity" },
+        "assignmentEvidence": { "$ref": "#/$defs/fileIdentity" }
+      }
+    },
+    "model": {
+      "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/properties/model"
+    },
+    "build": {
+      "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/properties/build"
+    },
+    "runtime": {
+      "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/properties/runtime"
+    },
+    "provider": {
+      "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/properties/provider"
+    },
+    "environment": {
+      "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/properties/environment"
+    },
+    "workload": {
+      "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/properties/workload"
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coldRuntimeLoadMicroseconds",
+        "sessionCreateMicroseconds",
+        "firstRunMicroseconds",
+        "warmRunMicroseconds",
+        "throughput"
+      ],
+      "properties": {
+        "coldRuntimeLoadMicroseconds": { "$ref": "#/$defs/statistics" },
+        "sessionCreateMicroseconds": { "$ref": "#/$defs/statistics" },
+        "firstRunMicroseconds": { "$ref": "#/$defs/statistics" },
+        "warmRunMicroseconds": { "$ref": "#/$defs/statistics" },
+        "throughput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "statisticsRunsPerSecondMilli",
+            "totalCompletedRuns",
+            "totalDurationMicroseconds",
+            "aggregateRunsPerSecondMilli"
+          ],
+          "properties": {
+            "statisticsRunsPerSecondMilli": { "$ref": "#/$defs/statistics" },
+            "totalCompletedRuns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000000
+            },
+            "totalDurationMicroseconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000000000
+            },
+            "aggregateRunsPerSecondMilli": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000000000
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rssBytes", "binaryBytes", "cacheBytes"],
+      "properties": {
+        "rssBytes": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "statistics"],
+              "properties": {
+                "status": { "const": "measured" },
+                "statistics": { "$ref": "#/$defs/statistics" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "reason"],
+              "properties": {
+                "status": { "const": "not-applicable" },
+                "reason": { "const": "target-does-not-expose-rss" }
+              }
+            }
+          ]
+        },
+        "binaryBytes": {
+          "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/$defs/binaryBytes"
+        },
+        "cacheBytes": {
+          "$ref": "https://fonix.invalid/schemas/benchmark-receipt-v1.json#/$defs/cacheBytes"
+        }
+      }
+    },
+    "claimBoundary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    },
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sizeBytes", "sha256"],
+      "properties": {
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 17179869184
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "p50", "p95", "p99", "max"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "p50": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "p95": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "p99": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "max": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+      }
+    }
+  }
+}

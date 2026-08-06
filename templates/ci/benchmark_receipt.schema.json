@@ -1,0 +1,461 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/benchmark-receipt-v1.json",
+  "title": "Fonix benchmark evidence receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "result",
+    "purpose",
+    "receiptId",
+    "model",
+    "build",
+    "runtime",
+    "provider",
+    "environment",
+    "workload",
+    "measurements",
+    "resources"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "result": { "const": "measured" },
+    "purpose": { "const": "benchmark-evidence-only" },
+    "receiptId": { "$ref": "#/$defs/token" },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "onnxSha256",
+        "inputFixtureSha256",
+        "referenceOutputSha256",
+        "opset"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "onnxSha256": { "$ref": "#/$defs/sha256" },
+        "inputFixtureSha256": { "$ref": "#/$defs/sha256" },
+        "referenceOutputSha256": { "$ref": "#/$defs/sha256" },
+        "opset": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packageVersion",
+        "nativeBuildManifestSha256",
+        "finalArtifactType",
+        "finalArtifactSha256"
+      ],
+      "properties": {
+        "packageVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "nativeBuildManifestSha256": { "$ref": "#/$defs/sha256" },
+        "finalArtifactType": {
+          "enum": [
+            "android-apk",
+            "android-aab",
+            "ios-application-archive",
+            "macos-application-archive",
+            "linux-application-archive",
+            "windows-application-archive",
+            "standalone-executable"
+          ]
+        },
+        "finalArtifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ortVersion",
+        "requiredOrtApi",
+        "negotiatedOrtApi",
+        "shimAbi",
+        "shimBuildId",
+        "runtimeOwner",
+        "runtimeSource",
+        "artifactFlavor",
+        "artifactId",
+        "artifactSourceSha256",
+        "compiledProviders",
+        "librarySha256"
+      ],
+      "properties": {
+        "ortVersion": { "$ref": "#/$defs/label" },
+        "requiredOrtApi": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "negotiatedOrtApi": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "shimAbi": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "shimBuildId": { "$ref": "#/$defs/token" },
+        "runtimeOwner": {
+          "enum": ["wrapper", "sherpa", "application", "system"]
+        },
+        "runtimeSource": {
+          "enum": ["linked", "bundled", "process", "file"]
+        },
+        "artifactFlavor": { "$ref": "#/$defs/token" },
+        "artifactId": {
+          "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }]
+        },
+        "artifactSourceSha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "compiledProviders": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "items": { "$ref": "#/$defs/providerInventoryEntry" }
+            },
+            { "type": "null" }
+          ]
+        },
+        "librarySha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "reportedName",
+        "discoverable",
+        "registered",
+        "requirement",
+        "fallbackPolicy",
+        "options",
+        "optionsSha256",
+        "assignmentEvidenceSha256",
+        "nodeExecutionCount",
+        "nodeExecutionsByProvider",
+        "fallbackObserved"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "reportedName": { "$ref": "#/$defs/token" },
+        "discoverable": { "const": true },
+        "registered": { "const": true },
+        "requirement": { "enum": ["active", "full"] },
+        "fallbackPolicy": {
+          "enum": ["allow", "report", "reject-cpu", "reject-any"]
+        },
+        "options": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/providerOption" }
+        },
+        "optionsSha256": { "$ref": "#/$defs/sha256" },
+        "assignmentEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "nodeExecutionCount": { "$ref": "#/$defs/nodeCount" },
+        "nodeExecutionsByProvider": { "$ref": "#/$defs/assignmentCounts" },
+        "fallbackObserved": { "type": "boolean" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "architecture",
+        "deviceIdentitySha256",
+        "osVersion",
+        "osBuild",
+        "driverIdentity",
+        "firmwareIdentity",
+        "powerMode",
+        "thermalState"
+      ],
+      "properties": {
+        "platform": { "enum": ["ios", "macos", "android", "linux", "windows"] },
+        "architecture": {
+          "enum": ["arm64", "x86_64", "arm64-v8a", "armeabi-v7a", "x64"]
+        },
+        "deviceIdentitySha256": { "$ref": "#/$defs/sha256" },
+        "osVersion": { "$ref": "#/$defs/label" },
+        "osBuild": { "$ref": "#/$defs/token" },
+        "driverIdentity": { "$ref": "#/$defs/token" },
+        "firmwareIdentity": { "$ref": "#/$defs/token" },
+        "powerMode": { "$ref": "#/$defs/token" },
+        "thermalState": {
+          "enum": [
+            "nominal",
+            "fair",
+            "serious",
+            "critical",
+            "platform-not-exposed"
+          ]
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "precision",
+        "batchSize",
+        "concurrency",
+        "intraOpThreads",
+        "interOpThreads",
+        "warmupRuns",
+        "measuredWarmRuns",
+        "throughputWindowCount",
+        "cacheState",
+        "inputShapeSignatureSha256"
+      ],
+      "properties": {
+        "precision": { "$ref": "#/$defs/token" },
+        "batchSize": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "concurrency": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "intraOpThreads": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "interOpThreads": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "warmupRuns": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "measuredWarmRuns": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "throughputWindowCount": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "cacheState": { "enum": ["not-applicable", "disabled", "cold", "hit"] },
+        "inputShapeSignatureSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coldRuntimeLoadMicroseconds",
+        "sessionCreateMicroseconds",
+        "firstRunMicroseconds",
+        "warmRunMicroseconds",
+        "throughput"
+      ],
+      "properties": {
+        "coldRuntimeLoadMicroseconds": { "$ref": "#/$defs/series" },
+        "sessionCreateMicroseconds": { "$ref": "#/$defs/series" },
+        "firstRunMicroseconds": { "$ref": "#/$defs/series" },
+        "warmRunMicroseconds": { "$ref": "#/$defs/series" },
+        "throughput": { "$ref": "#/$defs/throughput" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rssBytes", "binaryBytes", "cacheBytes"],
+      "properties": {
+        "rssBytes": { "$ref": "#/$defs/rss" },
+        "binaryBytes": { "$ref": "#/$defs/binaryBytes" },
+        "cacheBytes": { "$ref": "#/$defs/cacheBytes" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    },
+    "label": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+() ,:=+-]{0,255}$"
+    },
+    "positiveDuration": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000000000
+    },
+    "byteCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "positiveByteCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
+    "nodeCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "providerOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "encoding", "value"],
+      "properties": {
+        "name": { "$ref": "#/$defs/token" },
+        "encoding": { "enum": ["plain", "sha256"] },
+        "value": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "encoding": { "const": "plain" } } },
+          "then": { "properties": { "value": { "$ref": "#/$defs/label" } } }
+        },
+        {
+          "if": { "properties": { "encoding": { "const": "sha256" } } },
+          "then": { "properties": { "value": { "$ref": "#/$defs/sha256" } } }
+        }
+      ]
+    },
+    "providerInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wrapperId", "reportedName"],
+      "properties": {
+        "wrapperId": { "$ref": "#/$defs/token" },
+        "reportedName": {
+          "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }]
+        }
+      }
+    },
+    "assignmentCounts": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "propertyNames": { "$ref": "#/$defs/token" },
+      "additionalProperties": { "$ref": "#/$defs/nodeCount" }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "p50", "p95", "p99", "max"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "p50": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "p95": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "p99": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "max": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+      }
+    },
+    "series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["samples", "statistics"],
+      "properties": {
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/positiveDuration" }
+        },
+        "statistics": { "$ref": "#/$defs/statistics" }
+      }
+    },
+    "throughputWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completedRuns", "durationMicroseconds"],
+      "properties": {
+        "completedRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000
+        },
+        "durationMicroseconds": { "$ref": "#/$defs/positiveDuration" }
+      }
+    },
+    "throughput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windows",
+        "statisticsRunsPerSecondMilli",
+        "totalCompletedRuns",
+        "totalDurationMicroseconds",
+        "aggregateRunsPerSecondMilli"
+      ],
+      "properties": {
+        "windows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/throughputWindow" }
+        },
+        "statisticsRunsPerSecondMilli": { "$ref": "#/$defs/statistics" },
+        "totalCompletedRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000
+        },
+        "totalDurationMicroseconds": { "$ref": "#/$defs/positiveDuration" },
+        "aggregateRunsPerSecondMilli": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        }
+      }
+    },
+    "rss": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "samples", "statistics"],
+          "properties": {
+            "status": { "const": "measured" },
+            "samples": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100000,
+              "items": { "$ref": "#/$defs/positiveByteCount" }
+            },
+            "statistics": { "$ref": "#/$defs/statistics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "const": "not-applicable" },
+            "reason": { "const": "target-does-not-expose-rss" }
+          }
+        }
+      ]
+    },
+    "binaryBytes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finalArtifact",
+        "runtimeLibrary",
+        "shimLibrary",
+        "providerDependencies"
+      ],
+      "properties": {
+        "finalArtifact": { "$ref": "#/$defs/positiveByteCount" },
+        "runtimeLibrary": { "$ref": "#/$defs/positiveByteCount" },
+        "shimLibrary": { "$ref": "#/$defs/positiveByteCount" },
+        "providerDependencies": { "$ref": "#/$defs/byteCount" }
+      }
+    },
+    "cacheBytes": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "state", "before", "after"],
+          "properties": {
+            "status": { "const": "measured" },
+            "state": { "enum": ["cold", "hit"] },
+            "before": { "$ref": "#/$defs/byteCount" },
+            "after": { "$ref": "#/$defs/byteCount" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "const": "not-applicable" },
+            "reason": { "enum": ["provider-has-no-cache", "cache-disabled"] }
+          }
+        }
+      ]
+    }
+  }
+}

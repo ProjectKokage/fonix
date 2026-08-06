@@ -1,0 +1,13 @@
+# https://dart.dev/tools/private-files
+# Created by `dart pub`
+.dart_tool/
+coverage/
+.DS_Store
+
+# Native and audit-tool build products.
+build/
+cmake-build-*/
+__pycache__/
+*.py[cod]
+*.o
+dort_*.plist
