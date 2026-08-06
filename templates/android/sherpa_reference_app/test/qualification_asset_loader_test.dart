@@ -9,14 +9,29 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('AndroidQualificationAssetLoader', () {
-    test('committed template has no qualification marker', () async {
+    test('default bundle is one closed qualification state', () async {
       final QualificationFixtureLoadResult<AndroidQualificationFixtures>
       result = await AndroidQualificationAssetLoader().load();
 
-      expect(
-        result,
-        isA<QualificationFixturesAbsent<AndroidQualificationFixtures>>(),
-      );
+      switch (result) {
+        case QualificationFixturesAbsent<AndroidQualificationFixtures>():
+          // The committed template is intentionally asset-free.
+          break;
+        case QualificationFixturesReady<AndroidQualificationFixtures>(
+          :final AndroidQualificationFixtures fixtures,
+        ):
+          // The runtime-provisioned gate runs these same host tests after it
+          // has staged the exact closed asset set into its private copy.
+          expect(fixtures.audio.sampleCount, 128000);
+          expect(
+            fixtures.pins.fonixModelSha256,
+            'da7dc57b74c05d57109100bccd1e745c234eb9f015be37284cf519f977a76076',
+          );
+          expect(
+            fixtures.pins.sherpaModelSha256,
+            'c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20',
+          );
+      }
     });
 
     test('marker absence is the only unavailable path', () async {

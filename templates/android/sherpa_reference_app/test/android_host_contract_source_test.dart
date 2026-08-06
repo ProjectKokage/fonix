@@ -37,4 +37,24 @@ void main() {
     expect(source, contains('keepDebugSymbols += setOf('));
     expect(source, isNot(contains('pickFirst')));
   });
+
+  test('Android Gradle wrapper is complete before Flutter builds', () {
+    final String unixLauncher = File('android/gradlew').readAsStringSync();
+    final String windowsLauncher = File(
+      'android/gradlew.bat',
+    ).readAsStringSync();
+
+    expect(unixLauncher, contains('org.gradle.wrapper.GradleWrapperMain'));
+    expect(windowsLauncher, contains('org.gradle.wrapper.GradleWrapperMain'));
+    expect(
+      File('android/gradle/wrapper/gradle-wrapper.jar').lengthSync(),
+      greaterThan(0),
+    );
+    expect(
+      File(
+        'android/gradle/wrapper/gradle-wrapper.properties',
+      ).readAsStringSync(),
+      contains('gradle-9.3.1-all.zip'),
+    );
+  });
 }
