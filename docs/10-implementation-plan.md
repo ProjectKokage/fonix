@@ -6,26 +6,37 @@ The coding agent should implement vertical slices that produce runnable packaged
 
 The current development sequence is narrower than the phase inventory below:
 
-1. keep the committed macOS arm64 public-API reference app and its packaged
-   lifecycle/inference gate green;
-2. keep the completed Android arm64 standalone CPU package/runtime gate green,
-   qualify XNNPACK on the available emulator/device targets, then integrate and
-   exercise the exact sherpa-owned process-runtime composition in both load
-   orders;
-3. produce the iOS arm64 CPU/CoreML reference app, simulator gate, and
-   physical-device lifecycle/assignment evidence;
+1. commit and keep green the macOS arm64 CPU reference gate, Android arm64 CPU
+   gate, and Android arm64 XNNPACK functional emulator gate; the XNNPACK
+   checkpoint is not provider qualification;
+2. integrate the exact selected sherpa-onnx Android artifact under the
+   single-ORT process-owner contract; prove final APK/AAB inventory, Dart-first
+   and sherpa-first loading, runtime/API identity, alternating Fonix+sherpa
+   workloads, lifecycle, and 4 KiB/16 KiB target receipts where environments
+   exist;
+3. produce the iOS arm64 CPU/CoreML reference application; verify final
+   simulator packaging/inference first, then physical-device lifecycle,
+   assignment, parity, and fallback evidence when hardware/signing are
+   available;
 4. produce and exercise the Linux x86_64 CPU reference package on a clean
-   target host; and
-5. finish cross-platform lifecycle stress, public API/ABI review, release
-   evidence, licensing, signing, and performance baselines for the advertised
-   rows.
+   target host, then cover Linux arm64 or accelerated flavors only on matching
+   target hardware;
+5. finish cross-platform correctness and performance stabilization:
+   cancellation/stale-work suppression, repeated initialization/disposal,
+   bounded queues/profiles, public API/shim ABI review, representative model
+   corpus, and measured baselines for rows intended to be advertised; and
+6. finish release engineering: hosted target lanes where feasible, artifact
+   reproducibility, final-package audits, SBOM/notices/checksums, security
+   policy, licensing, signing, clean-machine installation, and explicit
+   support-matrix promotion.
 
-Android QNN/aligned-ORT device qualification is deferred until exact SDK,
-hardware, firmware, sherpa, and redistribution inputs are available. Windows
-target-host inference, final-app packaging, and installer qualification are
-also deferred until a Windows development environment is available. Their
-existing source, cross-build, and tamper gates remain required and must stay
-green, but neither deferral promotes a support claim.
+Android QNN/aligned-ORT device qualification is deferred until the exact SDK,
+hardware, firmware, sherpa, licensing, and redistribution inputs exist. All
+Windows target-host inference, final-application packaging, installer, and
+clean-machine qualification work is deferred until a Windows development
+environment exists. Existing Android QNN contract/tamper checks and Windows
+source/cross-build/security checks remain required and must stay green; neither
+deferral creates a support claim.
 
 ## Phase 0: repository and contracts
 
@@ -147,7 +158,7 @@ claims.
 - Apple/Windows packaged application load succeeds, not just unit tests.
 
 Implementation checkpoint (2026-08-07): a committed macOS arm64 Flutter
-reference app now exercises only the public Fonix library through one bounded
+reference app exercises only the public Fonix library through one bounded
 worker-isolate CPU session. App-owned tests cover startup/run retry,
 cancellation and stale completion, suspend/resume replacement and oscillation,
 shutdown during startup/run/suspend, synchronous-listener reentrancy, double
@@ -155,13 +166,17 @@ close, and compact UI layout. Its clean-copy gate
 reproduces exact assets, analyzes/tests/builds Release, verifies the local
 ad-hoc signing exception, runs the independent final-bundle audit, and obtains
 an exact full-CPU-assignment receipt from the packaged executable. The shared
-reference source now also produces a closed arm64-v8a R8 Release APK/AAB; both
-final packages pass exact static audits, and the audited APK produces a full
-CPU-assignment/double-close receipt on an API 35 arm64 emulator with a queried
-4096-byte page size. This closes the macOS and Android standalone development
-reference slices only. Android API 24 execution, actual 16 KiB runtime,
-physical-device/x86_64 execution, XNNPACK, sherpa coexistence, iOS, Linux, and
-the deferred Windows target-host gates remain open.
+reference source also produces independent arm64-v8a R8 Release APK/AAB builds
+for the closed CPU and XNNPACK profiles. Every Android final package passes the
+exact static audit. On an API 35 arm64 emulator with a queried 4096-byte page
+size, the CPU APK produces its unchanged full-assignment/double-close receipt,
+while the XNNPACK APK proves one-node full assignment for six MatMul runs across
+two sessions, exact CPU parity, fallback report/rejection, recovery, five-
+session cleanup, and double close. This closes the macOS and Android standalone
+development reference slices only. Android API 24 execution, an actual 16 KiB
+runtime, physical-device/x86_64 execution, XNNPACK performance/thermal/provider
+qualification, sherpa coexistence, iOS, Linux, and the deferred Windows target-
+host gates remain open.
 
 ## Phase 5: async worker and throughput primitives
 
@@ -210,15 +225,20 @@ benchmark required before making a performance claim.
 - Assignment and rejecting fallback policies fail closed on missing evidence or fallback.
 - Thread oversubscription tests cover CPU/XNNPACK.
 
-Implementation checkpoint (2026-08-06): the provider discovery/registration
-adapter, typed CPU/XNNPACK/CoreML/legacy-NNAPI options, XNNPACK
-oversubscription guard, schema-bound CoreML cache, immutable provider-state
-diagnostics, automatic bounded per-run profiling, strict fallback/assignment
-enforcement, and direct/worker evidence receipts are implemented. Exact ORT
-1.27.1 macOS arm64 CPU and CoreML `CPUOnly` assignment/parity/cache tests pass.
-Physical-device XNNPACK, iOS/ANE, and Android NNAPI qualification/benchmark
-rows remain evidence gates, not missing implementation paths or inferred
-claims.
+Implementation checkpoint (2026-08-07): the provider discovery/registration
+adapter, typed CPU/XNNPACK/CoreML/legacy-NNAPI options, canonical generic
+XNNPACK thread option and oversubscription guards at both Dart and native
+boundaries, schema-bound CoreML cache, immutable provider-state diagnostics,
+automatic bounded per-run profiling, strict fallback/assignment enforcement,
+and direct/worker evidence receipts are implemented. Exact ORT 1.27.1 macOS
+arm64 CPU and CoreML `CPUOnly` assignment/parity/cache tests pass. The final
+Android arm64 reference APK also passes the closed XNNPACK functional profile
+on an API 35/4 KiB emulator: six one-node MatMul assignments across two
+sessions, exact CPU parity, explicit fallback report/rejection, recovery, and
+cleanup. This tiny emulator fixture does not satisfy Phase 6 provider
+qualification. Physical-device XNNPACK assignment, representative workloads,
+sustained benchmarks/thermal evidence, iOS/ANE, and Android NNAPI qualification
+remain evidence gates, not inferred claims.
 
 ## Phase 7: Android sherpa-owned runtime
 
@@ -247,10 +267,11 @@ shim or a bundled exact artifact, and embeds schema-3 owner/source policy.
 Locked arm64-v8a and x86_64 shims cross-build at API 24 and pass static 16 KiB,
 dependency, and single-ORT inventory checks. The deterministic compatibility
 record generator binds final package bytes and requires both load orders plus
-4/16 KiB receipts. A separate application-owned CPU reference APK/AAB now
-passes final-package inspection and an API 35 arm64/4 KiB emulator run, but no
-exact product sherpa artifact, target load-order/workload receipt, or 16 KiB
-runtime exists. Phase 7 acceptance therefore remains only partially complete.
+4/16 KiB receipts. Separate application-owned standalone CPU and XNNPACK
+profile APK/AAB builds now pass final-package inspection and API 35 arm64/4 KiB
+emulator runs, but neither build contains sherpa and no exact product sherpa
+artifact, target load-order/workload receipt, or 16 KiB runtime exists. Phase 7
+acceptance therefore remains only partially complete.
 
 ## Phase 8: desktop accelerated flavors
 

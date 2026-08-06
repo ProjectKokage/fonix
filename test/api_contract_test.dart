@@ -211,6 +211,17 @@ void main() {
         ),
         throwsArgumentError,
       );
+      final xnnpack = OrtSessionOptions(
+        intraOpThreads: 1,
+        providers: <OrtExecutionProvider>[
+          OrtExecutionProvider.xnnpack(intraOpThreads: 1024),
+        ],
+        fallbackPolicy: OrtFallbackPolicy.allow,
+      );
+      expect(xnnpack.intraOpThreads, 1);
+      expect(xnnpack.providers.single.options, <String, String>{
+        'intra_op_num_threads': '1024',
+      });
       final valid = OrtSessionOptions(
         executionMode: OrtExecutionMode.sequential,
         enableMemoryPattern: false,
@@ -227,6 +238,37 @@ void main() {
         () => OrtExecutionProvider.xnnpack(intraOpThreads: 0),
         throwsRangeError,
       );
+      expect(
+        () => OrtExecutionProvider.xnnpack(intraOpThreads: 1025),
+        throwsRangeError,
+      );
+      for (final String value in const <String>['1', '1024']) {
+        expect(
+          OrtExecutionProvider.named(
+            'xnnpack',
+            options: <String, String>{'intra_op_num_threads': value},
+          ).options,
+          <String, String>{'intra_op_num_threads': value},
+        );
+      }
+      for (final Map<String, String> options in <Map<String, String>>[
+        const <String, String>{},
+        const <String, String>{'threads': '1'},
+        const <String, String>{'intra_op_num_threads': ''},
+        const <String, String>{'intra_op_num_threads': '-1'},
+        const <String, String>{'intra_op_num_threads': '+1'},
+        const <String, String>{'intra_op_num_threads': '0'},
+        const <String, String>{'intra_op_num_threads': '01'},
+        const <String, String>{'intra_op_num_threads': '1.0'},
+        const <String, String>{'intra_op_num_threads': ' 1'},
+        const <String, String>{'intra_op_num_threads': '1 '},
+        const <String, String>{'intra_op_num_threads': '1025'},
+      ]) {
+        expect(
+          () => OrtExecutionProvider.named('xnnpack', options: options),
+          throwsArgumentError,
+        );
+      }
 
       final coreMl = OrtExecutionProvider.coreMl(
         modelFormat: OrtCoreMlModelFormat.mlProgram,

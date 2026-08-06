@@ -36,6 +36,19 @@ ARTIFACT_SOURCE_SHA256 = (
 ORT_SHA256 = "a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2"
 ORT_SIZE_BYTES = 27_983_536
 MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
+MODEL_SIZE_BYTES = 130
+MODEL_METADATA_SHA256 = (
+    "20ab7b1150a37516159c714abca3cb1cb6e48692da0c77f21c46e15336f71449"
+)
+MODEL_METADATA_SIZE_BYTES = 687
+XNNPACK_MODEL_SHA256 = (
+    "c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482"
+)
+XNNPACK_MODEL_SIZE_BYTES = 311
+XNNPACK_METADATA_SHA256 = (
+    "76eb202b02211f34ee64ca6a88a2a24d9f58f334136fa7f1b7fcfe2e763f30ab"
+)
+XNNPACK_METADATA_SIZE_BYTES = 1_298
 APPLICATION_ID = "dev.fonix.fonix_reference"
 MAIN_ACTIVITY = f"{APPLICATION_ID}.MainActivity"
 PRIVATE_RECEIVER_PERMISSION = (
@@ -119,6 +132,101 @@ class _ArtifactSnapshot(NamedTuple):
     snapshot_inode: int
     size: int
     sha256: str
+
+
+class _ModelAssetContract(NamedTuple):
+    model_path: str
+    model_size_bytes: int
+    model_sha256: str
+    metadata_path: str
+    metadata_size_bytes: int
+    metadata_sha256: str
+    manifest: Mapping[str, object]
+
+
+MODEL_ASSET_CONTRACTS = (
+    _ModelAssetContract(
+        model_path="assets/models/mul_1.onnx",
+        model_size_bytes=MODEL_SIZE_BYTES,
+        model_sha256=MODEL_SHA256,
+        metadata_path="assets/models/model.json",
+        metadata_size_bytes=MODEL_METADATA_SIZE_BYTES,
+        metadata_sha256=MODEL_METADATA_SHA256,
+        manifest={
+            "schemaVersion": 1,
+            "id": f"mul-1-sha256-{MODEL_SHA256}",
+            "path": "assets/models/mul_1.onnx",
+            "source": "onnxruntime/test/testdata/mul_1.onnx",
+            "sourceRevision": "v1.27.1",
+            "sha256": MODEL_SHA256,
+            "sizeBytes": MODEL_SIZE_BYTES,
+            "input": {
+                "name": "X",
+                "elementType": "float32",
+                "shape": [3, 2],
+                "values": [1, 2, 3, 4, 5, 6],
+            },
+            "output": {
+                "name": "Y",
+                "elementType": "float32",
+                "shape": [3, 2],
+                "values": [1, 4, 9, 16, 25, 36],
+            },
+            "claimBoundary": (
+                "API and packaging smoke only; not representative performance "
+                "or provider qualification."
+            ),
+        },
+    ),
+    _ModelAssetContract(
+        model_path="assets/models/xnnpack_matmul.onnx",
+        model_size_bytes=XNNPACK_MODEL_SIZE_BYTES,
+        model_sha256=XNNPACK_MODEL_SHA256,
+        metadata_path="assets/models/xnnpack_matmul.json",
+        metadata_size_bytes=XNNPACK_METADATA_SIZE_BYTES,
+        metadata_sha256=XNNPACK_METADATA_SHA256,
+        manifest={
+            "schemaVersion": 1,
+            "id": f"xnnpack-matmul-sha256-{XNNPACK_MODEL_SHA256}",
+            "path": "assets/models/xnnpack_matmul.onnx",
+            "generator": "assets/models/generate_xnnpack_matmul.py",
+            "generatorVersion": "xnnpack-matmul-v1",
+            "sha256": XNNPACK_MODEL_SHA256,
+            "sizeBytes": XNNPACK_MODEL_SIZE_BYTES,
+            "onnxIrVersion": 8,
+            "opset": 17,
+            "operator": "MatMul",
+            "input": {
+                "name": "input",
+                "elementType": "float32",
+                "shape": [3, 2],
+                "values": [1, 2, 3, 4, 5, 6],
+            },
+            "initializer": {
+                "name": "weight",
+                "elementType": "float32",
+                "shape": [2, 2],
+                "values": [1, 2, 3, 4],
+            },
+            "matrixMultiplication": {
+                "leftShape": [3, 2],
+                "rightShape": [2, 2],
+            },
+            "output": {
+                "name": "output",
+                "elementType": "float32",
+                "shape": [3, 2],
+                "values": [7, 10, 15, 22, 23, 34],
+            },
+            "referencePolicy": "exact-float32",
+            "claimBoundary": (
+                "Functional provider-assignment and CPU-parity fixture only; "
+                "not a performance, thermal, physical-device, or "
+                "provider-qualification workload."
+            ),
+        },
+    ),
+)
 
 
 class AndroidApplicationAuditError(RuntimeError):
@@ -504,6 +612,160 @@ def _read_member(
 def _artifact_member(kind: str, relative: str) -> str:
     prefix = "" if kind == "apk" else "base/"
     return f"{prefix}{relative}"
+
+
+def _validate_exact_json(
+    actual: object,
+    expected: object,
+    label: str,
+    *,
+    location: str = "$",
+) -> None:
+    if type(actual) is not type(expected):
+        raise AndroidApplicationAuditError(
+            f"{label} {location} has the wrong JSON type; "
+            f"expected={type(expected).__name__}, actual={type(actual).__name__}"
+        )
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        _exact_keys(actual, set(expected), f"{label} {location}")
+        for key, expected_value in expected.items():
+            _validate_exact_json(
+                actual[key],
+                expected_value,
+                label,
+                location=f"{location}.{key}",
+            )
+        return
+    if isinstance(expected, list):
+        assert isinstance(actual, list)
+        if len(actual) != len(expected):
+            raise AndroidApplicationAuditError(
+                f"{label} {location} has the wrong array length"
+            )
+        for index, (actual_value, expected_value) in enumerate(
+            zip(actual, expected, strict=True)
+        ):
+            _validate_exact_json(
+                actual_value,
+                expected_value,
+                label,
+                location=f"{location}[{index}]",
+            )
+        return
+    if actual != expected:
+        raise AndroidApplicationAuditError(
+            f"{label} {location} has the wrong value"
+        )
+
+
+def _validate_model_manifest(
+    value: object,
+    contract: _ModelAssetContract,
+    model_bytes: bytes,
+) -> None:
+    label = f"packaged metadata {contract.metadata_path}"
+    _validate_exact_json(value, contract.manifest, label)
+    manifest = _object(value, label)
+    model_sha256 = hashlib.sha256(model_bytes).hexdigest()
+    if (
+        manifest["path"] != contract.model_path
+        or manifest["sizeBytes"] != len(model_bytes)
+        or manifest["sha256"] != model_sha256
+    ):
+        raise AndroidApplicationAuditError(
+            f"{label} is not bound to its packaged model"
+        )
+
+
+def _audit_model_assets(
+    archive: zipfile.ZipFile,
+    index: Mapping[str, zipfile.ZipInfo],
+    kind: str,
+) -> dict[str, object]:
+    asset_root = _artifact_member(
+        kind, "assets/flutter_assets/assets/models"
+    )
+    expected_members = {
+        _artifact_member(
+            kind, f"assets/flutter_assets/{relative_path}"
+        )
+        for contract in MODEL_ASSET_CONTRACTS
+        for relative_path in (contract.model_path, contract.metadata_path)
+    }
+    actual_members = {
+        path
+        for path, info in index.items()
+        if path.startswith(f"{asset_root}/") and not info.is_dir()
+    }
+    unexpected_directories = sorted(
+        path
+        for path, info in index.items()
+        if path.startswith(f"{asset_root}/") and info.is_dir()
+    )
+    if actual_members != expected_members or unexpected_directories:
+        raise AndroidApplicationAuditError(
+            "packaged model asset inventory changed; "
+            f"missing={sorted(expected_members - actual_members)}, "
+            f"extra={sorted(actual_members - expected_members)}, "
+            f"directories={unexpected_directories}"
+        )
+
+    report: dict[str, object] = {}
+    for contract in MODEL_ASSET_CONTRACTS:
+        model_member = _artifact_member(
+            kind, f"assets/flutter_assets/{contract.model_path}"
+        )
+        metadata_member = _artifact_member(
+            kind, f"assets/flutter_assets/{contract.metadata_path}"
+        )
+        model_bytes = _read_member(
+            archive,
+            index,
+            model_member,
+            label=f"packaged model {contract.model_path}",
+            maximum=contract.model_size_bytes,
+        )
+        metadata_bytes = _read_member(
+            archive,
+            index,
+            metadata_member,
+            label=f"packaged model metadata {contract.metadata_path}",
+            maximum=contract.metadata_size_bytes,
+        )
+        if (
+            len(model_bytes) != contract.model_size_bytes
+            or hashlib.sha256(model_bytes).hexdigest() != contract.model_sha256
+        ):
+            raise AndroidApplicationAuditError(
+                f"packaged model identity changed: {contract.model_path}"
+            )
+        if (
+            len(metadata_bytes) != contract.metadata_size_bytes
+            or hashlib.sha256(metadata_bytes).hexdigest()
+            != contract.metadata_sha256
+        ):
+            raise AndroidApplicationAuditError(
+                "packaged model metadata identity changed: "
+                f"{contract.metadata_path}"
+            )
+        try:
+            manifest = strict_json(
+                metadata_bytes,
+                f"packaged model metadata {contract.metadata_path}",
+                maximum=contract.metadata_size_bytes,
+            )
+        except AndroidGateCommonError as error:
+            raise _fail_common(error) from error
+        _validate_model_manifest(manifest, contract, model_bytes)
+        report[contract.model_path] = {
+            "sizeBytes": contract.model_size_bytes,
+            "sha256": contract.model_sha256,
+            "metadataPath": contract.metadata_path,
+            "metadataSizeBytes": contract.metadata_size_bytes,
+            "metadataSha256": contract.metadata_sha256,
+        }
+    return report
 
 
 def _load_lock(repository: Path) -> tuple[dict[str, Any], str, dict[str, Any]]:
@@ -1492,13 +1754,7 @@ def _audit_android_application_snapshot(
             label="packaged ThirdPartyNotices",
             maximum=MAX_ASSET_BYTES,
         )
-        model_bytes = _read_member(
-            archive,
-            index,
-            _artifact_member(kind, "assets/flutter_assets/assets/models/mul_1.onnx"),
-            label="packaged reference model",
-            maximum=MAX_ASSET_BYTES,
-        )
+        model_assets = _audit_model_assets(archive, index, kind)
         shim_path = _artifact_member(kind, f"lib/{ABI}/libfonix_shim.so")
         ort_path = _artifact_member(kind, f"lib/{ABI}/libonnxruntime.so")
         shim_bytes = _read_member(
@@ -1509,8 +1765,6 @@ def _audit_android_application_snapshot(
         )
     finally:
         archive.close()
-    if hashlib.sha256(model_bytes).hexdigest() != MODEL_SHA256:
-        raise AndroidApplicationAuditError("packaged reference model identity changed")
     if EXPECTED_SHIM_BUILD_ID.encode("ascii") not in shim_bytes:
         raise AndroidApplicationAuditError("packaged shim lacks the Android owner/artifact identity")
     packaged_metadata = _validate_packaged_manifest(
@@ -1562,6 +1816,7 @@ def _audit_android_application_snapshot(
         "abi": ABI,
         "packagedMetadata": packaged_metadata,
         "modelSha256": MODEL_SHA256,
+        "modelAssets": model_assets,
         "ortSha256": runtime_identity["packagedSha256"],
         "ortReferenceSha256": ORT_SHA256,
         "ortRuntimeIdentity": runtime_identity,

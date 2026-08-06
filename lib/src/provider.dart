@@ -129,7 +129,7 @@ final class OrtExecutionProvider {
       );
       normalized[entry.key] = entry.value;
     }
-    _validateClosedDesktopProviderOptions(id, normalized);
+    _validateClosedProviderOptions(id, normalized);
     if (id == 'coreml' && normalized.containsKey('ModelCacheDirectory')) {
       throw ArgumentError(
         'Core ML ModelCacheDirectory is available only through the typed '
@@ -581,11 +581,15 @@ void _validateText(
   }
 }
 
-void _validateClosedDesktopProviderOptions(
-  String id,
-  Map<String, String> options,
-) {
+void _validateClosedProviderOptions(String id, Map<String, String> options) {
   switch (id) {
+    case 'xnnpack':
+      _requireClosedKeys(id, options, const <String>{'intra_op_num_threads'});
+      if (options.length != 1) {
+        _closedProviderError(id);
+      }
+      _optionalClosedInt(options, 'intra_op_num_threads', 1, 1024);
+      break;
     case 'cuda':
       _requireClosedKeys(id, options, _cudaOptionKeys);
       _optionalClosedInt(options, 'device_id', 0, 0x7fffffff);
@@ -776,7 +780,7 @@ Never _closedProviderError(String id) {
 }
 
 Never _closedProviderValueError() {
-  throw ArgumentError('Desktop provider option value is not canonical.');
+  throw ArgumentError('Provider option value is not canonical.');
 }
 
 const Set<String> _cudaOptionKeys = <String>{

@@ -355,6 +355,9 @@ python3 -B tool/ci/run_android_reference_app_gate.py \
   --avd-name api35-arm64-avd
 ```
 
+The default profile is `cpu`. Use `--smoke-profile xnnpack` with a distinct new
+work directory for the closed XNNPACK functional checkpoint.
+
 The gate pins Flutter revision
 `bd1e75d918605c91b411e8789fb911e6c9a84534`, command-line tools 20.0,
 build-tools 36.0.0, NDK 28.2.13676358, OpenJDK 21.0.12, and bundletool 1.18.3.
@@ -364,7 +367,8 @@ app, builds an R8-minified development-signed Release APK and AAB, and invokes
 install.
 
 The auditor and gate require only the `base` AAB module, the exact manifest and
-permission/component allowlist, the exact model/manifest/notices, four arm64
+permission/component allowlist, the exact two models and their manifests plus
+the notices, four arm64
 libraries (`libapp.so`, `libflutter.so`, `libfonix_shim.so`, and
 `libonnxruntime.so`), one ORT owner, closed SONAME/`DT_NEEDED` sets, 67 shim
 exports plus `OrtGetApiBase`, complete matching APK/AAB development signatures,
@@ -373,13 +377,20 @@ stripping changes the ORT whole-file SHA-256, so the auditor separately records
 that packaged hash and requires every ordered `PT_LOAD` segment to match the
 lock-selected source runtime.
 
-With a named AVD, the same audited APK must report ORT 1.27.1, application-owned
-bundled CPU, active provider `cpu`, full assignment, output
-`[1,4,9,16,25,36]`, and idempotent double close. The 2026-08-07 run used an API
-35 arm64 emulator with a queried 4096-byte page size. API 24 remains only the
-manifest/build floor: this receipt does not prove API 24 execution, an actual
-16 KiB runtime, a physical device, x86_64, an installed AAB split, XNNPACK,
-QNN, or sherpa coexistence.
+With a named AVD, each profile's audited APK must emit the exact selected receipt.
+The CPU profile reports ORT 1.27.1, application-owned bundled CPU, active
+provider `cpu`, full assignment, output `[1,4,9,16,25,36]`, and idempotent
+double close. The XNNPACK profile uses a deterministic static-weight MatMul and
+requires one-node full assignment across six runs in two sessions, exact CPU
+parity at `[7,10,15,22,23,34]`, explicit report and strict rejection of a
+CPU-only fallback model, post-rejection recovery, five total sessions,
+idempotent double close, and removal of every private profile root. Independent
+2026-08-07 runs of both profiles passed on an API 35 arm64 emulator with a
+queried 4096-byte page size. The XNNPACK receipt is a functional checkpoint,
+not physical-device, performance, thermal, or provider-qualification evidence.
+API 24 remains only the manifest/build floor: these receipts do not prove API
+24 execution, an actual 16 KiB runtime, a physical device, x86_64, an installed
+AAB split, QNN, or sherpa coexistence.
 
 ### sherpa-owned process mode
 

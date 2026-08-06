@@ -426,8 +426,9 @@ static const char* dort_provider_option(
   return NULL;
 }
 
-static dort_status_t* dort_validate_desktop_provider_options(
+static dort_status_t* dort_validate_closed_provider_options(
     const dort_provider_config_t* provider) {
+  static const char* const xnnpack_keys[] = {"intra_op_num_threads"};
   static const char* const cuda_keys[] = {
       "device_id",
       "gpu_mem_limit",
@@ -485,7 +486,10 @@ static dort_status_t* dort_validate_desktop_provider_options(
   const char* const* allowed = NULL;
   size_t allowed_count = 0u;
   size_t index = 0u;
-  if (strcmp(provider->provider_id_utf8, "cuda") == 0) {
+  if (strcmp(provider->provider_id_utf8, "xnnpack") == 0) {
+    allowed = xnnpack_keys;
+    allowed_count = sizeof(xnnpack_keys) / sizeof(xnnpack_keys[0]);
+  } else if (strcmp(provider->provider_id_utf8, "cuda") == 0) {
     allowed = cuda_keys;
     allowed_count = sizeof(cuda_keys) / sizeof(cuda_keys[0]);
   } else if (strcmp(provider->provider_id_utf8, "tensorrt") == 0) {
@@ -505,6 +509,22 @@ static dort_status_t* dort_validate_desktop_provider_options(
     allowed_count = sizeof(migraphx_keys) / sizeof(migraphx_keys[0]);
   } else {
     return NULL;
+  }
+  if (strcmp(provider->provider_id_utf8, "xnnpack") == 0) {
+    size_t ignored_thread_count = 0u;
+    if (provider->option_count != 1u ||
+        !dort_parse_decimal_size(
+            dort_provider_option(provider, "intra_op_num_threads"),
+            &ignored_thread_count) ||
+        ignored_thread_count < 1u || ignored_thread_count > 1024u) {
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_PROVIDER,
+          DORT_ERROR_INVALID_ARGUMENT,
+          0,
+          "session_options_create",
+          "XNNPACK accepts exactly one canonical intra_op_num_threads value "
+          "in [1, 1024].");
+    }
   }
   for (index = 0u; index < provider->option_count; ++index) {
     if (!dort_option_key_is_one_of(
@@ -729,9 +749,31 @@ static dort_status_t* dort_validate_session_config(
     if (status != NULL) {
       return status;
     }
-    status = dort_validate_desktop_provider_options(provider);
+    status = dort_validate_closed_provider_options(provider);
     if (status != NULL) {
       return status;
+    }
+    if (strcmp(provider->provider_id_utf8, "xnnpack") == 0) {
+      size_t thread_count = 0u;
+      if (!dort_parse_decimal_size(
+              dort_provider_option(provider, "intra_op_num_threads"),
+              &thread_count)) {
+        return dort_status_create(
+            DORT_ERROR_DOMAIN_PROVIDER,
+            DORT_ERROR_INVALID_ARGUMENT,
+            0,
+            "session_options_create",
+            "XNNPACK thread configuration is not canonical.");
+      }
+      if (thread_count > 1u && config->intra_op_thread_count != 1) {
+        return dort_status_create(
+            DORT_ERROR_DOMAIN_PROVIDER,
+            DORT_ERROR_INVALID_ARGUMENT,
+            0,
+            "session_options_create",
+            "XNNPACK thread counts above one require the ORT intra-op thread "
+            "count to be exactly one.");
+      }
     }
     if (strcmp(provider->provider_id_utf8, "cpu") == 0 &&
         provider->option_count != 0u) {

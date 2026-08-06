@@ -270,12 +270,18 @@ same final artifact; the committed standalone reference package is arm64-only.
 
 This static gate proves PT_LOAD alignment and offset/virtual-address congruence in the inspected bytes. It does not replace the required 16 KB Android emulator/device run or final split-APK inspection.
 
-Standalone checkpoint (2026-08-07): the application-owned arm64 CPU reference
-app passed its exact R8 Release APK/AAB audits, and the audited APK produced a
-full-CPU-assignment receipt on an API 35 arm64 emulator with a queried
-4096-byte page size. This is not sherpa coexistence evidence: no exact sherpa
-AAR was supplied, neither Dart-first nor sherpa-first was exercised, no
-alternating speech workload ran, and no 16 KiB runtime was tested.
+Standalone checkpoint (2026-08-07): independent application-owned arm64 CPU
+and XNNPACK profile builds passed their exact R8 Release APK/AAB audits. On an
+API 35 arm64 emulator with a queried 4096-byte page size, the audited CPU APK
+produced its full-CPU-assignment receipt; the audited XNNPACK APK produced one-
+node full assignment for six static-weight MatMul runs across two sessions,
+exact CPU parity, explicit fallback reporting and rejection, post-rejection
+recovery, and deterministic cleanup. The XNNPACK result is a bounded functional
+checkpoint, not physical-device, performance, thermal, or provider-
+qualification evidence. Neither profile is sherpa coexistence evidence: no
+exact sherpa AAR was supplied, neither Dart-first nor sherpa-first was
+exercised, no alternating speech workload ran, and no 16 KiB runtime was
+tested.
 
 When auditing multiple wrapper/sherpa/provider inputs, also pass `--reject-multiple-ort-owners` and `--reject-multiple-libcxx-owners`. Those checks operate across the named input artifacts; the standalone-final policy separately rejects ambiguous `libc++_shared.so` paths or unresolved ownership in each final package.
 

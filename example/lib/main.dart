@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import 'app.dart';
 import 'src/android_smoke_channel.dart';
+import 'src/android_xnnpack_qualification.dart';
 import 'src/fonix_inference_backend.dart';
 import 'src/reference_smoke.dart';
 
@@ -12,7 +13,7 @@ const String _smokeEnvironmentKey = androidSmokeDefine;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isAndroid && androidSmokeEnabled) {
-    await _runAndroidSmoke();
+    await _runAndroidSmoke(AndroidSmokeProfile.parse(androidSmokeProfileValue));
     return;
   }
   if (Platform.environment[_smokeEnvironmentKey] == '1') {
@@ -37,14 +38,20 @@ Future<int> _runPackagedSmoke() async {
   }
 }
 
-Future<void> _runAndroidSmoke() async {
+Future<void> _runAndroidSmoke(AndroidSmokeProfile profile) async {
   const AndroidSmokeChannel channel = AndroidSmokeChannel();
-  final ReferenceSmokeReceipt receipt;
+  final String receipt;
   try {
-    receipt = await runReferenceSmoke(FonixInferenceBackend());
+    receipt = switch (profile) {
+      AndroidSmokeProfile.cpu => (await runReferenceSmoke(
+        FonixInferenceBackend(),
+      )).toJsonString(),
+      AndroidSmokeProfile.xnnpack =>
+        (await runAndroidXnnpackQualification()).toJsonString(),
+    };
   } on Object catch (error) {
-    await channel.completeFailed(error);
+    await channel.completeFailed(profile: profile, error: error);
     return;
   }
-  await channel.completePassed(receipt);
+  await channel.completePassed(profile: profile, receipt: receipt);
 }

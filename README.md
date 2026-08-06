@@ -142,10 +142,12 @@ follow the one-runtime contract in
 
 [`example/`](example/) is a shared macOS arm64 and Android arm64-v8a Flutter
 reference application that imports only `package:fonix/fonix.dart`. It loads the
-lock-selected bundled runtime, creates a bounded worker-isolate session, runs an
+lock-selected bundled runtime, creates bounded worker-isolate sessions, runs an
 exact CPU-assignment smoke model, and owns retry, cancellation,
-suspension/resume, stale-result suppression, and idempotent shutdown. The
-fixture is deliberately tiny and is not a benchmark.
+suspension/resume, stale-result suppression, and idempotent shutdown. Its
+Android one-shot path also has a closed XNNPACK functional profile covering
+strict assignment, CPU parity, explicit fallback, recovery, and cleanup. The
+fixtures are deliberately tiny and are not benchmarks.
 
 The committed directory is a source template nested inside this package, so it
 must be copied outside the checkout before Flutter builds its native assets.
@@ -178,10 +180,14 @@ packaged CPU receipt, plus an exact ORT 1.27.1 CoreML `CPUOnly`
 assignment/parity run. The committed Android arm64-v8a reference app also has
 audited, development-signed R8 Release APK/AAB bytes and an exact
 CPU/full-assignment APK receipt from an API 35 arm64 emulator with a queried
-4096-byte page size. This does not prove API 24 execution, an actual 16 KiB
-runtime, physical-device behavior, AAB split installation, x86_64 execution,
-XNNPACK, QNN, or sherpa coexistence. iOS, Linux, and the deferred Windows
-target-host gaps remain explicit release gates.
+4096-byte page size. A separate Release build from the same source passed the
+closed XNNPACK profile with one-node full assignment across six MatMul runs,
+exact CPU parity, fallback report/rejection, recovery, and deterministic
+cleanup. This is a functional emulator checkpoint, not physical-device,
+performance, thermal, or provider-qualification evidence. API 24 execution, an
+actual 16 KiB runtime, physical-device behavior, AAB split installation,
+x86_64 execution, QNN, and sherpa coexistence remain unproved. iOS, Linux, and
+the deferred Windows target-host gaps remain explicit release gates.
 
 ## Documentation
 

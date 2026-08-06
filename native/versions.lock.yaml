@@ -187,6 +187,7 @@
       ],
       "providers": [
         { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "xnnpack", "reported_name": "XnnpackExecutionProvider" },
         { "wrapper_id": "nnapi", "reported_name": null },
         { "wrapper_id": "webgpu", "reported_name": null }
       ],
@@ -220,6 +221,7 @@
       ],
       "providers": [
         { "wrapper_id": "cpu", "reported_name": "CPUExecutionProvider" },
+        { "wrapper_id": "xnnpack", "reported_name": "XnnpackExecutionProvider" },
         { "wrapper_id": "nnapi", "reported_name": null },
         { "wrapper_id": "webgpu", "reported_name": null }
       ],

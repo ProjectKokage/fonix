@@ -18,7 +18,13 @@
 - Added the Android application-owned CPU gate: exact R8 Release APK/AAB audit,
   development-signature and single-ORT enforcement, and an API 35 arm64/4 KiB
   emulator CPU/full-assignment receipt from the audited APK.
+- Added the closed Android XNNPACK functional gate with canonical thread-option
+  validation, a deterministic static-weight MatMul fixture, strict one-node
+  assignment, exact CPU parity, explicit fallback report/rejection, recovery,
+  repeated-session lifecycle checks, failure-path profile-root retirement, and
+  exact final APK/AAB model audits.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
-  assignment/parity on macOS arm64. Android API 24/16 KiB/physical-device,
-  XNNPACK/sherpa, iOS, Linux target-host, and deferred QNN/Windows gates remain
-  documented qualification requirements.
+  assignment/parity on macOS arm64. The Android XNNPACK result is limited to an
+  API 35 arm64/4 KiB emulator functional checkpoint; API 24/16 KiB/physical-
+  device and sherpa, iOS, Linux target-host, and deferred QNN/Windows gates
+  remain documented qualification requirements.

@@ -2,14 +2,17 @@
 
 This committed Flutter application demonstrates Fonix through
 `package:fonix/fonix.dart` only. It loads the bundled, lock-selected ONNX
-Runtime, creates one worker-isolate session, runs the deterministic CPU smoke
+Runtime, creates bounded worker-isolate sessions, runs the deterministic CPU smoke
 model, exposes cancellation and retry, and reports path-free runtime and
-per-run assignment evidence.
+per-run assignment evidence. Its bounded Android one-shot mode also exposes a
+closed `xnnpack` profile for strict assignment, CPU parity, fallback, recovery,
+and lifecycle evidence.
 
 The app is a development reference for macOS arm64 at a 14.0 deployment floor
 and for Android arm64-v8a with a manifest/build floor of API 24. It is not a
-release artifact. The included 130-byte model is an API and packaging smoke
-fixture, not a representative performance workload.
+release artifact. The included 130-byte CPU model and 311-byte static-weight
+MatMul assignment model are bounded functional fixtures, not representative
+performance workloads.
 
 The Release target keeps the app sandbox and hardened runtime enabled but
 declares `com.apple.security.cs.disable-library-validation`: the local gate has
@@ -77,22 +80,44 @@ python3 -B tool/ci/run_android_reference_app_gate.py \
   --avd-name api35-arm64-avd
 ```
 
+The default `--smoke-profile cpu` preserves the original CPU receipt. Run the
+separate XNNPACK checkpoint with the same inputs and a new work directory:
+
+```sh
+python3 -B tool/ci/run_android_reference_app_gate.py \
+  --repository /absolute/path/to/fonix \
+  --flutter /absolute/flutter/bin/flutter \
+  --artifact-cache /absolute/verified/cache \
+  --work-dir /absolute/new/fonix-android-xnnpack-gate \
+  --android-sdk /absolute/Android/sdk \
+  --java-home /absolute/openjdk-21.0.12 \
+  --bundletool /absolute/bundletool-all-1.18.3.jar \
+  --avd-name api35-arm64-avd \
+  --smoke-profile xnnpack
+```
+
 The gate is pinned to the same Flutter revision as the macOS gate. It analyzes
 and tests the app, builds R8-minified Release APK and AAB bytes for arm64-v8a,
 and independently audits both packages before installation. The audit verifies
 the closed manifest/module set, development-signing identity, exact
-manifest/notices/model, four-library inventory, single ORT ownership,
+manifest/notices/models, four-library inventory, single ORT ownership,
 dependencies/exports, static 16 KiB ELF alignment for both artifacts, and APK
 `zipalign -P 16`. It compares the packaged stripped ORT's ordered loaded
 segments with the lock-selected source runtime rather than assuming their
 whole-file hashes remain equal.
 
 With `--avd-name`, the audited APK is installed on the exact named API 35 arm64
-emulator and must produce the closed CPU/full-assignment/double-close receipt.
-Omit `--avd-name` for package evidence only. The successful local receipt used
-a queried 4096-byte page size; it does not validate API 24 execution, an actual
-16 KiB runtime, a physical device, x86_64, XNNPACK, sherpa coexistence, QNN, or
-an installed AAB-derived split.
+emulator and must produce the receipt selected by `--smoke-profile`. The CPU
+profile requires its unchanged full-assignment/double-close receipt. The
+XNNPACK profile requires one-node full assignment for six MatMul runs over two
+sessions, exact CPU parity, a CPU-only fallback report and strict rejection,
+post-rejection recovery, five total sessions, double close, and removed profile
+roots. Failure paths also retire non-empty private roots without replacing the
+authoritative error. Omit `--avd-name` for package evidence only. The successful
+local receipts used a queried 4096-byte page size; the XNNPACK result is a
+functional checkpoint, not a benchmark or provider qualification. Neither
+profile validates API 24 execution, an actual 16 KiB runtime, a physical
+device, x86_64, sherpa coexistence, QNN, or an installed AAB-derived split.
 
 ## Maintain the committed native assets
 

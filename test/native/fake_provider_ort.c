@@ -17,7 +17,8 @@ enum {
   FAKE_PROVIDER_DNNL = 3,
   FAKE_PROVIDER_MIGRAPHX = 4,
   FAKE_PROVIDER_DIRECTML = 5,
-  FAKE_PROVIDER_OPENVINO = 6
+  FAKE_PROVIDER_OPENVINO = 6,
+  FAKE_PROVIDER_XNNPACK = 7
 };
 
 enum {
@@ -50,6 +51,8 @@ static int fake_provider_api_query_count = 0;
 static int fake_last_provider = FAKE_PROVIDER_NONE;
 static int fake_last_device_id = -1;
 static int fake_last_option_count = -1;
+static char fake_last_option_key[64];
+static char fake_last_option_value[64];
 static int fake_last_migraphx_fp16 = -1;
 static int fake_last_migraphx_fp8 = -1;
 static int fake_last_migraphx_int8 = -1;
@@ -71,6 +74,8 @@ FONIX_TEST_EXPORT void fonix_fake_provider_reset(void) {
   fake_last_provider = FAKE_PROVIDER_NONE;
   fake_last_device_id = -1;
   fake_last_option_count = -1;
+  fake_last_option_key[0] = '\0';
+  fake_last_option_value[0] = '\0';
   fake_last_migraphx_fp16 = -1;
   fake_last_migraphx_fp8 = -1;
   fake_last_migraphx_int8 = -1;
@@ -121,6 +126,14 @@ FONIX_TEST_EXPORT int fonix_fake_provider_last_device_id(void) {
 
 FONIX_TEST_EXPORT int fonix_fake_provider_last_option_count(void) {
   return fake_last_option_count;
+}
+
+FONIX_TEST_EXPORT int fonix_fake_provider_last_option_matches(
+    const char* key,
+    const char* value) {
+  return key != NULL && value != NULL &&
+         strcmp(fake_last_option_key, key) == 0 &&
+         strcmp(fake_last_option_value, value) == 0;
 }
 
 FONIX_TEST_EXPORT int fonix_fake_provider_last_migraphx_fp16(void) {
@@ -463,11 +476,27 @@ static OrtStatus* ORT_API_CALL fake_append_generic_provider(
   (void)options;
   ++fake_append_count;
   fake_last_option_count = (int)count;
-  if (provider_name == NULL || strcmp(provider_name, "OpenVINO") != 0 ||
-      (count > 0u && (keys == NULL || values == NULL))) {
+  if (provider_name == NULL ||
+      (strcmp(provider_name, "OpenVINO") != 0 &&
+       strcmp(provider_name, "XNNPACK") != 0) ||
+      (count > 0u &&
+       (keys == NULL || values == NULL || keys[0] == NULL ||
+        values[0] == NULL))) {
     return fake_error_status();
   }
-  fake_last_provider = FAKE_PROVIDER_OPENVINO;
+  if (count == 1u) {
+    size_t key_length = strlen(keys[0]);
+    size_t value_length = strlen(values[0]);
+    if (key_length >= sizeof(fake_last_option_key) ||
+        value_length >= sizeof(fake_last_option_value)) {
+      return fake_error_status();
+    }
+    memcpy(fake_last_option_key, keys[0], key_length + 1u);
+    memcpy(fake_last_option_value, values[0], value_length + 1u);
+  }
+  fake_last_provider = strcmp(provider_name, "XNNPACK") == 0
+                           ? FAKE_PROVIDER_XNNPACK
+                           : FAKE_PROVIDER_OPENVINO;
   return fake_failure_stage == FAKE_FAILURE_APPEND ? fake_error_status() : NULL;
 }
 

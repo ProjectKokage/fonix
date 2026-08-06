@@ -136,6 +136,25 @@ Use `requireActive`/`requireFullAssignment` with a rejecting fallback policy
 during qualification, and use `report` when production needs evidence without
 automatic rejection.
 
+Functional checkpoint (2026-08-07): the generic `xnnpack` escape hatch now
+accepts exactly one canonical `intra_op_num_threads` value in `[1, 1024]` at
+both Dart and native boundaries. Values above one require ORT intra-op threads
+to be exactly one, and the fake API-table tests prove exact option forwarding
+and rejection before ORT on malformed or oversubscribed configurations.
+
+The lock-selected Android arm64 runtime then passed the final-package reference
+gate on an API 35 arm64 emulator with a queried 4096-byte page size. A
+static-weight one-node MatMul was fully assigned to XNNPACK for six runs across
+two independently created sessions, matched the strict CPU result exactly, and
+survived an intervening CPU-fallback report and strict rejection. The original
+Conv candidate was rejected as a full-assignment fixture after target logs
+proved that ORT assigned the Conv to XNNPACK but inserted two CPU layout
+Transposes, yielding `{xnnpack: 1, cpu: 2}`. The strict policy was preserved;
+the fixture changed instead. This checkpoint proves functional registration,
+assignment, parity, fallback policy, recovery, and cleanup only. It is not a
+representative convolutional workload, physical-device result, sustained
+benchmark, thermal measurement, or provider qualification.
+
 ## 6.6 CoreML
 
 Targets: iOS and macOS.

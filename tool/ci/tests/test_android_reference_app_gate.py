@@ -131,6 +131,49 @@ class AndroidReferenceConfigurationTest(unittest.TestCase):
         self.assertNotIn("runtime_mode: external", result)
         self.assertNotIn("application_minimum_os", result)
 
+    def test_smoke_profile_is_closed_and_both_dart_defines_are_passed(self) -> None:
+        arguments = (
+            "--flutter",
+            "/flutter",
+            "--artifact-cache",
+            "/cache",
+            "--work-dir",
+            "/work",
+            "--android-sdk",
+            "/sdk",
+            "--java-home",
+            "/java",
+            "--bundletool",
+            "/bundletool.jar",
+        )
+        parser = gate._parser()
+        self.assertEqual(
+            parser.parse_args(arguments).smoke_profile,
+            gate.CPU_SMOKE_PROFILE,
+        )
+        self.assertEqual(
+            parser.parse_args(
+                (*arguments, "--smoke-profile", gate.XNNPACK_SMOKE_PROFILE)
+            ).smoke_profile,
+            gate.XNNPACK_SMOKE_PROFILE,
+        )
+        self.assertEqual(
+            gate._smoke_dart_defines(gate.XNNPACK_SMOKE_PROFILE),
+            (
+                "--dart-define",
+                "FONIX_REFERENCE_SMOKE=true",
+                "--dart-define",
+                "FONIX_REFERENCE_PROFILE=xnnpack",
+            ),
+        )
+        with (
+            mock.patch("sys.stderr", new=io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            parser.parse_args((*arguments, "--smoke-profile", "qnn"))
+        with self.assertRaises(gate.AndroidReferenceAppGateError):
+            gate._smoke_dart_defines("qnn")
+
     def test_pubspec_lock_patch_is_exact_and_reversible(self) -> None:
         lockfile = self.root / "pubspec.lock"
         source = (
@@ -350,12 +393,83 @@ class AndroidReferenceReceiptTest(unittest.TestCase):
             line,
             expected_uid=10123,
             observed_pid=2345,
+            smoke_profile=gate.CPU_SMOKE_PROFILE,
         )
 
         self.assertEqual(evidence.receipt, gate.EXPECTED_RECEIPT)
         self.assertEqual(evidence.uid, 10123)
         self.assertEqual(evidence.pid, 2345)
         self.assertTrue(evidence.pid_was_observed)
+
+    def test_exact_xnnpack_receipt_is_accepted_for_selected_profile(self) -> None:
+        line = _logcat_line(
+            gate.RECEIPT_PREFIX + gate.EXPECTED_XNNPACK_RECEIPT_JSON
+        )
+
+        evidence = gate._parse_logcat_receipt(
+            line,
+            expected_uid=10123,
+            observed_pid=2345,
+            smoke_profile=gate.XNNPACK_SMOKE_PROFILE,
+        )
+
+        self.assertEqual(evidence.receipt, gate.EXPECTED_XNNPACK_RECEIPT)
+        self.assertEqual(evidence.receipt["smokeProfile"], "xnnpack")
+        self.assertEqual(evidence.uid, 10123)
+        self.assertEqual(evidence.pid, 2345)
+
+    def test_receipt_from_the_wrong_selected_profile_is_rejected(self) -> None:
+        mutations = (
+            (
+                gate.CPU_SMOKE_PROFILE,
+                gate.EXPECTED_XNNPACK_RECEIPT_JSON,
+            ),
+            (
+                gate.XNNPACK_SMOKE_PROFILE,
+                gate.EXPECTED_RECEIPT_JSON,
+            ),
+        )
+        for profile, receipt in mutations:
+            with self.subTest(profile=profile):
+                with self.assertRaises(gate.AndroidReferenceAppGateError):
+                    gate._parse_logcat_receipt(
+                        _logcat_line(gate.RECEIPT_PREFIX + receipt),
+                        expected_uid=10123,
+                        observed_pid=2345,
+                        smoke_profile=profile,
+                    )
+
+    def test_nested_xnnpack_receipt_tamper_is_rejected(self) -> None:
+        value = json.loads(gate.EXPECTED_XNNPACK_RECEIPT_JSON)
+        value["models"]["assignmentSha256"] = "0" * 64
+        line = _logcat_line(
+            gate.RECEIPT_PREFIX
+            + json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+        )
+
+        with self.assertRaisesRegex(
+            gate.AndroidReferenceAppGateError,
+            r"\$\.models\.assignmentSha256",
+        ):
+            gate._parse_logcat_receipt(
+                line,
+                expected_uid=10123,
+                observed_pid=2345,
+                smoke_profile=gate.XNNPACK_SMOKE_PROFILE,
+            )
+
+    def test_nested_boolean_never_equals_integer(self) -> None:
+        value = json.loads(gate.EXPECTED_XNNPACK_RECEIPT_JSON)
+        value["xnnpackProvider"]["compiled"] = 1
+
+        with self.assertRaisesRegex(
+            gate.AndroidReferenceAppGateError,
+            r"\$\.xnnpackProvider\.compiled changed type",
+        ):
+            gate._validate_receipt(
+                value,
+                smoke_profile=gate.XNNPACK_SMOKE_PROFILE,
+            )
 
     def test_uid_only_receipt_survives_immediate_process_exit(self) -> None:
         line = _logcat_line(
@@ -368,6 +482,7 @@ class AndroidReferenceReceiptTest(unittest.TestCase):
             line,
             expected_uid=10123,
             observed_pid=None,
+            smoke_profile=gate.CPU_SMOKE_PROFILE,
         )
 
         self.assertEqual(evidence.pid, 3456)
@@ -388,6 +503,7 @@ class AndroidReferenceReceiptTest(unittest.TestCase):
                         value,
                         expected_uid=10123,
                         observed_pid=2345,
+                        smoke_profile=gate.CPU_SMOKE_PROFILE,
                     )
 
     def test_failure_duplicate_and_noncanonical_json_are_rejected(self) -> None:
@@ -420,6 +536,7 @@ class AndroidReferenceReceiptTest(unittest.TestCase):
                         value,
                         expected_uid=10123,
                         observed_pid=2345,
+                        smoke_profile=gate.CPU_SMOKE_PROFILE,
                     )
 
     def test_no_completion_is_pending_but_failure_is_terminal(self) -> None:
@@ -428,6 +545,7 @@ class AndroidReferenceReceiptTest(unittest.TestCase):
                 "--------- beginning of main",
                 expected_uid=10123,
                 observed_pid=None,
+                smoke_profile=gate.CPU_SMOKE_PROFILE,
             )
         failure = _logcat_line(
             gate.FAILURE_PREFIX
@@ -438,6 +556,7 @@ class AndroidReferenceReceiptTest(unittest.TestCase):
                 failure,
                 expected_uid=10123,
                 observed_pid=None,
+                smoke_profile=gate.CPU_SMOKE_PROFILE,
             )
         self.assertNotIsInstance(captured.exception, gate.AndroidReferenceReceiptPending)
 

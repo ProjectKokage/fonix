@@ -28,7 +28,7 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 | macOS arm64, minimum 14.0 | bundled CPU | Final-app tested with both a freshly generated gate app and the committed public-API reference `.app`, exact packaged bytes, and numeric CPU inference | Consistent distribution signing, removal/review of the local ad-hoc library-validation exception, notarization, and release approval |
 | iOS arm64 device, minimum 15.1 | linked CPU | Shim/runtime source resolution and device-target compilation | Signed final app, physical-device load/inference, lifecycle, and packaging audit |
 | iOS arm64 simulator, minimum 15.1 | linked CPU | Shim/runtime source resolution and simulator-target compilation | Final simulator app load/inference and packaging audit |
-| Android arm64-v8a, API 24 | application-owned CPU or sherpa-owned process shim | Final-app tested for the application-owned CPU path: exact development-signed R8 Release APK/AAB audits and installed APK inference on an API 35 arm64 emulator with a queried 4096-byte page size | API 24 execution, actual 16 KiB runtime, physical device, installed AAB-derived splits, x86_64, XNNPACK, QNN, exact sherpa load-order/workload evidence, approved distribution signing, and release approval |
+| Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64 emulator with a queried 4096-byte page size | API 24 execution, actual 16 KiB runtime, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, QNN, exact sherpa load-order/workload evidence, approved distribution signing, and release approval |
 | Android x86_64, API 24 | application-owned CPU or sherpa-owned process shim | NDK cross-build, ELF/16 KiB static audit, and synthetic final native inventory | Flutter APK/AAB, emulator runtime/inference, sherpa coexistence, and release/R8 |
 | Linux x86_64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
 | Linux arm64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
@@ -42,7 +42,7 @@ have no locked baseline artifact and are not supported by this snapshot.
 | Provider | Configuration path | Highest current evidence | Qualification boundary |
 | --- | --- | --- | --- |
 | CPU | implicit or explicit last provider | Exact ORT 1.27.1 CPU inference and full-assignment receipts through the packaged public-API app on macOS arm64 and the application-owned Android arm64 APK on the named API 35/4 KiB emulator | Other target tuples and Android API 24/16 KiB/physical-device/AAB-split cases retain their platform gates; these tiny fixtures are not benchmark qualification |
-| XNNPACK | typed options and oversubscription checks | Implemented and failure-tested | Real mobile device assignment, parity, thermal behavior, and benchmark |
+| XNNPACK | typed options plus one canonical generic thread option and oversubscription checks | Exact ORT 1.27.1 final-app functional checkpoint on an API 35 arm64/4 KiB emulator: one-node static-weight MatMul full assignment for six runs across two sessions, exact CPU parity, fallback report/rejection, recovery, and cleanup | Not provider-qualified: the tiny fixture is not representative; physical-device assignment, API 24/16 KiB/x86_64 execution, sustained performance, thermal behavior, and benchmark receipts remain open |
 | CoreML | typed format/compute/cache options | Exact macOS arm64 `CPUOnly` full assignment, CPU parity, and scoped-cache behavior | No inference about GPU/ANE; iOS and physical-device qualification remain open |
 | NNAPI | typed legacy flags; Android-only native symbol | Cross-built for locked Android ABIs | Deprecated/opt-in; requires real-device assignment, parity, and fallback evidence |
 | QNN | generic options plus aligned-build/receipt tooling | Contracts exercised with synthetic local artifacts only | Exact SDK/license, aligned ORT+sherpa bytes, selected device/firmware, HTP assignment, parity, and cache receipts |
@@ -71,9 +71,11 @@ ordered `allowedRuntimeSources` array. Runtime open checks that structure
 directly. A
 final compatibility record additionally binds every ABI's shim, ORT, sherpa,
 loaded segments, final APK/AAB, build type, page-size environment, and both
-load-order receipts. An application-owned standalone CPU emulator receipt now
-exists, but no exact product sherpa artifact or Dart-first/sherpa-first receipt
-exists, so Android coexistence remains unqualified.
+load-order receipts. Application-owned standalone CPU and XNNPACK functional
+emulator receipts now exist, but neither contains sherpa and no exact product
+sherpa artifact or Dart-first/sherpa-first receipt exists, so Android
+coexistence remains unqualified. The XNNPACK receipt also remains below
+`Provider-qualified` because it has no physical-device or benchmark evidence.
 
 ## 13.5 Compatibility policy
 

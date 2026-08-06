@@ -19,7 +19,8 @@ enum {
   FAKE_PROVIDER_DNNL = 3,
   FAKE_PROVIDER_MIGRAPHX = 4,
   FAKE_PROVIDER_DIRECTML = 5,
-  FAKE_PROVIDER_OPENVINO = 6
+  FAKE_PROVIDER_OPENVINO = 6,
+  FAKE_PROVIDER_XNNPACK = 7
 };
 
 enum {
@@ -42,6 +43,9 @@ int fonix_fake_provider_api_query_count(void);
 int fonix_fake_provider_last_provider(void);
 int fonix_fake_provider_last_device_id(void);
 int fonix_fake_provider_last_option_count(void);
+int fonix_fake_provider_last_option_matches(
+    const char* key,
+    const char* value);
 int fonix_fake_provider_last_migraphx_fp16(void);
 int fonix_fake_provider_last_migraphx_fp8(void);
 int fonix_fake_provider_last_migraphx_int8(void);
@@ -155,6 +159,39 @@ static int test_success_paths(dort_runtime_t* runtime) {
       provider("cuda", cuda_options, sizeof(cuda_options) / sizeof(cuda_options[0]));
   dort_session_config_t config = session_config(&cuda, 1u, 1u);
 
+  {
+    const char* const valid_thread_counts[] = {"1", "1024"};
+    size_t valid_index = 0u;
+    for (valid_index = 0u;
+         valid_index <
+         sizeof(valid_thread_counts) / sizeof(valid_thread_counts[0]);
+         ++valid_index) {
+      dort_string_pair_t xnnpack_option =
+          pair("intra_op_num_threads", valid_thread_counts[valid_index]);
+      dort_provider_config_t xnnpack =
+          provider("xnnpack", &xnnpack_option, 1u);
+      config = session_config(&xnnpack, 1u, 1u);
+      if (strcmp(valid_thread_counts[valid_index], "1") != 0) {
+        config.intra_op_thread_count = 1;
+      }
+      fonix_fake_provider_reset();
+      CHECK(
+          create_and_release(runtime, &config) == 0,
+          "XNNPACK success path failed");
+      CHECK(
+          fonix_fake_provider_last_provider() == FAKE_PROVIDER_XNNPACK,
+          "wrong XNNPACK path");
+      CHECK(
+          fonix_fake_provider_last_option_count() == 1,
+          "XNNPACK option count mismatch");
+      CHECK(
+          fonix_fake_provider_last_option_matches(
+              "intra_op_num_threads", valid_thread_counts[valid_index]) != 0,
+          "XNNPACK option was not forwarded exactly");
+    }
+  }
+
+  config = session_config(&cuda, 1u, 1u);
   fonix_fake_provider_reset();
   CHECK(create_and_release(runtime, &config) == 0, "CUDA success path failed");
   CHECK(fonix_fake_provider_create_count() == 1, "CUDA create count mismatch");
@@ -341,6 +378,97 @@ static int test_fail_closed_validation(dort_runtime_t* runtime) {
   CHECK(
       fonix_fake_provider_live_session_options() == 0,
       "unsafe CUDA option allocated session options");
+
+  {
+    const char* const invalid_keys[] = {
+        "threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads",
+        "intra_op_num_threads"};
+    const char* const invalid_values[] = {
+        "1", "", "-1", "+1", "0", "01", "1.0", " 1", "1 ", "1025"};
+    size_t invalid_index = 0u;
+    for (invalid_index = 0u;
+         invalid_index < sizeof(invalid_values) / sizeof(invalid_values[0]);
+         ++invalid_index) {
+      dort_string_pair_t invalid_option =
+          pair(invalid_keys[invalid_index], invalid_values[invalid_index]);
+      dort_provider_config_t xnnpack =
+          provider("xnnpack", &invalid_option, 1u);
+      config = session_config(&xnnpack, 1u, 1u);
+      options = (dort_session_options_t*)(uintptr_t)1u;
+      fonix_fake_provider_reset();
+      status = dort_session_options_create(runtime, &config, &options);
+      CHECK(options == NULL, "invalid XNNPACK option returned session options");
+      CHECK(
+          expect_error(
+              status,
+              DORT_ERROR_INVALID_ARGUMENT,
+              "invalid XNNPACK option") == 0,
+          "invalid XNNPACK option code mismatch");
+      CHECK(
+          fonix_fake_provider_append_count() == 0,
+          "invalid XNNPACK option reached ORT");
+      CHECK(
+          fonix_fake_provider_live_session_options() == 0,
+          "invalid XNNPACK option allocated session options");
+    }
+  }
+
+  {
+    dort_provider_config_t xnnpack = provider("xnnpack", NULL, 0u);
+    config = session_config(&xnnpack, 1u, 1u);
+    options = (dort_session_options_t*)(uintptr_t)1u;
+    fonix_fake_provider_reset();
+    status = dort_session_options_create(runtime, &config, &options);
+    CHECK(options == NULL, "missing XNNPACK option returned session options");
+    CHECK(
+        expect_error(
+            status,
+            DORT_ERROR_INVALID_ARGUMENT,
+            "missing XNNPACK option") == 0,
+        "missing XNNPACK option code mismatch");
+    CHECK(
+        fonix_fake_provider_append_count() == 0,
+        "missing XNNPACK option reached ORT");
+  }
+
+  {
+    const int invalid_ort_thread_counts[] = {0, 2, 1024};
+    size_t invalid_index = 0u;
+    for (invalid_index = 0u;
+         invalid_index < sizeof(invalid_ort_thread_counts) /
+                             sizeof(invalid_ort_thread_counts[0]);
+         ++invalid_index) {
+      dort_string_pair_t xnnpack_option = pair("intra_op_num_threads", "4");
+      dort_provider_config_t xnnpack =
+          provider("xnnpack", &xnnpack_option, 1u);
+      config = session_config(&xnnpack, 1u, 1u);
+      config.intra_op_thread_count = invalid_ort_thread_counts[invalid_index];
+      options = (dort_session_options_t*)(uintptr_t)1u;
+      fonix_fake_provider_reset();
+      status = dort_session_options_create(runtime, &config, &options);
+      CHECK(options == NULL, "oversubscribed XNNPACK returned session options");
+      CHECK(
+          expect_error(
+              status,
+              DORT_ERROR_INVALID_ARGUMENT,
+              "oversubscribed XNNPACK") == 0,
+          "oversubscribed XNNPACK code mismatch");
+      CHECK(
+          fonix_fake_provider_append_count() == 0,
+          "oversubscribed XNNPACK reached ORT");
+      CHECK(
+          fonix_fake_provider_live_session_options() == 0,
+          "oversubscribed XNNPACK allocated session options");
+    }
+  }
 
   {
     dort_provider_config_t providers[] = {

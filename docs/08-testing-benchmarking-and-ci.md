@@ -145,13 +145,18 @@ override environment variables are removed before launch.
 
 `tool/ci/run_android_reference_app_gate.py` uses the same committed source from
 a separate clean copy. It reproduces the Android sidecars, runs Flutter
-analysis/tests, builds R8 Release APK/AAB bytes, and audits both before any
-install. The package evidence covers exact assets, a closed base-only AAB,
+analysis/tests, builds R8 Release APK/AAB bytes for the selected closed `cpu` or
+`xnnpack` profile, and audits both packages before any install. The package
+evidence covers the exact four model/manifest assets, a closed base-only AAB,
 manifest/security inventory, singular native ownership, ELF identity/exports,
 complete matching development signatures, and static 16 KiB alignment. When a
 named AVD is supplied, a separate receipt binds the installed APK hash and app
-UID to the exact API/ABI/page-size environment and CPU result. Omitting the AVD
-produces no runtime evidence.
+UID to the exact API/ABI/page-size environment and selected profile. The CPU
+receipt requires full CPU assignment and double close. The XNNPACK receipt
+requires one-node full assignment for six MatMul runs across two sessions,
+exact CPU parity, fallback report/rejection, recovery, five total sessions,
+double close, and removed profile roots. Omitting the AVD produces no runtime
+evidence.
 
 ## 8.7 Android coexistence tests
 
@@ -169,11 +174,13 @@ See document 7 for the full matrix. Automated gates include:
 - aligned QNN build on selected hardware;
 - intentionally incompatible runtime produces a controlled error, not a crash.
 
-Standalone checkpoint (2026-08-07): the application-owned arm64 CPU reference
-APK/AAB passed the package gate, and the audited APK ran on an API 35 arm64
-emulator with a queried 4096-byte page size. This validates neither an actual
-16 KiB runtime nor any sherpa AAR, load order, alternating workload, or
-coexistence behavior.
+Standalone checkpoint (2026-08-07): independent application-owned arm64 CPU
+and XNNPACK profile APK/AAB builds passed the package gate, and each audited APK
+ran on an API 35 arm64 emulator with a queried 4096-byte page size. The XNNPACK
+receipt is a functional assignment/parity/fallback checkpoint only. These runs
+validate neither an actual 16 KiB runtime nor a physical device, API 24 runtime,
+x86_64 execution, installed AAB-derived splits, any sherpa AAR/load order/
+alternating workload, XNNPACK performance or thermal behavior, nor coexistence.
 
 ## 8.8 Provider qualification
 
@@ -192,16 +199,21 @@ For every advertised provider/model/device tuple:
 
 Provider qualification results are versioned artifacts, not prose claims.
 
-Implementation checkpoint (2026-08-06): native fake tests cover bounded
+Implementation checkpoint (2026-08-07): native fake tests cover bounded
 provider discovery, exact-one-file profile capture/cleanup, ambiguous JSON,
-and cancellation ownership. On macOS arm64, exact ORT 1.27.1 tests pass for a
+cancellation ownership, and exact XNNPACK option validation/forwarding and
+oversubscription rejection. On macOS arm64, exact ORT 1.27.1 tests pass for a
 CPU run with full-assignment evidence and for CoreML `CPUOnly` with strict full
-assignment, CPU numerical parity, and the scoped cache. The same CPU evidence
-receipt passes through the real worker-isolate protocol. The CoreML test needs
-normal host filesystem access because CoreML creates an OS-managed compilation
-workspace; its failure in the restricted filesystem sandbox was reproduced as
-a sandbox-only condition and the same test passed outside it. These checks do
-not qualify ANE use, iOS hardware, XNNPACK performance, or Android NNAPI
+assignment, CPU numerical parity, and the scoped cache; the CPU receipt also
+passes through the real worker-isolate protocol. On the exact Android arm64 API
+35/4096-byte emulator tuple, the audited Release XNNPACK profile fully assigned
+a one-node static-weight MatMul for six runs across two sessions, matched the
+strict CPU reference exactly at `[7,10,15,22,23,34]`, reported and rejected CPU
+fallback as required, recovered after rejection, and cleaned up five sessions
+and every private profile root. The CoreML test requires normal host filesystem
+access because CoreML creates an OS-managed compilation workspace. These checks
+do not qualify ANE use, iOS hardware, physical-device XNNPACK behavior, XNNPACK
+performance or thermal behavior, provider qualification, or Android NNAPI
 runtime behavior.
 
 ## 8.9 Numerical tolerances
@@ -368,13 +380,15 @@ markers. The native CMake jobs remain the semantic compiler-lint gate through
 elsewhere. This lexical gate does not claim `clang-tidy` static-analysis
 coverage; adding a pinned cross-platform analyzer remains separate work.
 
-Flutter iOS/Linux/Windows final-application smoke, Android XNNPACK and sherpa
-coexistence, and Windows/Linux target-host real-ORT inference are not present CI
-jobs. The Android standalone CPU gate has local API 35 arm64/4 KiB evidence but
-no hosted job, API 24 runtime, actual 16 KiB runtime, physical arm64 run,
-x86_64 run, or installed AAB-derived split. These remain target-evidence
-requirements before promoting the corresponding support rows; a cross-build or
-source test must not be reported as a substitute.
+Flutter iOS/Linux/Windows final-application smoke, Android sherpa coexistence,
+and Windows/Linux target-host real-ORT inference are not present CI jobs. The
+Android standalone CPU and XNNPACK gates have local API 35 arm64/4 KiB final-
+package evidence but no hosted job, API 24 runtime, actual 16 KiB runtime,
+physical arm64 run, x86_64 run, or installed AAB-derived split. The XNNPACK run
+is a functional emulator checkpoint, not performance, thermal, or provider-
+qualification evidence. These remain target-evidence requirements before
+promoting the corresponding support rows; a cross-build, source test, or tiny
+emulator fixture must not be reported as a substitute.
 
 ### Future nightly/scheduled lanes
 

@@ -14,6 +14,28 @@ import zipfile
 
 
 CI_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY = CI_ROOT.parents[1]
+MODEL_SOURCE_ROOT = REPOSITORY / "example/assets/models"
+EXPECTED_MODEL_ASSET_REPORT = {
+    "assets/models/mul_1.onnx": {
+        "sizeBytes": 130,
+        "sha256": "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10",
+        "metadataPath": "assets/models/model.json",
+        "metadataSizeBytes": 687,
+        "metadataSha256": (
+            "20ab7b1150a37516159c714abca3cb1cb6e48692da0c77f21c46e15336f71449"
+        ),
+    },
+    "assets/models/xnnpack_matmul.onnx": {
+        "sizeBytes": 311,
+        "sha256": "c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482",
+        "metadataPath": "assets/models/xnnpack_matmul.json",
+        "metadataSizeBytes": 1_298,
+        "metadataSha256": (
+            "76eb202b02211f34ee64ca6a88a2a24d9f58f334136fa7f1b7fcfe2e763f30ab"
+        ),
+    },
+}
 sys.path.insert(0, str(CI_ROOT))
 SCRIPT = CI_ROOT / "audit_android_application.py"
 SPEC = importlib.util.spec_from_file_location("audit_android_application", SCRIPT)
@@ -85,6 +107,30 @@ def _manifest() -> str:
 """
 
 
+def _exact_model_members(kind: str) -> dict[str, bytes]:
+    result: dict[str, bytes] = {}
+    for contract in audit.MODEL_ASSET_CONTRACTS:
+        for relative_path in (contract.model_path, contract.metadata_path):
+            member = audit._artifact_member(
+                kind, f"assets/flutter_assets/{relative_path}"
+            )
+            result[member] = (MODEL_SOURCE_ROOT / Path(relative_path).name).read_bytes()
+    return result
+
+
+def _audit_model_members(kind: str, members: dict[str, bytes]) -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="fonix-model-package-") as temporary:
+        artifact = Path(temporary) / f"app.{kind}"
+        with zipfile.ZipFile(artifact, "w") as archive:
+            for path, value in members.items():
+                archive.writestr(path, value)
+        archive, index = audit._archive_index(artifact)
+        try:
+            return audit._audit_model_assets(archive, index, kind)
+        finally:
+            archive.close()
+
+
 class AndroidManifestAuditTest(unittest.TestCase):
     def test_accepts_exact_release_manifest_contract(self) -> None:
         report = audit._audit_manifest_xml(_manifest())
@@ -125,6 +171,96 @@ class AndroidManifestAuditTest(unittest.TestCase):
             with self.subTest(mutated=mutated[:100]):
                 with self.assertRaises(audit.AndroidApplicationAuditError):
                     audit._audit_manifest_xml(mutated)
+
+
+class AndroidModelAssetAuditTest(unittest.TestCase):
+    def test_accepts_exact_closed_apk_and_aab_inventories(self) -> None:
+        for kind in ("apk", "aab"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    _audit_model_members(kind, _exact_model_members(kind)),
+                    EXPECTED_MODEL_ASSET_REPORT,
+                )
+
+    def test_rejects_every_tampered_model_or_metadata_asset(self) -> None:
+        for kind in ("apk", "aab"):
+            exact = _exact_model_members(kind)
+            for member in exact:
+                with self.subTest(kind=kind, member=member):
+                    tampered = dict(exact)
+                    value = tampered[member]
+                    tampered[member] = bytes((value[0] ^ 1,)) + value[1:]
+                    with self.assertRaisesRegex(
+                        audit.AndroidApplicationAuditError, "identity changed"
+                    ):
+                        _audit_model_members(kind, tampered)
+
+    def test_rejects_missing_and_extra_model_assets(self) -> None:
+        for kind in ("apk", "aab"):
+            exact = _exact_model_members(kind)
+            for missing in exact:
+                with self.subTest(kind=kind, missing=missing):
+                    incomplete = dict(exact)
+                    del incomplete[missing]
+                    with self.assertRaisesRegex(
+                        audit.AndroidApplicationAuditError, "inventory changed"
+                    ):
+                        _audit_model_members(kind, incomplete)
+            unexpected = dict(exact)
+            unexpected[
+                audit._artifact_member(
+                    kind,
+                    "assets/flutter_assets/assets/models/unexpected.onnx",
+                )
+            ] = b"unexpected"
+            with self.subTest(kind=kind, extra="unexpected.onnx"):
+                with self.assertRaisesRegex(
+                    audit.AndroidApplicationAuditError, "inventory changed"
+                ):
+                    _audit_model_members(kind, unexpected)
+
+    def test_manifests_reject_recursive_wrong_types_and_field_drift(self) -> None:
+        for contract in audit.MODEL_ASSET_CONTRACTS:
+            model = (MODEL_SOURCE_ROOT / Path(contract.model_path).name).read_bytes()
+            mutations = []
+
+            extra = json.loads(json.dumps(contract.manifest))
+            extra["unexpected"] = "field"
+            mutations.append(("extra", extra))
+
+            missing = json.loads(json.dumps(contract.manifest))
+            del missing["claimBoundary"]
+            mutations.append(("missing", missing))
+
+            boolean_integer = json.loads(json.dumps(contract.manifest))
+            boolean_integer["schemaVersion"] = True
+            mutations.append(("bool-for-int", boolean_integer))
+
+            nested_boolean = json.loads(json.dumps(contract.manifest))
+            nested_boolean["input"]["shape"][0] = True
+            mutations.append(("nested-bool-for-int", nested_boolean))
+
+            nested_float = json.loads(json.dumps(contract.manifest))
+            nested_float["input"]["values"][0] = 1.0
+            mutations.append(("nested-float-for-int", nested_float))
+
+            for mutation, value in mutations:
+                with self.subTest(model=contract.model_path, mutation=mutation):
+                    with self.assertRaises(audit.AndroidApplicationAuditError):
+                        audit._validate_model_manifest(value, contract, model)
+
+    def test_manifest_cross_binding_rejects_different_model_bytes(self) -> None:
+        for contract in audit.MODEL_ASSET_CONTRACTS:
+            with self.subTest(model=contract.model_path):
+                with self.assertRaisesRegex(
+                    audit.AndroidApplicationAuditError,
+                    "not bound to its packaged model",
+                ):
+                    audit._validate_model_manifest(
+                        json.loads(json.dumps(contract.manifest)),
+                        contract,
+                        b"different model bytes",
+                    )
 
 
 class AndroidNativeAuditTest(unittest.TestCase):

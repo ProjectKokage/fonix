@@ -3,7 +3,7 @@
   "artifactId": "onnxruntime-1.27.1-macos-arm64-cpu",
   "lock": {
     "path": "native/versions.lock.yaml",
-    "sha256": "5cde32cc7633387632542996ac23492721f47b68434472b013dcc6db27d2392b",
+    "sha256": "6a9a8a7b3fcca9c08843b2ebeb51fabfb215ec5693426c2cd23d4c16851f3e83",
     "snapshotDate": "2026-08-06",
     "releaseState": "unreleased-preview"
   },

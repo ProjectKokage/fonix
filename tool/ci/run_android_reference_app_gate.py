@@ -63,7 +63,11 @@ EXPECTED_SHIM_BUILD_ID = (
     "onnxruntime-1.27.1-android-arm64-v8a-cpu"
 )
 
+CPU_SMOKE_PROFILE = "cpu"
+XNNPACK_SMOKE_PROFILE = "xnnpack"
+SMOKE_PROFILES = (CPU_SMOKE_PROFILE, XNNPACK_SMOKE_PROFILE)
 SMOKE_DART_DEFINE = "FONIX_REFERENCE_SMOKE=true"
+SMOKE_PROFILE_DART_DEFINE = "FONIX_REFERENCE_PROFILE"
 LOG_TAG = "FonixReference"
 RECEIPT_PREFIX = "FONIX_REFERENCE_RECEIPT="
 FAILURE_PREFIX = "FONIX_REFERENCE_FAILURE="
@@ -130,6 +134,96 @@ EXPECTED_RECEIPT_JSON = json.dumps(
     ensure_ascii=True,
     separators=(",", ":"),
 )
+EXPECTED_XNNPACK_RECEIPT: dict[str, object] = {
+    "schemaVersion": 1,
+    "status": "passed",
+    "smokeProfile": XNNPACK_SMOKE_PROFILE,
+    "runtime": {
+        "version": "1.27.1",
+        "source": "bundled",
+        "owner": "application",
+        "artifactFlavor": "cpu",
+        "platform": "android",
+        "architecture": ABI,
+        "shimBuildId": EXPECTED_SHIM_BUILD_ID,
+        "artifactSha256": ARTIFACT_SOURCE_SHA256,
+    },
+    "models": {
+        "assignmentSha256": (
+            "c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482"
+        ),
+        "assignmentManifestSha256": (
+            "76eb202b02211f34ee64ca6a88a2a24d9f58f334136fa7f1b7fcfe2e763f30ab"
+        ),
+        "fallbackSha256": MODEL_SHA256,
+        "fallbackManifestSha256": (
+            "20ab7b1150a37516159c714abca3cb1cb6e48692da0c77f21c46e15336f71449"
+        ),
+    },
+    "strictSessionPolicy": {
+        "executionMode": "sequential",
+        "graphOptimization": "all",
+        "ortIntraOpThreads": 1,
+        "ortInterOpThreads": 1,
+        "xnnpackIntraOpThreads": 1,
+        "fallbackPolicy": "rejectAny",
+    },
+    "xnnpackProvider": {
+        "compiled": True,
+        "discoverable": True,
+        "registered": True,
+        "registrationMechanism": "generic",
+        "registrationName": "XNNPACK",
+        "reportedName": "XnnpackExecutionProvider",
+        "options": {"intra_op_num_threads": "1"},
+    },
+    "cpuReference": {
+        "outputValues": [7, 10, 15, 22, 23, 34],
+        "activeProviders": ["cpu"],
+        "nodeExecutionCount": 1,
+        "nodeExecutionsByProvider": {"cpu": 1},
+        "fullAssignment": True,
+    },
+    "xnnpack": {
+        "outputValues": [7, 10, 15, 22, 23, 34],
+        "activeProviders": ["xnnpack"],
+        "nodeExecutionCount": 1,
+        "nodeExecutionsByProvider": {"xnnpack": 1},
+        "sessionCycles": 2,
+        "runsPerCycle": 3,
+        "validatedRuns": 6,
+        "allRunsFullAssignment": True,
+        "allRunsExactCpuParity": True,
+    },
+    "fallback": {
+        "reportNodeExecutionCount": 1,
+        "reportNodeExecutionsByProvider": {"cpu": 1},
+        "reportCpuFallback": True,
+        "rejectionDomain": "provider",
+        "rejectionOperation": "provider_evidence_validate",
+        "rejectionCode": 1001,
+        "rejectionProviderId": "xnnpack",
+        "outputPublished": False,
+    },
+    "postRejectionRecovery": "passed",
+    "sessionCount": 5,
+    "doubleClose": "passed",
+    "profileRootsRemoved": "passed",
+    "parityPolicy": "exact-float32",
+}
+EXPECTED_XNNPACK_RECEIPT_JSON = json.dumps(
+    EXPECTED_XNNPACK_RECEIPT,
+    ensure_ascii=True,
+    separators=(",", ":"),
+)
+EXPECTED_RECEIPTS = {
+    CPU_SMOKE_PROFILE: EXPECTED_RECEIPT,
+    XNNPACK_SMOKE_PROFILE: EXPECTED_XNNPACK_RECEIPT,
+}
+EXPECTED_RECEIPT_JSON_BY_PROFILE = {
+    CPU_SMOKE_PROFILE: EXPECTED_RECEIPT_JSON,
+    XNNPACK_SMOKE_PROFILE: EXPECTED_XNNPACK_RECEIPT_JSON,
+}
 
 
 class AndroidReferenceAppGateError(RuntimeError):
@@ -1195,14 +1289,79 @@ def _positive_device_int(value: str, label: str, *, maximum: int) -> int:
     return result
 
 
-def _validate_receipt(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != set(EXPECTED_RECEIPT):
-        raise AndroidReferenceAppGateError("Android smoke receipt field set changed")
-    for key, expected in EXPECTED_RECEIPT.items():
-        actual = value[key]
-        if type(actual) is not type(expected) or actual != expected:
-            raise AndroidReferenceAppGateError(f"Android receipt field {key!r} changed")
-    return {key: value[key] for key in EXPECTED_RECEIPT}
+def _require_smoke_profile(value: object) -> str:
+    if type(value) is not str or value not in EXPECTED_RECEIPTS:
+        raise AndroidReferenceAppGateError(
+            "Android smoke profile must be exactly 'cpu' or 'xnnpack'"
+        )
+    return value
+
+
+def _smoke_dart_defines(smoke_profile: str) -> tuple[str, ...]:
+    smoke_profile = _require_smoke_profile(smoke_profile)
+    return (
+        "--dart-define",
+        SMOKE_DART_DEFINE,
+        "--dart-define",
+        f"{SMOKE_PROFILE_DART_DEFINE}={smoke_profile}",
+    )
+
+
+def _require_deep_exact(actual: object, expected: object, *, path: str) -> None:
+    if type(actual) is not type(expected):
+        raise AndroidReferenceAppGateError(
+            f"Android receipt value {path} changed type"
+        )
+    if isinstance(expected, dict):
+        if len(actual) != len(expected) or any(
+            not any(
+                type(actual_key) is type(expected_key)
+                and actual_key == expected_key
+                for actual_key in actual
+            )
+            for expected_key in expected
+        ):
+            raise AndroidReferenceAppGateError(
+                f"Android receipt object {path} changed keys"
+            )
+        for key, expected_value in expected.items():
+            _require_deep_exact(
+                actual[key],
+                expected_value,
+                path=f"{path}.{key}",
+            )
+        return
+    if isinstance(expected, list):
+        if len(actual) != len(expected):
+            raise AndroidReferenceAppGateError(
+                f"Android receipt array {path} changed length"
+            )
+        for index, (actual_value, expected_value) in enumerate(
+            zip(actual, expected, strict=True)
+        ):
+            _require_deep_exact(
+                actual_value,
+                expected_value,
+                path=f"{path}[{index}]",
+            )
+        return
+    if actual != expected:
+        raise AndroidReferenceAppGateError(
+            f"Android receipt value {path} changed"
+        )
+
+
+def _validate_receipt(
+    value: object,
+    *,
+    smoke_profile: str,
+) -> dict[str, object]:
+    smoke_profile = _require_smoke_profile(smoke_profile)
+    expected = EXPECTED_RECEIPTS[smoke_profile]
+    _require_deep_exact(value, expected, path="$")
+    if type(value) is not dict:
+        raise AndroidReferenceAppGateError("Android smoke receipt is not an object")
+    return {key: value[key] for key in expected}
 
 
 def _parse_package_uid(output: str) -> int:
@@ -1292,7 +1451,9 @@ def _parse_logcat_receipt(
     *,
     expected_uid: int,
     observed_pid: int | None,
+    smoke_profile: str,
 ) -> LogcatReceiptEvidence:
+    smoke_profile = _require_smoke_profile(smoke_profile)
     try:
         encoded = output.encode("ascii")
     except UnicodeEncodeError as error:
@@ -1357,10 +1518,6 @@ def _parse_logcat_receipt(
     raw_receipt, uid, pid = successes[0]
     if len(raw_receipt.encode("ascii")) > MAX_RECEIPT_BYTES:
         raise AndroidReferenceAppGateError("Android smoke receipt exceeds 16 KiB")
-    if raw_receipt != EXPECTED_RECEIPT_JSON:
-        raise AndroidReferenceAppGateError(
-            "Android smoke receipt is not the exact canonical JSON"
-        )
     try:
         value = strict_json(
             raw_receipt,
@@ -1369,8 +1526,13 @@ def _parse_logcat_receipt(
         )
     except AndroidGateCommonError as error:
         raise _common(error) from error
+    receipt = _validate_receipt(value, smoke_profile=smoke_profile)
+    if raw_receipt != EXPECTED_RECEIPT_JSON_BY_PROFILE[smoke_profile]:
+        raise AndroidReferenceAppGateError(
+            "Android smoke receipt is not the exact canonical JSON"
+        )
     return LogcatReceiptEvidence(
-        _validate_receipt(value),
+        receipt,
         uid,
         pid,
         observed_pid is not None,
@@ -1532,7 +1694,9 @@ def _run_on_avd(
     apk: Path,
     *,
     expected_apk_sha256: str,
+    smoke_profile: str,
 ) -> dict[str, object]:
+    smoke_profile = _require_smoke_profile(smoke_profile)
     abi = _adb(adb, serial, ("shell", "getprop", "ro.product.cpu.abi"), "device ABI query")
     if abi != ABI:
         raise AndroidReferenceAppGateError(f"named AVD ABI is {abi!r}, expected {ABI}")
@@ -1618,6 +1782,7 @@ def _run_on_avd(
                     output,
                     expected_uid=application_uid,
                     observed_pid=observed_pid,
+                    smoke_profile=smoke_profile,
                 )
                 break
             except AndroidReferenceReceiptPending:
@@ -1627,8 +1792,21 @@ def _run_on_avd(
             raise AndroidReferenceAppGateError("reference receipt was not observed")
     finally:
         _cleanup_installed_application(adb, serial)
+    if smoke_profile == CPU_SMOKE_PROFILE:
+        claim_boundary = (
+            "This runtime receipt applies only to the queried emulator ABI, API, "
+            "page size, installed APK bytes, and selected CPU smoke profile."
+        )
+    else:
+        claim_boundary = (
+            "This runtime receipt applies only to the queried emulator ABI, API, "
+            "page size, installed APK bytes, and selected XNNPACK smoke profile. "
+            "It is a functional assignment/parity/fallback checkpoint, not "
+            "physical-device or performance qualification."
+        )
     return {
         "kind": "emulator",
+        "smokeProfile": smoke_profile,
         "abi": abi,
         "androidApi": api,
         "pageSizeBytes": page_size,
@@ -1636,6 +1814,8 @@ def _run_on_avd(
         "installedApkSha256": installed_apk_sha256,
         "receipt": receipt_evidence.receipt,
         "receiptProvenance": {
+            "smokeProfile": smoke_profile,
+            "installedAuditedApkSha256": installed_apk_sha256,
             "applicationUid": application_uid,
             "logcatUidFilter": application_uid,
             "receiptUid": receipt_evidence.uid,
@@ -1647,10 +1827,7 @@ def _run_on_avd(
                 else "uid-filtered-process-exited-before-pid-query"
             ),
         },
-        "claimBoundary": (
-            "This runtime receipt applies only to the queried emulator ABI, API, "
-            "page size, installed APK bytes, and CPU fixture."
-        ),
+        "claimBoundary": claim_boundary,
     }
 
 
@@ -1664,7 +1841,9 @@ def run_gate(
     java_home: Path,
     bundletool: Path,
     avd_name: str | None,
+    smoke_profile: str = CPU_SMOKE_PROFILE,
 ) -> dict[str, object]:
+    smoke_profile = _require_smoke_profile(smoke_profile)
     try:
         repository = directory(repository.resolve(strict=True), "Fonix repository")
         flutter = _resolve_tool(flutter, "Flutter executable")
@@ -1796,8 +1975,7 @@ def run_gate(
         "--no-pub",
         "--target-platform",
         "android-arm64",
-        "--dart-define",
-        SMOKE_DART_DEFINE,
+        *_smoke_dart_defines(smoke_profile),
     )
     _run_command(
         (str(flutter), "build", "apk", *build_common),
@@ -1872,6 +2050,7 @@ def run_gate(
                 serial,
                 apk,
                 expected_apk_sha256=apk_sha256,
+                smoke_profile=smoke_profile,
             )
         finally:
             if emulator_process is not None:
@@ -1884,6 +2063,7 @@ def run_gate(
     report: dict[str, object] = {
         "schemaVersion": 1,
         "result": "passed",
+        "smokeProfile": smoke_profile,
         "applicationId": APPLICATION_ID,
         "abi": ABI,
         "artifactId": ARTIFACT_ID,
@@ -1934,6 +2114,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--java-home", type=Path, required=True)
     parser.add_argument("--bundletool", type=Path, required=True)
     parser.add_argument("--avd-name")
+    parser.add_argument(
+        "--smoke-profile",
+        choices=SMOKE_PROFILES,
+        default=CPU_SMOKE_PROFILE,
+    )
     return parser
 
 
@@ -1949,6 +2134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             java_home=arguments.java_home,
             bundletool=arguments.bundletool,
             avd_name=arguments.avd_name,
+            smoke_profile=arguments.smoke_profile,
         )
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
         return 0

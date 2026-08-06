@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "id": "xnnpack-matmul-sha256-c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482",
+  "path": "assets/models/xnnpack_matmul.onnx",
+  "generator": "assets/models/generate_xnnpack_matmul.py",
+  "generatorVersion": "xnnpack-matmul-v1",
+  "sha256": "c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482",
+  "sizeBytes": 311,
+  "onnxIrVersion": 8,
+  "opset": 17,
+  "operator": "MatMul",
+  "input": {
+    "name": "input",
+    "elementType": "float32",
+    "shape": [
+      3,
+      2
+    ],
+    "values": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ]
+  },
+  "initializer": {
+    "name": "weight",
+    "elementType": "float32",
+    "shape": [
+      2,
+      2
+    ],
+    "values": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "matrixMultiplication": {
+    "leftShape": [
+      3,
+      2
+    ],
+    "rightShape": [
+      2,
+      2
+    ]
+  },
+  "output": {
+    "name": "output",
+    "elementType": "float32",
+    "shape": [
+      3,
+      2
+    ],
+    "values": [
+      7,
+      10,
+      15,
+      22,
+      23,
+      34
+    ]
+  },
+  "referencePolicy": "exact-float32",
+  "claimBoundary": "Functional provider-assignment and CPU-parity fixture only; not a performance, thermal, physical-device, or provider-qualification workload."
+}
