@@ -5,7 +5,9 @@
 - Added dense and string tensors, reduced-precision storage, composite ONNX
   values, metadata, native buffers, leases, external-data policy, named runs,
   and cancellation.
-- Added worker-isolate sessions and bounded session pools.
+- Added worker-isolate sessions, bounded session pools, and an exact public
+  cancellation disposition that distinguishes queued removal from an accepted
+  active native termination request.
 - Added execution-provider discovery, normalized diagnostics, strict per-run
   assignment evidence, typed mobile-provider configuration, and CoreML cache
   identity isolation.
@@ -23,6 +25,9 @@
   assignment, exact CPU parity, explicit fallback report/rejection, recovery,
   repeated-session lifecycle checks, failure-path profile-root retirement, and
   exact final APK/AAB model audits.
+- Added a locked sherpa-owned Android reference scaffold and staged build gate
+  that binds all hosted package trees, the generated plugin graph, exact raw
+  native inputs, and one arm64-v8a Release APK/base-only-AAB static pair.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
   assignment/parity on macOS arm64. The Android XNNPACK result is limited to an
   API 35 arm64/4 KiB emulator functional checkpoint; API 24/16 KiB/physical-

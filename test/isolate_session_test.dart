@@ -197,10 +197,25 @@ void main() {
         queued.result,
         throwsA(isA<OrtRunCancelledException>()),
       );
-      expect(await queued.cancel(), isTrue);
-      expect(await queued.cancel(), isTrue);
+      final Future<OrtRunCancellationDisposition> queuedCancellation = queued
+          .cancelWithDisposition();
+      expect(
+        identical(queuedCancellation, queued.cancelWithDisposition()),
+        isTrue,
+      );
+      expect(
+        await queuedCancellation,
+        OrtRunCancellationDisposition.queuedRunRemoved,
+      );
+      final Future<bool> booleanCancellation = queued.cancel();
+      expect(identical(booleanCancellation, queued.cancel()), isTrue);
+      expect(await booleanCancellation, isTrue);
       await cancelledResult;
       expect((await first.result).tensor('Y').copyFloat32Data(), <double>[1]);
+      expect(
+        await first.cancelWithDisposition(),
+        OrtRunCancellationDisposition.notCancelled,
+      );
       expect(await first.cancel(), isFalse);
       await worker.close();
     });
@@ -335,9 +350,40 @@ void main() {
             'X': _tensor(<double>[1]),
           },
         );
-        final Future<bool> cancellation = run.cancel();
+        final Future<OrtRunCancellationDisposition> cancellation = run
+            .cancelWithDisposition();
         await expectLater(run.result, throwsA(isA<OrtRunException>()));
-        expect(await cancellation, isFalse);
+        expect(await cancellation, OrtRunCancellationDisposition.notCancelled);
+        expect(await run.cancel(), isFalse);
+      } finally {
+        await worker.close();
+      }
+    });
+
+    test('reports an accepted active native termination request', () async {
+      final List<int> requestedTokens = <int>[];
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'syntheticCancelToken',
+            requestCancelToken: (int token) {
+              requestedTokens.add(token);
+              return true;
+            },
+          );
+      try {
+        final OrtIsolateRun run = worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[1]),
+          },
+        );
+        final Future<bool> booleanCancellation = run.cancel();
+        expect(await booleanCancellation, isTrue);
+        expect(
+          await run.cancelWithDisposition(),
+          OrtRunCancellationDisposition.nativeTerminationRequested,
+        );
+        expect(requestedTokens, <int>[1]);
+        expect((await run.result).tensor('Y').copyFloat32Data(), <double>[1]);
       } finally {
         await worker.close();
       }
@@ -811,9 +857,14 @@ void main() {
             'X': _tensor(<double>[1]),
           },
         );
-        final Future<bool> cancellation = run.cancel();
+        final Future<OrtRunCancellationDisposition> cancellation = run
+            .cancelWithDisposition();
         await expectLater(run.result, throwsA(isA<OrtRunCancelledException>()));
-        expect(await cancellation, isTrue);
+        expect(
+          await cancellation,
+          OrtRunCancellationDisposition.nativeTerminationRequested,
+        );
+        expect(await run.cancel(), isTrue);
       } finally {
         await worker.close();
       }

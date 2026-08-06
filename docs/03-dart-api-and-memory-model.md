@@ -440,11 +440,15 @@ runtime, session, or run-options handle crosses an isolate message.
 
 `startRun` returns an `OrtIsolateRun` whose idempotent `cancel` operation either
 removes a queued request or uses an opaque process-local token to request ORT
-termination. Runs remain serialized per worker, and `maxPendingRuns` applies
-backpressure before an unbounded queue can form. Graceful close rejects queued
-work, requests cancellation of the active run, waits for its native call to
-return, and disposes session then runtime. It intentionally has no timeout that
-silently kills a provider while native state may still be live.
+termination. `cancelWithDisposition` exposes the exact closed outcome:
+`queuedRunRemoved`, `nativeTerminationRequested`, or `notCancelled`. The native
+outcome means the active registry accepted the request; authoritative run
+settlement still comes from awaiting `result`. Runs remain serialized per
+worker, and `maxPendingRuns` applies backpressure before an unbounded queue can
+form. Graceful close rejects queued work, requests cancellation of the active
+run, waits for its native call to return, and disposes session then runtime. It
+intentionally has no timeout that silently kills a provider while native state
+may still be live.
 
 An explicitly sized `OrtSessionPool` may own multiple workers for throughput.
 It selects the least-loaded live worker with round-robin tie breaking, preserves

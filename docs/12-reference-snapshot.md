@@ -203,10 +203,14 @@ Implementation consequence:
 - Current target evidence is a three-stage contract: raw Android load-order
   receipt schema 2, validator-emitted record schema 1, then compatibility
   manifest schema 2. The current validator accepts only an exact APK using the
-  sherpa-owned Flutter FFI C API/C++ API topology. A closed matching-AAB
-  coexistence gate is still to be implemented; current `sherpa-audit` output
-  is preliminary inventory until that gate exists and a delivered split is
-  installed and exercised. The offline validator
+  sherpa-owned Flutter FFI C API/C++ API topology. The separate static
+  package-pair generator now binds an exact APK and base-only AAB to the same
+  selected source graph and emits `static-package-only` evidence. The exact
+  committed arm64-v8a Release reference composition passed that gate on
+  2026-08-07, but no product composition or target execution was claimed.
+  Current `sherpa-audit` output alone remains preliminary inventory, and a
+  delivered split must be installed and exercised before any AAB runtime
+  claim. The offline validator
   proves closed contract and hash consistency, not the origin of supplied
   device/log evidence; trusted runner provenance is a separate target gate.
 - Android aligned/QNN device qualification and Windows target-host/package

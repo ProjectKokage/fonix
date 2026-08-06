@@ -34,6 +34,7 @@ export 'src/runtime.dart'
         OrtBytesModelSource,
         OrtFileModelSource,
         OrtIsolateRun,
+        OrtRunCancellationDisposition,
         OrtIsolateRunResult,
         OrtIsolateSession,
         OrtMap,

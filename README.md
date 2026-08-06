@@ -154,9 +154,16 @@ supplying more self-authored JSON.
 For one ABI and build this requires four independent records: the
 `dart-first` and `sherpa-first` load orders on both 4 KiB and 16 KiB page-size
 environments. The runtime validator currently covers a sherpa-owned Flutter
-FFI APK only. A closed matching-AAB coexistence gate is still to be
-implemented; current `sherpa-audit` output is preliminary inventory, and no AAB
-runtime claim exists until an AAB-derived split is installed and exercised.
+FFI APK only. The separate
+`tool/ci/android_static_package_manifest.py` gate binds one exact APK and one
+base-only AAB to the same selected raw sherpa/Fonix inputs, complete dependency
+graph, and file-backed loaded segments. Its output is deliberately
+`static-package-only`. In addition to synthetic/tamper coverage, the staged
+runner has built and passed this gate for the committed arm64-v8a Release
+sherpa reference composition. That application still emits only
+`unavailable/native-fixtures-unprovisioned`; no product, installation, or
+runtime coexistence claim follows. No AAB runtime claim exists until an
+AAB-derived split is installed and exercised.
 
 ## Committed Flutter reference application
 
@@ -176,6 +183,13 @@ test the app, build Release, audit the packaged bytes, and then launch the final
 macOS executable or install the final Android APK. The Android gate also audits
 the AAB, but does not install an AAB-derived split. See the
 [reference-app guide](example/README.md).
+
+[`templates/android/sherpa_reference_app/`](templates/android/sherpa_reference_app/)
+is the separate sherpa-owned scaffold. Its locked runner copies it outside the
+checkout, guards all five hosted sherpa package trees and generated plugin
+bindings, runs its host contract tests, builds an arm64-v8a R8 Release APK and
+base-only AAB, and applies the closed package-pair audit. Native qualification
+drivers and target execution remain the next layer.
 
 ## Verification
 
@@ -209,11 +223,17 @@ actual 16 KiB runtime, physical-device behavior, AAB split installation,
 x86_64 execution, QNN, and sherpa coexistence remain unproved. iOS, Linux, and
 the deferred Windows target-host gaps remain explicit release gates.
 
+The committed sherpa-owned arm64-v8a reference composition also has one exact
+R8 Release APK/base-only-AAB static package-pair record. It binds the locked
+hosted package trees, raw sherpa/ORT/Fonix inputs, complete native dependency
+graph, matching Flutter platform-library loaded bytes, and static 16 KiB ELF
+compatibility. It did not install or run either package.
+
 The next development slice is the exact sherpa-owned Flutter FFI Android
-composition, starting with one arm64-v8a Release APK and its four validated
-load-order/page-size records while implementing and running the closed
-matching-AAB static coexistence gate. After that come the iOS arm64 reference
-app, Linux x86_64 target-host package, and cross-platform
+runtime adapter and trusted target runner, producing four validated
+arm64-v8a Release load-order/page-size records for one exact APK. After that
+come the iOS arm64 reference app, Linux x86_64 target-host package, and
+cross-platform
 lifecycle/performance and release stabilization. Android QNN/aligned-runtime
 device qualification and all Windows target-host, final-package, installer,
 and clean-machine work are deferred until their required SDK/hardware or

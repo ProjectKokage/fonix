@@ -144,7 +144,7 @@ def _artifact_kind(path: Path) -> str:
     return "zip"
 
 
-def _aab_modules(paths: Iterable[str]) -> set[str]:
+def _aab_manifest_modules(paths: Iterable[str]) -> set[str]:
     modules: set[str] = set()
     for value in paths:
         parts = PurePosixPath(value).parts
@@ -153,12 +153,26 @@ def _aab_modules(paths: Iterable[str]) -> set[str]:
     return modules
 
 
-def classify_path(
+def _aab_native_modules(paths: Iterable[str]) -> set[str]:
+    modules: set[str] = set()
+    for value in paths:
+        parts = PurePosixPath(value).parts
+        if len(parts) == 4 and parts[1] == "lib" and parts[3].endswith(".so"):
+            modules.add(parts[0])
+    return modules
+
+
+def _aab_modules(paths: Iterable[str]) -> set[str]:
+    values = tuple(paths)
+    return _aab_manifest_modules(values) | _aab_native_modules(values)
+
+
+def _native_path_components(
     path: str,
     kind: str = "zip",
     aab_modules: Iterable[str] = (),
 ) -> tuple[str, str] | None:
-    """Return ``(ABI, name)`` only for a canonical loadable library path."""
+    """Return the ABI/basename shape before validating the library basename."""
 
     canonical = _canonical_archive_path(path)
     if canonical is None:
@@ -166,8 +180,6 @@ def classify_path(
     parts = PurePosixPath(canonical).parts
     modules = set(aab_modules)
 
-    abi: str
-    name: str
     if kind == "aar" and len(parts) == 3 and parts[0] == "jni":
         _, abi, name = parts
     elif kind == "apk" and len(parts) == 3 and parts[0] == "lib":
@@ -190,7 +202,20 @@ def classify_path(
             return None
     else:
         return None
+    return abi, name
 
+
+def classify_path(
+    path: str,
+    kind: str = "zip",
+    aab_modules: Iterable[str] = (),
+) -> tuple[str, str] | None:
+    """Return ``(ABI, name)`` only for a canonical loadable library path."""
+
+    components = _native_path_components(path, kind, aab_modules)
+    if components is None:
+        return None
+    abi, name = components
     if not LIBRARY_NAME_RE.fullmatch(name):
         return None
     return abi, name
@@ -934,11 +959,42 @@ def inspect_zip(path: Path) -> dict:
                 ort_candidates.append(canonical)
 
         modules = _aab_modules(canonical_names) if kind == "aab" else set()
+        if kind == "aab":
+            undeclared_native_modules = _aab_native_modules(
+                canonical_names
+            ) - _aab_manifest_modules(canonical_names)
+            invalid_archive_paths.extend(
+                f"{module}/lib"
+                for module in sorted(undeclared_native_modules)
+            )
         for info in infos:
             if info.is_dir():
                 continue
             canonical = _canonical_archive_path(info.filename)
             if canonical is None:
+                continue
+            native_path = _native_path_components(canonical, kind, modules)
+            if (
+                native_path is not None
+                and native_path[1].endswith(".so")
+                and LIBRARY_NAME_RE.fullmatch(native_path[1]) is None
+            ):
+                abi, name = native_path
+                invalid_libraries.append(
+                    {
+                        **_library_entry(
+                            path=canonical,
+                            abi=abi,
+                            name=name,
+                            size=info.file_size,
+                            digest="",
+                        ),
+                        "error": (
+                            "native library basename must match "
+                            "lib[A-Za-z0-9_.+-]+.so"
+                        ),
+                    }
+                )
                 continue
             classified = classify_path(canonical, kind, modules)
             if classified is None:
@@ -1128,12 +1184,42 @@ def inspect_directory(path: Path) -> dict:
     all_files.sort()
     canonical_names = [candidate.relative_to(path).as_posix() for candidate in all_files]
     modules = _aab_modules(canonical_names) if kind == "aab" else set()
+    if kind == "aab":
+        undeclared_native_modules = _aab_native_modules(
+            canonical_names
+        ) - _aab_manifest_modules(canonical_names)
+        invalid_archive_paths.extend(
+            f"{module}/lib" for module in sorted(undeclared_native_modules)
+        )
 
     total_native_bytes = 0
     for file_path in all_files:
         relative = file_path.relative_to(path).as_posix()
         if file_path.name == ORT_NAME:
             ort_candidates.append(relative)
+        native_path = _native_path_components(relative, kind, modules)
+        if (
+            native_path is not None
+            and native_path[1].endswith(".so")
+            and LIBRARY_NAME_RE.fullmatch(native_path[1]) is None
+        ):
+            abi, name = native_path
+            invalid_libraries.append(
+                {
+                    **_library_entry(
+                        path=relative,
+                        abi=abi,
+                        name=name,
+                        size=0,
+                        digest="",
+                    ),
+                    "error": (
+                        "native library basename must match "
+                        "lib[A-Za-z0-9_.+-]+.so"
+                    ),
+                }
+            )
+            continue
         classified = classify_path(relative, kind, modules)
         if classified is None:
             continue

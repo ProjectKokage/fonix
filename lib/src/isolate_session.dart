@@ -9,6 +9,27 @@ const int _maximumWorkerCompositeChildren = 1024;
 
 typedef _OrtWorkerEntrypoint = void Function(Map<String, Object?> message);
 
+/// How a worker-run cancellation request was handled.
+///
+/// This distinguishes a request removed before native execution from a
+/// request delivered to ONNX Runtime's active run-options termination state.
+/// Callers that only need the historical boolean contract can continue to use
+/// [OrtIsolateRun.cancel].
+enum OrtRunCancellationDisposition {
+  /// The run had already settled, or its native termination token was no
+  /// longer active, so no cancellation was requested.
+  notCancelled,
+
+  /// The run was removed from the bounded worker queue before dispatch.
+  queuedRunRemoved,
+
+  /// The request reached the active native termination registry.
+  nativeTerminationRequested;
+
+  /// Whether the run was cancelled or native termination was requested.
+  bool get wasRequested => this != notCancelled;
+}
+
 /// Fully copied outputs from one isolate-owned inference run.
 final class OrtIsolateRunResult {
   OrtIsolateRunResult._(
@@ -61,9 +82,23 @@ final class OrtIsolateRun {
   /// Cancels a queued run or requests ORT termination for an active run.
   ///
   /// The returned boolean is true when this call cancelled a queued request or
-  /// reached the native termination registry. A repeated call returns the same
-  /// future. Calling after settlement returns false.
-  Future<bool> cancel() => _owner._cancel(_request);
+  /// reached the native termination registry. Repeated calls return the same
+  /// future. A first call after settlement returns false.
+  ///
+  /// Use [cancelWithDisposition] when evidence must distinguish those two
+  /// successful mechanisms.
+  Future<bool> cancel() =>
+      _request.booleanCancellationFuture ??= cancelWithDisposition().then(
+        (OrtRunCancellationDisposition value) => value.wasRequested,
+      );
+
+  /// Cancels this run and reports the exact cancellation mechanism.
+  ///
+  /// Repeated calls return the same future. A native disposition proves that
+  /// the request reached the active run-options termination registry; callers
+  /// must still await [result] to observe authoritative run settlement.
+  Future<OrtRunCancellationDisposition> cancelWithDisposition() =>
+      _owner._cancel(_request);
 }
 
 /// A long-lived worker isolate that exclusively owns one runtime and session.
@@ -226,7 +261,7 @@ final class OrtIsolateSession {
     while (_queue.isNotEmpty) {
       final _PendingIsolateRun request = _queue.removeFirst();
       request.completeError(closedError);
-      request.completeCancellation(false);
+      request.completeCancellation(OrtRunCancellationDisposition.notCancelled);
     }
     final _PendingIsolateRun? active = _active;
     if (active != null) {
@@ -254,14 +289,16 @@ final class OrtIsolateSession {
     if (_closing || _closed) throw OrtWorkerClosedException();
   }
 
-  Future<bool> _cancel(_PendingIsolateRun request) {
-    final Future<bool>? existing = request.cancellationFuture;
+  Future<OrtRunCancellationDisposition> _cancel(_PendingIsolateRun request) {
+    final Future<OrtRunCancellationDisposition>? existing =
+        request.cancellationFuture;
     if (existing != null) return existing;
-    final Completer<bool> completer = Completer<bool>();
+    final Completer<OrtRunCancellationDisposition> completer =
+        Completer<OrtRunCancellationDisposition>();
     request.cancellationCompleter = completer;
     request.cancellationFuture = completer.future;
     if (request.completer.isCompleted) {
-      completer.complete(false);
+      completer.complete(OrtRunCancellationDisposition.notCancelled);
       return completer.future;
     }
     if (!request.dispatched) {
@@ -273,7 +310,7 @@ final class OrtIsolateSession {
             context: <String, Object?>{'requestId': request.id},
           ),
         );
-        completer.complete(true);
+        completer.complete(OrtRunCancellationDisposition.queuedRunRemoved);
         _dispatchNext();
         return completer.future;
       }
@@ -291,10 +328,16 @@ final class OrtIsolateSession {
     try {
       final bool requested = _requestCancelToken(token);
       request.nativeCancellationRequested = requested;
-      request.cancellationCompleter!.complete(requested);
+      request.cancellationCompleter!.complete(
+        requested
+            ? OrtRunCancellationDisposition.nativeTerminationRequested
+            : OrtRunCancellationDisposition.notCancelled,
+      );
     } on FonixNativeFailure catch (failure, stackTrace) {
       if (failure.code == _nativeErrorCancelTokenUnknown) {
-        request.cancellationCompleter!.complete(false);
+        request.cancellationCompleter!.complete(
+          OrtRunCancellationDisposition.notCancelled,
+        );
       } else {
         request.cancellationCompleter!.completeError(
           OrtWorkerException(
@@ -347,7 +390,7 @@ final class OrtIsolateSession {
     } on Object catch (error, stackTrace) {
       _active = null;
       request.completeError(error, stackTrace);
-      request.completeCancellation(false);
+      request.completeCancellation(OrtRunCancellationDisposition.notCancelled);
       _dispatchNext();
     }
   }
@@ -413,7 +456,9 @@ final class OrtIsolateSession {
             maxMessageBytes: maxMessageBytes,
           );
           request.complete(result);
-          request.completeCancellation(false);
+          request.completeCancellation(
+            OrtRunCancellationDisposition.notCancelled,
+          );
           _settleActive(request);
           break;
         case 'ortError':
@@ -430,7 +475,9 @@ final class OrtIsolateSession {
                   )
                 : error,
           );
-          request.completeCancellation(false);
+          request.completeCancellation(
+            OrtRunCancellationDisposition.notCancelled,
+          );
           _settleActive(request);
           break;
         case 'workerError':
@@ -443,7 +490,9 @@ final class OrtIsolateSession {
               context: <String, Object?>{'requestId': request.id},
             ),
           );
-          request.completeCancellation(false);
+          request.completeCancellation(
+            OrtRunCancellationDisposition.notCancelled,
+          );
           _settleActive(request);
           break;
         case 'fatalWorkerError':
@@ -560,8 +609,9 @@ final class _PendingIsolateRun {
   bool cancelRequested = false;
   bool nativeCancellationRequested = false;
   int? cancelToken;
-  Completer<bool>? cancellationCompleter;
-  Future<bool>? cancellationFuture;
+  Completer<OrtRunCancellationDisposition>? cancellationCompleter;
+  Future<OrtRunCancellationDisposition>? cancellationFuture;
+  Future<bool>? booleanCancellationFuture;
 
   void complete(OrtIsolateRunResult result) {
     if (!completer.isCompleted) completer.complete(result);
@@ -571,15 +621,17 @@ final class _PendingIsolateRun {
     if (!completer.isCompleted) completer.completeError(error, stackTrace);
   }
 
-  void completeCancellation(bool result) {
-    final Completer<bool>? cancellation = cancellationCompleter;
+  void completeCancellation(OrtRunCancellationDisposition result) {
+    final Completer<OrtRunCancellationDisposition>? cancellation =
+        cancellationCompleter;
     if (cancellation != null && !cancellation.isCompleted) {
       cancellation.complete(result);
     }
   }
 
   void completeCancellationError(Object error, [StackTrace? stackTrace]) {
-    final Completer<bool>? cancellation = cancellationCompleter;
+    final Completer<OrtRunCancellationDisposition>? cancellation =
+        cancellationCompleter;
     if (cancellation != null && !cancellation.isCompleted) {
       cancellation.completeError(error, stackTrace);
     }

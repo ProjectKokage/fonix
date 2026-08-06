@@ -1453,6 +1453,31 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
         self.assertEqual(invalid_result.returncode, 1)
         self.assertEqual(valid_result.returncode, 0, valid_result.stderr)
 
+    def test_rejects_nonstandard_so_basename_in_native_location(self) -> None:
+        artifact = self.make_archive(
+            "nonstandard-name.apk",
+            [
+                (
+                    "lib/arm64-v8a/runtime.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="runtime.so",
+                        defined_symbols=("OrtGetApiBase",),
+                    ),
+                )
+            ],
+        )
+
+        result = self.run_verifier(
+            "--artifact",
+            str(artifact),
+            "--quiet",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("invalid native library", result.stderr)
+        self.assertIn("basename must match", result.stderr)
+
     def test_forbidden_owner_detects_ort_hidden_in_assets(self) -> None:
         artifact = self.make_archive(
             "wrapper-external.aar",

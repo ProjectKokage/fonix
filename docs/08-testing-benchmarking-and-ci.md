@@ -100,9 +100,11 @@ unknown protocol fields, verify queue cancellation/backpressure, distinguish
 startup/crash/protocol/ORT failures, drain close races, preserve recursive
 Optional None types, and surface terminal pool failures before backpressure.
 Its opt-in native-asset case registers cancellation inside the worker isolate
-and requests it from the caller isolate, proving that both reach the same
-real-shim registry. This complements, rather than replaces, the blocking C
-`Run` test.
+and requests it from the caller isolate. The public disposition must report
+`nativeTerminationRequested`, proving that the request reached the same
+real-shim registry rather than merely being removed from the Dart queue. This
+complements, rather than replaces, the blocking C `Run` test and awaiting the
+authoritative run settlement.
 
 ## 8.6 Packaging tests
 
@@ -206,6 +208,15 @@ incomplete four-record matrix. The exact cached 1.13.4 arm64-v8a and x86_64
 native inputs pass the static profile and 16 KiB checks. No real sherpa APK
 load-order/lifecycle record has been produced, so no coexistence execution is
 inferred from this tooling checkpoint.
+
+The separate `run_android_sherpa_reference_app_gate.py` now copies the locked
+sherpa-owned scaffold outside the checkout, verifies all five selected hosted
+package trees and generated plugin bindings around each consuming command,
+runs host tests, builds arm64-v8a R8 Release APK/AAB bytes, and invokes the
+closed static package-pair generator. The committed reference composition
+passed that gate on 2026-08-07. Its main path still reports only
+`unavailable/native-fixtures-unprovisioned`, and the runner accepts no device
+or runtime-receipt input, so this adds package evidence only.
 
 The offline validator cannot authenticate the origin of target or logcat JSON.
 Trusted device-runner capture of installation, package-manager/`adb` output,

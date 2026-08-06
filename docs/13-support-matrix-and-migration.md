@@ -28,7 +28,7 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 | macOS arm64, minimum 14.0 | bundled CPU | Final-app tested with both a freshly generated gate app and the committed public-API reference `.app`, exact packaged bytes, and numeric CPU inference | Consistent distribution signing, removal/review of the local ad-hoc library-validation exception, notarization, and release approval |
 | iOS arm64 device, minimum 15.1 | linked CPU | Shim/runtime source resolution and device-target compilation | Signed final app, physical-device load/inference, lifecycle, and packaging audit |
 | iOS arm64 simulator, minimum 15.1 | linked CPU | Shim/runtime source resolution and simulator-target compilation | Final simulator app load/inference and packaging audit |
-| Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64 emulator with a queried 4096-byte page size | API 24 execution, actual 16 KiB runtime, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, trusted runner provenance plus four validated sherpa-owned Flutter FFI load-order/page-size records for one exact APK, a closed matching-AAB static coexistence gate still to implement and run, approved distribution signing, and release approval; QNN is deferred |
+| Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64 emulator with a queried 4096-byte page size; the committed sherpa-owned R8 Release reference APK/base-only-AAB pair passed the closed static package gate | API 24 execution, actual 16 KiB runtime, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, trusted runner provenance plus four validated sherpa-owned Flutter FFI load-order/page-size records for one exact APK, execution of both static and runtime gates on the eventual target composition, approved distribution signing, and release approval; QNN is deferred |
 | Android x86_64, API 24 | application-owned CPU or sherpa-owned process shim | NDK cross-build, ELF/16 KiB static audit, and synthetic final native inventory | Flutter APK/AAB, emulator runtime/inference, sherpa coexistence, and release/R8 |
 | Linux x86_64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
 | Linux arm64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
@@ -74,9 +74,10 @@ repository validator rehashes its APK and all external evidence and emits a
 schema-1 validation record. The schema-2 compatibility generator accepts only
 those records, binds every selected source shim/ORT/sherpa library to final
 loaded segments, and requires the four load-order/page-size records for every
-declared ABI. A closed matching-AAB static coexistence gate remains to be
-implemented; current `sherpa-audit` inventory is insufficient, and runtime
-evidence still requires an installed delivered split. These offline tools
+declared ABI. The separate static package-pair generator binds one exact APK
+and base-only AAB to the same selected source graph; current `sherpa-audit`
+inventory remains insufficient, and runtime evidence still requires an
+installed delivered split. These offline tools
 establish internal contract and byte consistency, not target/log origin;
 trusted runner capture is required before promotion. Application-owned
 standalone CPU and XNNPACK functional emulator receipts now exist, but neither
@@ -89,7 +90,10 @@ The static compatibility tooling now has separate closed `jni` and
 `flutter-ffi` profiles. The exact selected 1.13.4 arm64-v8a/x86_64 Flutter FFI
 native inputs pass their C API/C++ API dependency and 16 KiB ELF checks, and
 schema-2 records can bind repeatable raw `jniLibs`/Native Assets inventories to
-every final loaded segment. This is source-artifact evidence only; it does not
+every final loaded segment. The static package-pair path has deterministic
+synthetic and tamper coverage and passed for the committed arm64-v8a Release
+reference APK/base-only-AAB pair. The scaffold has no native qualification
+adapter and was not installed or run. This tooling/package evidence does not
 promote either Android row without the dedicated final application and target
 receipts above.
 

@@ -1,0 +1,39 @@
+name: fonix_sherpa_reference
+description: Dedicated Android harness for Fonix and sherpa-onnx coexistence.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  crypto: ^3.0.7
+  flutter:
+    sdk: flutter
+  fonix:
+    path: ../../..
+  sherpa_onnx: 1.13.4
+
+dependency_overrides:
+  sherpa_onnx_android_arm64: 1.13.4
+  sherpa_onnx_android_armeabi: 1.13.4
+  sherpa_onnx_android_x86: 1.13.4
+  sherpa_onnx_android_x86_64: 1.13.4
+  sherpa_onnx_ios: 1.13.4
+  sherpa_onnx_linux: 1.13.4
+  sherpa_onnx_macos: 1.13.4
+  sherpa_onnx_windows: 1.13.4
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
+hooks:
+  user_defines:
+    fonix:
+      android_runtime_owner: sherpa
+      runtime_mode: external

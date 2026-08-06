@@ -260,7 +260,8 @@ remain evidence gates, not inferred claims.
 - Add exact raw-`jniLibs` inventory plus closed APK/AAB static coexistence
   gates. The final-package gates must require the shim, ORT, selected Flutter
   FFI consumers, complete dependency graph, and source-to-final byte bindings;
-  the verifier's preliminary `sherpa-audit` policy is not sufficient alone.
+  use the implemented `android_static_package_manifest.py` pair gate rather
+  than the verifier's preliminary `sherpa-audit` policy alone.
 - Implement Android constrained runtime resolution.
 - Emit schema-2 target receipts for Dart-first and sherpa-first on both page
   sizes. Prove exact alternating Fonix-reference/Silero-VAD cycles, active
@@ -309,8 +310,12 @@ emulator runs, but neither build contains sherpa and no exact product sherpa
 composition, target load-order/workload/lifecycle receipt, or 16 KiB runtime
 exists. The exact selected raw publication inputs have only static audit
 evidence. The current runtime validator covers APK plus sherpa-owned Flutter
-FFI only; the closed AAB static coexistence gate remains open. Phase 7
-acceptance therefore remains only partially complete.
+FFI only. The closed matching APK/base-only-AAB static coexistence gate is now
+implemented with deterministic synthetic and tamper coverage and has passed on
+the exact committed arm64-v8a Release reference composition. That reference
+app still emits only `unavailable/native-fixtures-unprovisioned`; it has no
+native adapter, target run, load-order/workload/lifecycle receipt, or 16 KiB
+runtime result. Phase 7 acceptance therefore remains only partially complete.
 
 ## Phase 8: desktop accelerated flavors
 

@@ -1,0 +1,1181 @@
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+
+CI_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CI_ROOT))
+SCRIPT = CI_ROOT / "run_android_sherpa_reference_app_gate.py"
+SPEC = importlib.util.spec_from_file_location(
+    "run_android_sherpa_reference_app_gate",
+    SCRIPT,
+)
+assert SPEC is not None and SPEC.loader is not None
+gate = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(gate)
+
+
+def _identity(data: bytes, *, kind: str, name: str) -> dict[str, object]:
+    return {
+        "fileName": name,
+        "kind": kind,
+        "sizeBytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "digestScope": "archive-bytes-v1",
+    }
+
+
+class GateFixture:
+    def __init__(self, root: Path) -> None:
+        root = root.resolve()
+        self.root = root
+        self.repository = root / "fonix"
+        self.repository.mkdir()
+        self.template = self.repository / gate.TEMPLATE
+        (self.template / "android/app").mkdir(parents=True)
+        (self.template / "lib").mkdir()
+        (self.template / "test").mkdir()
+        (self.template / "pubspec.yaml").write_text(
+            "name: fonix_sherpa_reference\n"
+            "dependencies:\n"
+            "  fonix:\n"
+            "    path: ../../..\n"
+            "hooks:\n"
+            "  user_defines:\n"
+            "    fonix:\n"
+            "      android_runtime_owner: sherpa\n"
+            "      runtime_mode: external\n",
+            encoding="utf-8",
+        )
+        lock_packages = []
+        for name in gate.SHERPA_HOSTED_PACKAGES:
+            dependency = (
+                "direct main"
+                if name == gate.SHERPA_GENERIC_PACKAGE
+                else "direct overridden"
+            )
+            lock_packages.append(
+                f"  {name}:\n"
+                f'    dependency: "{dependency}"\n'
+                "    description:\n"
+                f"      name: {name}\n"
+                "      sha256: "
+                f'"{gate.SHERPA_HOSTED_PACKAGE_PINS[name].archive_sha256}"\n'
+                '      url: "https://pub.dev"\n'
+                "    source: hosted\n"
+                f'    version: "{gate.SHERPA_VERSION}"\n'
+            )
+        (self.template / "pubspec.lock").write_text(
+            "packages:\n"
+            "  fonix:\n"
+            '    dependency: "direct main"\n'
+            "    description:\n"
+            '      path: "../../.."\n'
+            "      relative: true\n"
+            "    source: path\n"
+            '    version: "0.1.0-dev.1"\n'
+            + "".join(lock_packages)
+            + "sdks:\n"
+            '  dart: ">=3.10.0 <4.0.0"\n'
+            '  flutter: ">=3.41.0-0.0.pre"\n',
+            encoding="utf-8",
+        )
+        (self.template / "lib/main.dart").write_text(
+            "void main() {}\n",
+            encoding="utf-8",
+        )
+        (self.template / "test/main_test.dart").write_text(
+            "void main() {}\n",
+            encoding="utf-8",
+        )
+        (self.repository / gate.MANIFEST).write_bytes(b"source manifest\n")
+        for relative in (
+            "tool/ci/source_checksum_manifest.py",
+            "tool/ci/android_static_package_manifest.py",
+            "templates/android/verify_native_libs.py",
+        ):
+            path = self.repository / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# fixture\n", encoding="utf-8")
+
+        self.flutter = root / "flutter/bin/flutter"
+        self.flutter.parent.mkdir(parents=True)
+        self.flutter.write_text("#!/bin/sh\n", encoding="utf-8")
+        self.flutter.chmod(0o755)
+
+        self.java_home = root / "jdk"
+        java = self.java_home / "bin/java"
+        java.parent.mkdir(parents=True)
+        java.write_text("#!/bin/sh\n", encoding="utf-8")
+        java.chmod(0o755)
+
+        self.android_sdk = root / "android-sdk"
+        ndk = (
+            self.android_sdk
+            / "ndk"
+            / gate.ANDROID_NDK_VERSION
+            / "source.properties"
+        )
+        ndk.parent.mkdir(parents=True)
+        ndk.write_text(
+            "Pkg.Desc = Android NDK\n"
+            f"Pkg.Revision = {gate.ANDROID_NDK_VERSION}\n",
+            encoding="utf-8",
+        )
+        (self.android_sdk / "build-tools" / gate.ANDROID_BUILD_TOOLS_VERSION).mkdir(
+            parents=True
+        )
+        platform = (
+            self.android_sdk
+            / "platforms"
+            / f"android-{gate.ANDROID_COMPILE_API}"
+            / "android.jar"
+        )
+        platform.parent.mkdir(parents=True)
+        platform.write_bytes(b"android")
+
+        self.sherpa_packages: dict[str, Path] = {}
+        for name in gate.SHERPA_HOSTED_PACKAGES:
+            package = root / "pub-cache" / f"{name}-{gate.SHERPA_VERSION}"
+            package.mkdir(parents=True)
+            (package / "pubspec.yaml").write_text(
+                f"name: {name}\nversion: {gate.SHERPA_VERSION}\n",
+                encoding="utf-8",
+            )
+            if name == gate.SHERPA_GENERIC_PACKAGE:
+                library = package / "lib/sherpa_onnx.dart"
+                library.parent.mkdir()
+                library.write_text("library sherpa_onnx;\n", encoding="utf-8")
+            else:
+                gradle = package / "android/build.gradle"
+                gradle.parent.mkdir()
+                gradle.write_text(
+                    f'group = "test.{name}"\n',
+                    encoding="utf-8",
+                )
+            self.sherpa_packages[name] = package
+        self.sherpa_package = self.sherpa_packages[gate.SHERPA_PACKAGE]
+        self.sherpa_jni = self.sherpa_package / "android/src/main/jniLibs"
+        (self.sherpa_jni / gate.ABI).mkdir(parents=True)
+        for name in gate.SHERPA_NATIVE_LIBRARY_NAMES:
+            (self.sherpa_jni / gate.ABI / name).write_bytes(name.encode("ascii"))
+        self.sherpa_native_sha256 = {
+            name: hashlib.sha256(name.encode("ascii")).hexdigest()
+            for name in gate.SHERPA_NATIVE_LIBRARY_NAMES
+        }
+        self.sherpa_hosted_pins = {
+            name: gate.HostedPackagePin(
+                gate.SHERPA_HOSTED_PACKAGE_PINS[name].archive_sha256,
+                gate._hosted_package_tree_identity(
+                    package,
+                    name,
+                    gate.SHERPA_HOSTED_PACKAGE_PINS[name].archive_sha256,
+                ),
+            )
+            for name, package in self.sherpa_packages.items()
+        }
+        self.untrusted_sherpa_package = root / "untrusted-sherpa-package"
+        self.untrusted_sherpa_package.mkdir()
+        self.work = root / "work"
+
+
+class FakeRunner:
+    def __init__(
+        self,
+        fixture: GateFixture,
+        *,
+        mutate_lock: bool = False,
+        mutate_sherpa_native: bool = False,
+        mutate_staged_source: bool = False,
+        mutate_hosted_operation: str | None = None,
+        mutate_package_config_operation: str | None = None,
+        mutate_plugin_inventory_operation: str | None = None,
+        missing_android_plugin: bool = False,
+        wrong_android_plugin_path: bool = False,
+        escape_repository: bool = False,
+        wrong_raw_audit: bool = False,
+        wrong_static_apk: bool = False,
+    ) -> None:
+        self.fixture = fixture
+        self.mutate_lock = mutate_lock
+        self.mutate_sherpa_native = mutate_sherpa_native
+        self.mutate_staged_source = mutate_staged_source
+        self.mutate_hosted_operation = mutate_hosted_operation
+        self.mutate_package_config_operation = mutate_package_config_operation
+        self.mutate_plugin_inventory_operation = mutate_plugin_inventory_operation
+        self.missing_android_plugin = missing_android_plugin
+        self.wrong_android_plugin_path = wrong_android_plugin_path
+        self.escape_repository = escape_repository
+        self.wrong_raw_audit = wrong_raw_audit
+        self.wrong_static_apk = wrong_static_apk
+        self.calls: list[tuple[tuple[str, ...], str, Path | None]] = []
+        self.pub_get_count = 0
+
+    def __call__(
+        self,
+        command: tuple[str, ...],
+        *,
+        operation: str,
+        cwd: Path | None,
+        environment: dict[str, str] | None,
+    ) -> gate.CommandOutput:
+        del environment
+        self.calls.append((command, operation, cwd))
+        fixture = self.fixture
+
+        def complete(output: gate.CommandOutput) -> gate.CommandOutput:
+            if self.mutate_hosted_operation == operation:
+                source = (
+                    fixture.sherpa_packages[gate.SHERPA_GENERIC_PACKAGE]
+                    / "lib/sherpa_onnx.dart"
+                )
+                source.write_text(
+                    "library sherpa_onnx; // mutated during command\n",
+                    encoding="utf-8",
+                )
+            if self.mutate_package_config_operation == operation:
+                assert cwd is not None
+                package_config = cwd / ".dart_tool/package_config.json"
+                value = json.loads(package_config.read_text(encoding="utf-8"))
+                generic = next(
+                    entry
+                    for entry in value["packages"]
+                    if entry["name"] == gate.SHERPA_GENERIC_PACKAGE
+                )
+                generic["rootUri"] = (
+                    fixture.untrusted_sherpa_package.as_uri() + "/"
+                )
+                package_config.write_text(
+                    json.dumps(value, sort_keys=True),
+                    encoding="utf-8",
+                )
+            if self.mutate_plugin_inventory_operation == operation:
+                assert cwd is not None
+                plugin_inventory = cwd / ".flutter-plugins-dependencies"
+                value = json.loads(plugin_inventory.read_text(encoding="utf-8"))
+                value["plugins"]["android"][0]["path"] = (
+                    f"{fixture.sherpa_packages[gate.SHERPA_GENERIC_PACKAGE]}/"
+                )
+                plugin_inventory.write_text(
+                    json.dumps(value, sort_keys=True),
+                    encoding="utf-8",
+                )
+            return output
+
+        if command[0].endswith("/bin/java"):
+            return gate.CommandOutput(
+                "",
+                (
+                    f"    java.home = {fixture.java_home}\n"
+                    "    java.specification.version = 21\n"
+                    "    java.vendor = Test OpenJDK Vendor\n"
+                    f"    java.version = {gate.SUPPORTED_JAVA_VERSION}\n"
+                    "    java.vm.name = OpenJDK 64-Bit Server VM\n"
+                ),
+            )
+        if command[:3] == (str(fixture.flutter), "--version", "--machine"):
+            return gate.CommandOutput(
+                json.dumps(
+                    {
+                        "frameworkRevision": gate.VALIDATED_FLUTTER_REVISION,
+                        "frameworkVersion": "3.47.0-0.1.pre",
+                    }
+                ),
+                "",
+            )
+        if command[0] == sys.executable and command[2].endswith(
+            "source_checksum_manifest.py"
+        ):
+            return gate.CommandOutput("verified source checksum manifest\n", "")
+        if command[:4] == (
+            str(fixture.flutter),
+            "pub",
+            "get",
+            "--offline",
+        ):
+            assert cwd is not None
+            self.pub_get_count += 1
+            local_properties = cwd / "android/local.properties"
+            local_properties.parent.mkdir(parents=True, exist_ok=True)
+            local_properties.write_text(
+                f"sdk.dir={fixture.android_sdk}\n"
+                f"flutter.sdk={fixture.flutter.parents[1]}\n",
+                encoding="utf-8",
+            )
+            package_config = cwd / ".dart_tool/package_config.json"
+            package_config.parent.mkdir(parents=True, exist_ok=True)
+            package_config.write_text(
+                json.dumps(
+                    {
+                        "configVersion": 2,
+                        "packages": [
+                            {
+                                "name": name,
+                                "rootUri": package.as_uri() + "/",
+                                "packageUri": "lib/",
+                            }
+                            for name, package in fixture.sherpa_packages.items()
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            android_plugins = [
+                {
+                    "name": name,
+                    "path": str(
+                        (
+                            fixture.sherpa_packages[gate.SHERPA_GENERIC_PACKAGE]
+                            if self.wrong_android_plugin_path
+                            and name == gate.SHERPA_PACKAGE
+                            else fixture.sherpa_packages[name]
+                        )
+                    )
+                    + "/",
+                    "native_build": True,
+                    "dependencies": [],
+                    "dev_dependency": False,
+                }
+                for name in gate.SHERPA_ANDROID_PACKAGES
+            ]
+            if self.missing_android_plugin:
+                android_plugins.pop()
+            (cwd / ".flutter-plugins-dependencies").write_text(
+                json.dumps(
+                    {
+                        "plugins": {"android": android_plugins},
+                        "dependencyGraph": [],
+                        "date_created": "fixture",
+                        "version": "3.47.0-0.1.pre",
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            if self.mutate_lock and self.pub_get_count == 2:
+                (cwd / "pubspec.lock").write_text("mutated\n", encoding="utf-8")
+            return complete(gate.CommandOutput("", ""))
+        if command[:3] == (str(fixture.flutter), "analyze", "--no-pub"):
+            if self.escape_repository:
+                escaped = fixture.repository / "build/escaped.txt"
+                escaped.parent.mkdir()
+                escaped.write_text("escaped\n", encoding="utf-8")
+            return complete(gate.CommandOutput("", ""))
+        if command[:3] == (str(fixture.flutter), "test", "--no-pub"):
+            return complete(gate.CommandOutput("", ""))
+        if command[:3] == (str(fixture.flutter), "build", "apk"):
+            assert cwd is not None
+            apk = cwd / gate.APK_RELATIVE
+            apk.parent.mkdir(parents=True, exist_ok=True)
+            apk.write_bytes(b"release apk")
+            if self.mutate_staged_source:
+                (cwd / "lib/main.dart").write_text(
+                    "void main() { throw StateError('mutated'); }\n",
+                    encoding="utf-8",
+                )
+            if self.mutate_sherpa_native:
+                (
+                    fixture.sherpa_jni / gate.ABI / "libonnxruntime.so"
+                ).write_bytes(b"mutated native input")
+            return complete(gate.CommandOutput("", ""))
+        if command[:3] == (str(fixture.flutter), "build", "appbundle"):
+            assert cwd is not None
+            aab = cwd / gate.AAB_RELATIVE
+            aab.parent.mkdir(parents=True, exist_ok=True)
+            aab.write_bytes(b"release aab")
+            host = cwd / gate.HOOK_BUILD_RELATIVE / "aaaaaaaaaa"
+            host.mkdir(parents=True)
+            (host / "libfonix_shim.dylib").write_bytes(b"host shim")
+            android = cwd / gate.HOOK_BUILD_RELATIVE / "bbbbbbbbbb"
+            android.mkdir()
+            (android / gate.SHIM_NAME).write_bytes(b"raw process shim")
+            return complete(gate.CommandOutput("", ""))
+        if command[0] == sys.executable and command[2].endswith(
+            "verify_native_libs.py"
+        ):
+            output = Path(command[command.index("--json-out") + 1])
+            artifact_paths = [
+                Path(command[index + 1])
+                for index, value in enumerate(command)
+                if value == "--artifact"
+            ]
+            reports = []
+            for artifact in artifact_paths:
+                libraries = []
+                for library in sorted((artifact / gate.ABI).glob("*.so")):
+                    data = library.read_bytes()
+                    digest = hashlib.sha256(data).hexdigest()
+                    if self.wrong_raw_audit and not libraries:
+                        digest = "0" * 64
+                    libraries.append(
+                        {
+                            "path": f"{gate.ABI}/{library.name}",
+                            "abi": gate.ABI,
+                            "name": library.name,
+                            "size": len(data),
+                            "sha256": digest,
+                            "elf": {
+                                "class": 64,
+                                "machine": 183,
+                                "pageSize16KiBCompatible": True,
+                            },
+                        }
+                    )
+                reports.append(
+                    {
+                        "artifact": str(artifact),
+                        "kind": "directory",
+                        "duplicate_paths": [],
+                        "invalid_archive_paths": [],
+                        "ort_candidates": [
+                            entry["path"]
+                            for entry in libraries
+                            if entry["name"] == "libonnxruntime.so"
+                        ],
+                        "invalid_libraries": [],
+                        "libraries": libraries,
+                    }
+                )
+            output.write_text(
+                json.dumps(
+                    {
+                        "schema": 4,
+                        "policy": "sherpa-audit",
+                        "sherpaLibraryProfile": "flutter-ffi",
+                        "require16KiBPageAlignment": True,
+                        "reports": reports,
+                        "errors": [],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return complete(gate.CommandOutput("", ""))
+        if command[0] == sys.executable and command[2].endswith(
+            "android_static_package_manifest.py"
+        ):
+            apk = Path(command[command.index("--final-apk") + 1])
+            aab = Path(command[command.index("--final-aab") + 1])
+            output = Path(command[command.index("--output") + 1])
+            apk_bytes = apk.read_bytes()
+            if self.wrong_static_apk:
+                apk_bytes = b"wrong apk"
+            output.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "result": "passed",
+                        "claimStatus": "static-package-only",
+                        "snapshotDate": gate.SNAPSHOT_DATE,
+                        "sherpaOnnx": {
+                            "source": gate.SHERPA_SOURCE,
+                            "revision": gate.SHERPA_REVISION,
+                            "provenanceBinding": (
+                                "caller-declared; enclosing-gate-required"
+                            ),
+                            "libraryProfile": "flutter-ffi",
+                            "artifacts": [],
+                        },
+                        "android": {
+                            "integrationMode": "sherpa-owned",
+                            "buildType": gate.BUILD_TYPE,
+                            "buildTypeBinding": (
+                                "caller-declared; enclosing-gate-required"
+                            ),
+                            "abis": [gate.ABI],
+                            "ortOwner": "sherpa",
+                            "ortApiRequired": gate.ORT_API_REQUIRED,
+                            "artifacts": {
+                                "finalApk": _identity(
+                                    apk_bytes,
+                                    kind="apk",
+                                    name=apk.name,
+                                ),
+                                "finalAab": _identity(
+                                    aab.read_bytes(),
+                                    kind="aab",
+                                    name=aab.name,
+                                ),
+                            },
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return complete(gate.CommandOutput("", ""))
+        raise AssertionError(f"unexpected operation {operation}: {command}")
+
+
+class AndroidSherpaReferenceCopyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="fonix-sherpa-copy-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.source = self.root / "template"
+        self.source.mkdir()
+
+    def test_copy_omits_only_generated_paths(self) -> None:
+        included = {
+            "pubspec.yaml": b"name: reference\n",
+            "android/.gradle-copy/keep": b"keep\n",
+            "android/app/.cxx-copy/keep": b"keep\n",
+            "build-copy/keep": b"keep\n",
+        }
+        excluded = {
+            ".dart_tool/package_config.json": b"drop\n",
+            ".flutter-plugins-dependencies": b"drop\n",
+            ".sherpa-static-evidence/report.json": b"drop\n",
+            "android/.gradle/cache": b"drop\n",
+            "android/.kotlin/cache": b"drop\n",
+            "android/app/.cxx/output": b"drop\n",
+            "android/captures/capture": b"drop\n",
+            "android/local.properties": b"drop\n",
+            "android/reference.iml": b"drop\n",
+            "build/app.apk": b"drop\n",
+        }
+        for relative, data in {**included, **excluded}.items():
+            path = self.source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+
+        destination = self.root / "copy"
+        summary = gate._copy_template(self.source, destination)
+
+        self.assertEqual(summary.file_count, len(included))
+        for relative, data in included.items():
+            self.assertEqual((destination / relative).read_bytes(), data)
+        for relative in excluded:
+            self.assertFalse((destination / relative).exists())
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not reliable on Windows")
+    def test_copy_rejects_symlink_even_inside_excluded_tree(self) -> None:
+        generated = self.source / ".dart_tool"
+        generated.mkdir()
+        (generated / "target").write_text("target", encoding="utf-8")
+        (generated / "link").symlink_to("target")
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "symbolic link",
+        ):
+            gate._copy_template(self.source, self.root / "copy")
+
+
+class AndroidSherpaReferenceConfigurationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="fonix-sherpa-config-")
+        self.addCleanup(self.temporary.cleanup)
+        self.fixture = GateFixture(Path(self.temporary.name))
+
+    def _native_inventory(self) -> dict[str, gate.FileIdentity]:
+        with mock.patch.object(
+            gate,
+            "SHERPA_NATIVE_SHA256",
+            self.fixture.sherpa_native_sha256,
+        ):
+            return gate._sherpa_native_inventory(self.fixture.sherpa_jni)
+
+    def _hosted_inventory(self) -> dict[str, gate.HostedPackageTreeIdentity]:
+        with mock.patch.object(
+            gate,
+            "SHERPA_HOSTED_PACKAGE_PINS",
+            self.fixture.sherpa_hosted_pins,
+        ):
+            return gate._hosted_package_inventory(self.fixture.sherpa_packages)
+
+    def test_dependency_patch_is_exact_reversible_and_restores_android_hook(self) -> None:
+        pubspec = self.fixture.template / "pubspec.yaml"
+        lockfile = self.fixture.template / "pubspec.lock"
+        original_pubspec = pubspec.read_text(encoding="utf-8")
+        original_lock = lockfile.read_text(encoding="utf-8")
+
+        identity = gate._patch_for_host_tests(
+            pubspec,
+            lockfile,
+            self.fixture.repository,
+        )
+
+        staged_pubspec = pubspec.read_text(encoding="utf-8")
+        self.assertIn(gate.HOST_TEST_HOOK, staged_pubspec)
+        self.assertNotIn("android_runtime_owner", staged_pubspec)
+        self.assertIn(json.dumps(str(self.fixture.repository)), staged_pubspec)
+        self.assertEqual(
+            identity.sha256,
+            hashlib.sha256(lockfile.read_bytes()).hexdigest(),
+        )
+        gate._select_android_hook(pubspec)
+        final_pubspec = pubspec.read_text(encoding="utf-8")
+        self.assertIn(gate.ANDROID_HOOK, final_pubspec)
+        self.assertEqual(
+            final_pubspec.replace(
+                f"    path: {json.dumps(str(self.fixture.repository))}\n",
+                "    path: ../../..\n",
+            ),
+            original_pubspec,
+        )
+        self.assertEqual(
+            lockfile.read_text(encoding="utf-8").replace(
+                f"      path: {json.dumps(str(self.fixture.repository))}\n"
+                "      relative: false\n",
+                gate.RELATIVE_FONIX_LOCK,
+            ),
+            original_lock,
+        )
+
+    def test_package_config_resolves_one_exact_arm64_native_root(self) -> None:
+        config = self.fixture.root / "package_config.json"
+        entries = [
+            {
+                "name": name,
+                "rootUri": package.as_uri() + "/",
+                "packageUri": "lib/",
+            }
+            for name, package in self.fixture.sherpa_packages.items()
+        ]
+        config.write_text(
+            json.dumps({"configVersion": 2, "packages": entries}),
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            gate._resolve_sherpa_jni_root(config),
+            self.fixture.sherpa_jni,
+        )
+
+        arm64_entry = next(
+            entry for entry in entries if entry["name"] == gate.SHERPA_PACKAGE
+        )
+        config.write_text(
+            json.dumps(
+                {"configVersion": 2, "packages": [*entries, arm64_entry]}
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exactly one",
+        ):
+            gate._resolve_sherpa_jni_root(config)
+
+    def test_hosted_package_inventory_binds_every_selected_tree(self) -> None:
+        inventory = self._hosted_inventory()
+
+        self.assertEqual(set(inventory), set(gate.SHERPA_HOSTED_PACKAGES))
+        for name in gate.SHERPA_HOSTED_PACKAGES:
+            self.assertEqual(
+                inventory[name],
+                self.fixture.sherpa_hosted_pins[name].tree,
+            )
+
+    def test_hosted_package_inventory_rejects_dart_and_android_mutation(
+        self,
+    ) -> None:
+        dart_source = (
+            self.fixture.sherpa_packages[gate.SHERPA_GENERIC_PACKAGE]
+            / "lib/sherpa_onnx.dart"
+        )
+        original_dart = dart_source.read_bytes()
+        dart_source.write_bytes(original_dart + b"// modified\n")
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "hosted package tree",
+        ):
+            self._hosted_inventory()
+        dart_source.write_bytes(original_dart)
+
+        android_source = (
+            self.fixture.sherpa_packages["sherpa_onnx_android_x86"]
+            / "android/build.gradle"
+        )
+        android_source.write_text("group = 'modified'\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "hosted package tree",
+        ):
+            self._hosted_inventory()
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not reliable on Windows")
+    def test_hosted_package_inventory_rejects_symlink(self) -> None:
+        source = (
+            self.fixture.sherpa_packages[gate.SHERPA_GENERIC_PACKAGE]
+            / "lib/sherpa_onnx.dart"
+        )
+        target = self.fixture.root / "outside-hosted-package.dart"
+        target.write_bytes(source.read_bytes())
+        source.unlink()
+        source.symlink_to(target)
+
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "symbolic link",
+        ):
+            self._hosted_inventory()
+
+    def test_generated_android_plugin_inventory_binds_all_four_packages(
+        self,
+    ) -> None:
+        plugins = self.fixture.root / ".flutter-plugins-dependencies"
+        android_entries = [
+            {
+                "name": name,
+                "path": f"{self.fixture.sherpa_packages[name]}/",
+                "native_build": True,
+                "dependencies": [],
+                "dev_dependency": False,
+            }
+            for name in gate.SHERPA_ANDROID_PACKAGES
+        ]
+        plugins.write_text(
+            json.dumps({"plugins": {"android": android_entries}}),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            gate._validate_android_plugin_inventory(
+                plugins,
+                self.fixture.sherpa_packages,
+            ),
+            tuple(sorted(gate.SHERPA_ANDROID_PACKAGES)),
+        )
+
+        android_entries[-1]["path"] = (
+            f"{self.fixture.sherpa_packages[gate.SHERPA_GENERIC_PACKAGE]}/"
+        )
+        plugins.write_text(
+            json.dumps({"plugins": {"android": android_entries}}),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "do not bind the resolved package graph",
+        ):
+            gate._validate_android_plugin_inventory(
+                plugins,
+                self.fixture.sherpa_packages,
+            )
+
+    def test_generated_hosted_graph_guard_binds_exact_json_bytes(self) -> None:
+        work = self.fixture.root / "generated-graph"
+        work.mkdir()
+        runner = FakeRunner(self.fixture)
+        runner(
+            (
+                str(self.fixture.flutter),
+                "pub",
+                "get",
+                "--offline",
+                "--enforce-lockfile",
+            ),
+            operation="fixture pub get",
+            cwd=work,
+            environment={},
+        )
+        roots, identity = gate._resolved_hosted_package_graph(work)
+
+        for relative in (
+            ".dart_tool/package_config.json",
+            ".flutter-plugins-dependencies",
+        ):
+            with self.subTest(relative=relative):
+                path = work / relative
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                with self.assertRaisesRegex(
+                    gate.AndroidSherpaReferenceAppGateError,
+                    "graph identity changed",
+                ):
+                    gate._require_hosted_package_graph(
+                        work,
+                        roots,
+                        identity,
+                        "test command output",
+                    )
+                path.write_bytes(original)
+
+    def test_sherpa_native_inventory_is_exact_and_digest_bound(self) -> None:
+        inventory = self._native_inventory()
+
+        self.assertEqual(
+            sorted(inventory),
+            sorted(gate.SHERPA_NATIVE_LIBRARY_NAMES),
+        )
+        self.assertEqual(
+            inventory["libonnxruntime.so"].sha256,
+            self.fixture.sherpa_native_sha256["libonnxruntime.so"],
+        )
+
+        (
+            self.fixture.sherpa_jni / gate.ABI / "libonnxruntime.so"
+        ).write_bytes(b"tampered")
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exact selected .* native digest",
+        ):
+            self._native_inventory()
+
+    def test_sherpa_native_inventory_rejects_extra_and_missing_files(self) -> None:
+        abi_root = self.fixture.sherpa_jni / gate.ABI
+        extra = abi_root / "libunexpected.so"
+        extra.write_bytes(b"unexpected")
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exact selected three-library set",
+        ):
+            self._native_inventory()
+
+        extra.unlink()
+        (abi_root / "libsherpa-onnx-c-api.so").unlink()
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exact selected three-library set",
+        ):
+            self._native_inventory()
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not reliable on Windows")
+    def test_sherpa_native_inventory_rejects_symlink(self) -> None:
+        abi_root = self.fixture.sherpa_jni / gate.ABI
+        library = abi_root / "libsherpa-onnx-cxx-api.so"
+        target = self.fixture.root / "outside-sherpa.so"
+        target.write_bytes(library.read_bytes())
+        library.unlink()
+        library.symlink_to(target)
+
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "not a regular file",
+        ):
+            self._native_inventory()
+
+    def test_dependency_patch_rejects_wrong_hosted_arm64_digest(self) -> None:
+        lockfile = self.fixture.template / "pubspec.lock"
+        source = lockfile.read_text(encoding="utf-8")
+        lockfile.write_text(
+            source.replace(
+                "0337650bc2357f39b751f1b9ced37770de3b60026effe66473b557346b4e3f97",
+                "1337650bc2357f39b751f1b9ced37770de3b60026effe66473b557346b4e3f97",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exact hosted sherpa-onnx",
+        ):
+            gate._patch_for_host_tests(
+                self.fixture.template / "pubspec.yaml",
+                lockfile,
+                self.fixture.repository,
+            )
+
+    def test_wrapper_input_requires_one_raw_android_hook_output(self) -> None:
+        work = self.fixture.root / "wrapper-work"
+        first = work / gate.HOOK_BUILD_RELATIVE / "aaaaaaaaaa"
+        first.mkdir(parents=True)
+        (first / gate.SHIM_NAME).write_bytes(b"shim one")
+        wrapper, identity = gate._stage_wrapper_input(work)
+        copied = wrapper / gate.ABI / gate.SHIM_NAME
+        self.assertEqual(copied.read_bytes(), b"shim one")
+        self.assertEqual(identity.sha256, hashlib.sha256(b"shim one").hexdigest())
+
+        second_work = self.fixture.root / "ambiguous-work"
+        for key in ("aaaaaaaaaa", "bbbbbbbbbb"):
+            path = second_work / gate.HOOK_BUILD_RELATIVE / key
+            path.mkdir(parents=True)
+            (path / gate.SHIM_NAME).write_bytes(key.encode("ascii"))
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exactly one",
+        ):
+            gate._stage_wrapper_input(second_work)
+
+
+class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="fonix-sherpa-gate-")
+        self.addCleanup(self.temporary.cleanup)
+        self.fixture = GateFixture(Path(self.temporary.name))
+
+    @staticmethod
+    def _run_fixture(
+        fixture: GateFixture,
+        runner: FakeRunner,
+    ) -> dict[str, object]:
+        with (
+            mock.patch.object(
+                gate,
+                "SHERPA_NATIVE_SHA256",
+                fixture.sherpa_native_sha256,
+            ),
+            mock.patch.object(
+                gate,
+                "SHERPA_HOSTED_PACKAGE_PINS",
+                fixture.sherpa_hosted_pins,
+            ),
+        ):
+            return gate.run_gate(
+                repository=fixture.repository,
+                flutter=fixture.flutter,
+                work_directory=fixture.work,
+                android_sdk=fixture.android_sdk,
+                java_home=fixture.java_home,
+                command_runner=runner,
+            )
+
+    def _run(self, runner: FakeRunner) -> dict[str, object]:
+        return self._run_fixture(self.fixture, runner)
+
+    def test_gate_runs_locked_builds_then_both_static_audits(self) -> None:
+        original_pubspec = (self.fixture.template / "pubspec.yaml").read_bytes()
+        original_lock = (self.fixture.template / "pubspec.lock").read_bytes()
+        runner = FakeRunner(self.fixture)
+
+        report = self._run(runner)
+
+        operations = [operation for _command, operation, _cwd in runner.calls]
+        self.assertEqual(
+            operations,
+            [
+                "Java identity check",
+                "Flutter version check",
+                "source checksum manifest preflight",
+                "offline sherpa reference Flutter pub get",
+                "sherpa reference Flutter analysis",
+                "sherpa reference Flutter tests",
+                "offline Android sherpa Flutter pub get",
+                "sherpa reference Release APK build",
+                "sherpa reference Release AAB build",
+                "raw sherpa/Fonix native-input audit",
+                "closed sherpa APK/AAB static audit",
+                "source checksum manifest postflight",
+            ],
+        )
+        build_commands = [
+            command for command, operation, _cwd in runner.calls if "build" in operation
+        ]
+        self.assertEqual(
+            build_commands,
+            [
+                (
+                    str(self.fixture.flutter),
+                    "build",
+                    "apk",
+                    "--release",
+                    "--no-pub",
+                    "--target-platform",
+                    "android-arm64",
+                ),
+                (
+                    str(self.fixture.flutter),
+                    "build",
+                    "appbundle",
+                    "--release",
+                    "--no-pub",
+                    "--target-platform",
+                    "android-arm64",
+                ),
+            ],
+        )
+        static_command = next(
+            command
+            for command, operation, _cwd in runner.calls
+            if operation == "closed sherpa APK/AAB static audit"
+        )
+        self.assertIn("--final-apk", static_command)
+        self.assertIn("--final-aab", static_command)
+        self.assertNotIn("--load-order-validation-record", static_command)
+        self.assertEqual(report["result"], "passed")
+        self.assertNotIn("applicationId", report)
+        self.assertIsNone(report["targetEvidence"])
+        self.assertNotIn(
+            str(self.fixture.root),
+            json.dumps(report, sort_keys=True),
+        )
+        self.assertNotIn("home", report["java"])
+        self.assertEqual(
+            report["staticPackageManifest"]["record"]["claimStatus"],
+            "static-package-only",
+        )
+        self.assertEqual(
+            [
+                entry["fileName"]
+                for entry in report["sherpaOnnx"]["nativeInputs"]
+            ],
+            sorted(gate.SHERPA_NATIVE_LIBRARY_NAMES),
+        )
+        hosted_guard = report["sherpaOnnx"]["hostedPackageGuard"]
+        self.assertEqual(hosted_guard["threatModel"], "non-hostile-local-build")
+        self.assertEqual(hosted_guard["treeSchema"], 1)
+        self.assertEqual(
+            hosted_guard["androidPluginPackages"],
+            sorted(gate.SHERPA_ANDROID_PACKAGES),
+        )
+        self.assertEqual(
+            [entry["name"] for entry in hosted_guard["packages"]],
+            sorted(gate.SHERPA_HOSTED_PACKAGES),
+        )
+        self.assertNotIn("path", json.dumps(hosted_guard, sort_keys=True).lower())
+        self.assertEqual(report["stagedSource"]["manifestSchema"], 1)
+        self.assertNotEqual(
+            report["stagedSource"]["hostTest"]["sha256"],
+            report["stagedSource"]["androidBuild"]["sha256"],
+        )
+        self.assertEqual(
+            (self.fixture.template / "pubspec.yaml").read_bytes(),
+            original_pubspec,
+        )
+        self.assertEqual(
+            (self.fixture.template / "pubspec.lock").read_bytes(),
+            original_lock,
+        )
+        staged_pubspec = (self.fixture.work / "pubspec.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(gate.ANDROID_HOOK, staged_pubspec)
+        self.assertIn(json.dumps(str(self.fixture.repository)), staged_pubspec)
+
+    def test_lock_mutation_fails_even_when_command_reports_success(self) -> None:
+        runner = FakeRunner(self.fixture, mutate_lock=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "output lockfile identity changed",
+        ):
+            self._run(runner)
+
+    def test_staged_source_mutation_fails_even_when_build_reports_success(self) -> None:
+        runner = FakeRunner(self.fixture, mutate_staged_source=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "Release APK build output staged source identity changed",
+        ):
+            self._run(runner)
+
+    def test_sherpa_native_mutation_fails_even_when_build_reports_success(self) -> None:
+        runner = FakeRunner(self.fixture, mutate_sherpa_native=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "does not match the exact selected .* native digest",
+        ):
+            self._run(runner)
+
+    def test_hosted_package_mutation_fails_at_every_consuming_operation(self) -> None:
+        operations = (
+            "offline sherpa reference Flutter pub get",
+            "sherpa reference Flutter analysis",
+            "sherpa reference Flutter tests",
+            "offline Android sherpa Flutter pub get",
+            "sherpa reference Release APK build",
+            "sherpa reference Release AAB build",
+            "raw sherpa/Fonix native-input audit",
+            "closed sherpa APK/AAB static audit",
+        )
+        for operation in operations:
+            with self.subTest(operation=operation):
+                with tempfile.TemporaryDirectory(
+                    prefix="fonix-sherpa-hosted-mutation-"
+                ) as temporary:
+                    fixture = GateFixture(Path(temporary))
+                    runner = FakeRunner(
+                        fixture,
+                        mutate_hosted_operation=operation,
+                    )
+                    with self.assertRaisesRegex(
+                        gate.AndroidSherpaReferenceAppGateError,
+                        "hosted package tree",
+                    ):
+                        self._run_fixture(fixture, runner)
+
+    def test_generated_package_graph_mutation_fails_closed(self) -> None:
+        operations = (
+            "offline sherpa reference Flutter pub get",
+            "sherpa reference Flutter analysis",
+            "sherpa reference Flutter tests",
+            "offline Android sherpa Flutter pub get",
+            "sherpa reference Release APK build",
+            "sherpa reference Release AAB build",
+        )
+        mutations = (
+            "mutate_package_config_operation",
+            "mutate_plugin_inventory_operation",
+        )
+        for operation in operations:
+            for mutation in mutations:
+                with self.subTest(operation=operation, mutation=mutation):
+                    with tempfile.TemporaryDirectory(
+                        prefix="fonix-sherpa-graph-mutation-"
+                    ) as temporary:
+                        fixture = GateFixture(Path(temporary))
+                        runner = FakeRunner(
+                            fixture,
+                            **{mutation: operation},
+                        )
+                        with self.assertRaises(
+                            gate.AndroidSherpaReferenceAppGateError
+                        ):
+                            self._run_fixture(fixture, runner)
+
+    def test_generated_android_plugin_inventory_must_be_complete(self) -> None:
+        runner = FakeRunner(self.fixture, missing_android_plugin=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "not the exact sherpa set",
+        ):
+            self._run(runner)
+
+    def test_generated_android_plugin_paths_must_bind_resolved_packages(self) -> None:
+        runner = FakeRunner(self.fixture, wrong_android_plugin_path=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "do not bind the resolved package graph",
+        ):
+            self._run(runner)
+
+    def test_static_manifest_must_bind_exact_built_apk(self) -> None:
+        runner = FakeRunner(self.fixture, wrong_static_apk=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "not bound to the built artifact",
+        ):
+            self._run(runner)
+
+    def test_raw_audit_must_bind_exact_selected_native_bytes(self) -> None:
+        runner = FakeRunner(self.fixture, wrong_raw_audit=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "does not match the selected bytes",
+        ):
+            self._run(runner)
+
+    def test_repository_generated_output_escape_fails_postflight(self) -> None:
+        runner = FakeRunner(self.fixture, escape_repository=True)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "generated state or output escaped staging",
+        ):
+            self._run(runner)
+
+    def test_parser_has_no_device_or_runtime_receipt_inputs(self) -> None:
+        parser = gate._parser()
+        arguments = parser.parse_args(
+            (
+                "--flutter",
+                "/flutter",
+                "--work-dir",
+                "/work",
+                "--android-sdk",
+                "/sdk",
+                "--java-home",
+                "/java",
+            )
+        )
+        self.assertFalse(hasattr(arguments, "avd_name"))
+        self.assertFalse(hasattr(arguments, "load_order_validation_record"))
+
+
+if __name__ == "__main__":
+    unittest.main()

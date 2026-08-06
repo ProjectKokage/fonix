@@ -564,11 +564,43 @@ python3 tool/ci/validate_android_load_order_receipt.py \
 The current validator deliberately accepts only a regular APK using
 sherpa-owned/process runtime resolution and the `flutter-ffi` C API/C++ API
 topology. It does not validate an AAB, a legacy JNI runtime composition, an
-aligned runtime, QNN, ASR, or TTS. Phase 7 still needs a closed static AAB
-coexistence gate that requires the shim, ORT, selected FFI consumers, complete
-dependency graph, and source-to-final byte bindings. The current
-`sherpa-audit` policy alone is not that gate. No AAB runtime claim exists until
-its delivered split is installed and exercised.
+aligned runtime, QNN, ASR, or TTS. Use the separate static package-pair gate for
+the exact APK and matching base-only AAB:
+
+```bash
+python3 -B tool/ci/android_static_package_manifest.py \
+  --sherpa-source https://github.com/k2-fsa/sherpa-onnx \
+  --sherpa-revision <full-40-character-commit> \
+  --sherpa-artifact /absolute/path/sherpa-jniLibs \
+  --wrapper-artifact /absolute/path/fonix-native-assets \
+  --final-apk /absolute/path/app-release.apk \
+  --final-aab /absolute/path/app-release.aab \
+  --abi arm64-v8a \
+  --ort-api-required 27 \
+  --build-type release-minified \
+  --snapshot-date YYYY-MM-DD \
+  --output /absolute/path/static-package-pair.json
+```
+
+This gate requires one sherpa-owned ORT, the external Fonix shim, the exact
+Flutter FFI C API/C++ API pair, a complete non-system dependency graph, 16 KiB
+ELF compatibility, and source-to-final bindings for every selected library in
+both packages. It rejects non-base AAB module sets and emits a deterministic,
+path-free `static-package-only` record. It accepts no runtime receipt and does
+not supersede the four-record APK runtime matrix. The preliminary
+`sherpa-audit` policy alone is not this gate, and no AAB runtime claim exists
+until a delivered split is installed and exercised.
+
+Static reference checkpoint (2026-08-07): the locked staged runner copied the
+committed sherpa reference application outside the checkout, verified the
+complete `sherpa_onnx` 1.13.4 hosted package trees and generated four-plugin
+Android graph, ran its host tests, and built an arm64-v8a R8 Release APK plus
+base-only AAB. Both packages retained the exact raw ORT, sherpa C/C++, and
+Fonix shim bytes; their `libapp.so` and `libflutter.so` loaded identities also
+matched. The package-pair gate passed with `static-package-only`. The app has
+no native fixture adapter and was not installed or executed, so this is not a
+load-order, API negotiation, inference, lifecycle, page-size environment, or
+target compatibility result.
 
 ### Static-to-final binding and matrix aggregation
 
@@ -641,7 +673,7 @@ first development slice is arm64-v8a Release:
 | Runtime mode | sherpa-owned Flutter FFI shared runtime; aligned custom deferred |
 | ORT compatibility | supported API, intentionally unsupported API |
 | Provider | sherpa-owned CPU baseline; QNN aligned qualification deferred |
-| Packaging | exact APK static audit and runtime validation; closed matching-AAB static gate still to implement; delivered-split runtime later |
+| Packaging | exact APK runtime validation plus the implemented matching APK/base-only-AAB static gate; the reference composition passed statically, while the eventual target composition must bind both layers; delivered-split runtime later |
 | Page size | 4 KB and 16 KB environment |
 | Workload | 2--64 strict Fonix-reference/Silero-VAD cycles, starting with Fonix |
 | Lifecycle | native Fonix cancellation settlement, between-frame VAD cancellation, stale suppression, recovery, both disposal orders, double disposal, zero pending work |

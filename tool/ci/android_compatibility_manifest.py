@@ -19,7 +19,7 @@ from datetime import date
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import sys
@@ -243,6 +243,35 @@ class ArtifactIdentity:
         }
 
 
+@dataclass(frozen=True)
+class StaticSourceGraph:
+    """Inspected, role-separated native inputs shared by final-package gates."""
+
+    abis: tuple[str, ...]
+    sherpa_library_profile: str
+    sherpa_reports: list[dict[str, Any]]
+    wrapper_reports: list[dict[str, Any]]
+    runtime_reports: list[dict[str, Any]]
+    all_source_reports: list[dict[str, Any]]
+    sherpa_identities: dict[str, ArtifactIdentity]
+    wrapper_identities: dict[str, ArtifactIdentity]
+    runtime_identities: dict[str, ArtifactIdentity]
+    source_entries_by_abi: dict[
+        str, dict[str, tuple[dict[str, Any], dict[str, Any]]]
+    ]
+
+
+@dataclass(frozen=True)
+class BoundFinalPackage:
+    """One exact final package tied to a prepared native source graph."""
+
+    report: dict[str, Any]
+    identity: ArtifactIdentity
+    libraries_by_abi: dict[str, Any]
+    platform_libraries_by_abi: dict[str, dict[str, dict[str, Any]]]
+    ort_by_abi: dict[str, dict[str, Any]]
+
+
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -428,7 +457,82 @@ def _directory_artifact_identity(
     )
 
 
-def _inspect(path: Path, label: str) -> dict[str, Any]:
+def _android_package_envelope(
+    path: Path,
+    kind: str,
+    label: str,
+    *,
+    loadable_library_paths: set[str],
+) -> dict[str, Any]:
+    """Validate the minimum closed archive shape used by coexistence gates."""
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            infos = archive.infolist()
+    except (OSError, zipfile.BadZipFile) as error:
+        raise CompatibilityManifestError(
+            f"could not inspect {label} package envelope: {error}"
+        ) from error
+
+    names = {info.filename.rstrip("/") for info in infos if not info.is_dir()}
+    hidden_shared_objects = sorted(
+        path_value
+        for path_value in names
+        if path_value.endswith(".so")
+        and path_value not in loadable_library_paths
+    )
+    if hidden_shared_objects:
+        raise CompatibilityManifestError(
+            f"{label} contains shared-object payloads outside the closed native "
+            "inventory: "
+            + ", ".join(hidden_shared_objects)
+        )
+    if kind == "apk":
+        if "AndroidManifest.xml" not in names:
+            raise CompatibilityManifestError(
+                f"{label} is missing AndroidManifest.xml"
+            )
+        return {"kind": "apk", "modules": []}
+
+    if kind != "aab":
+        raise CompatibilityManifestError(
+            f"{label} must be an APK or AAB, found {kind!r}"
+        )
+    if "BundleConfig.pb" not in names:
+        raise CompatibilityManifestError(f"{label} is missing BundleConfig.pb")
+    modules = sorted(
+        path_value.split("/", 1)[0]
+        for path_value in names
+        if path_value.count("/") == 2
+        and path_value.endswith("/manifest/AndroidManifest.xml")
+    )
+    if modules != ["base"]:
+        raise CompatibilityManifestError(
+            f"{label} AAB module set must be exactly ['base']; found {modules}"
+        )
+    allowed_prefixes = {"base", "BUNDLE-METADATA", "META-INF"}
+    unexpected_prefixes = sorted(
+        {
+            PurePosixPath(path_value).parts[0]
+            for path_value in names
+            if len(PurePosixPath(path_value).parts) > 1
+        }
+        - allowed_prefixes
+    )
+    if unexpected_prefixes:
+        raise CompatibilityManifestError(
+            f"{label} AAB contains undeclared top-level module paths: "
+            + ", ".join(unexpected_prefixes)
+        )
+    return {"kind": "aab", "modules": modules}
+
+
+def _inspect(
+    path: Path,
+    label: str,
+    *,
+    expected_package_kind: str | None = None,
+) -> dict[str, Any]:
     _native_input(path, label)
     if path.is_file():
         with _snapshot_archive(path, label) as (snapshot, snapshot_identity):
@@ -438,6 +542,22 @@ def _inspect(path: Path, label: str) -> dict[str, Any]:
                 raise CompatibilityManifestError(
                     f"could not inspect {label}: {error}"
                 ) from error
+            if (
+                expected_package_kind is not None
+                and report["kind"] != expected_package_kind
+            ):
+                raise CompatibilityManifestError(
+                    f"{label} must be an {expected_package_kind.upper()}"
+                )
+            if expected_package_kind is not None:
+                report["_fonixPackageEnvelope"] = _android_package_envelope(
+                    snapshot,
+                    report["kind"],
+                    label,
+                    loadable_library_paths={
+                        entry["path"] for entry in report["libraries"]
+                    },
+                )
             if (
                 snapshot.stat().st_size != snapshot_identity.size_bytes
                 or _sha256(snapshot) != snapshot_identity.sha256
@@ -2113,7 +2233,7 @@ def _read_qnn_qualification(
     return {"recordSha256": record_sha256, **value}
 
 
-def generate_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
+def _validate_common_static_contract(arguments: argparse.Namespace) -> tuple[str, ...]:
     abis = tuple(sorted(set(arguments.abi)))
     if not abis or len(abis) != len(arguments.abi):
         raise CompatibilityManifestError("--abi must be non-empty and unique")
@@ -2123,6 +2243,632 @@ def generate_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         raise CompatibilityManifestError("this snapshot requires ORT C API 27")
     if arguments.build_type not in BUILD_TYPES:
         raise CompatibilityManifestError("final build type is outside the matrix")
+    if REVISION.fullmatch(arguments.sherpa_revision) is None:
+        raise CompatibilityManifestError("sherpa revision must be a full commit SHA")
+    if ISO_DATE.fullmatch(arguments.snapshot_date) is None:
+        raise CompatibilityManifestError("snapshot date must be YYYY-MM-DD")
+    try:
+        date.fromisoformat(arguments.snapshot_date)
+    except ValueError as error:
+        raise CompatibilityManifestError("snapshot date must be YYYY-MM-DD") from error
+    return abis
+
+
+def _prepare_static_source_graph(
+    *,
+    mode: str,
+    sherpa_library_profile: str,
+    abis: tuple[str, ...],
+    sherpa_paths: tuple[Path, ...],
+    wrapper_paths: tuple[Path, ...],
+    runtime_paths: tuple[Path, ...],
+) -> StaticSourceGraph:
+    sherpa_reports = _inspect_many(sherpa_paths, "sherpa artifact")
+    wrapper_reports = _inspect_many(wrapper_paths, "wrapper artifact")
+    runtime_reports = (
+        sherpa_reports
+        if mode == "sherpa-owned"
+        else _inspect_many(runtime_paths, "runtime artifact")
+    )
+    for index, report in enumerate(sherpa_reports):
+        _validate_ort_candidate_inventory(report, f"sherpa artifact {index + 1}")
+    for index, report in enumerate(wrapper_reports):
+        _validate_ort_candidate_inventory(report, f"wrapper artifact {index + 1}")
+    for index, report in enumerate(runtime_reports):
+        _validate_ort_candidate_inventory(report, f"runtime artifact {index + 1}")
+
+    undeclared_input_abis = sorted(
+        {
+            entry["abi"]
+            for report in _unique_reports(
+                sherpa_reports, wrapper_reports, runtime_reports
+            )
+            for entry in report["libraries"]
+        }
+        - set(abis)
+    )
+    if undeclared_input_abis:
+        raise CompatibilityManifestError(
+            "input artifacts contain undeclared ABIs: "
+            + ", ".join(undeclared_input_abis)
+        )
+    if any(report["ort_candidates"] for report in wrapper_reports):
+        raise CompatibilityManifestError(
+            "external Fonix wrapper artifacts must own no ORT"
+        )
+    if mode == "aligned" and any(
+        report["ort_candidates"] for report in sherpa_reports
+    ):
+        raise CompatibilityManifestError(
+            "aligned sherpa artifacts must own no ORT; the application runtime "
+            "artifacts are the sole source owners"
+        )
+
+    sherpa_identities = _identity_map(sherpa_paths, sherpa_reports)
+    wrapper_identities = _identity_map(wrapper_paths, wrapper_reports)
+    runtime_identities = (
+        sherpa_identities
+        if mode == "sherpa-owned"
+        else _identity_map(runtime_paths, runtime_reports)
+    )
+    all_source_reports = _unique_reports(
+        sherpa_reports, wrapper_reports, runtime_reports
+    )
+    source_entries_by_abi: dict[
+        str, dict[str, tuple[dict[str, Any], dict[str, Any]]]
+    ] = {}
+    for abi in abis:
+        entries_by_name: dict[
+            str, list[tuple[dict[str, Any], dict[str, Any]]]
+        ] = {}
+        for report in all_source_reports:
+            for entry in report["libraries"]:
+                if entry["abi"] == abi:
+                    entries_by_name.setdefault(entry["name"], []).append(
+                        (report, entry)
+                    )
+        duplicates = sorted(
+            name for name, entries in entries_by_name.items() if len(entries) != 1
+        )
+        if duplicates:
+            raise CompatibilityManifestError(
+                f"multiple input artifacts own native libraries for {abi}: "
+                + ", ".join(duplicates)
+            )
+        source_entries_by_abi[abi] = {
+            name: entries[0] for name, entries in entries_by_name.items()
+        }
+
+    return StaticSourceGraph(
+        abis=abis,
+        sherpa_library_profile=sherpa_library_profile,
+        sherpa_reports=sherpa_reports,
+        wrapper_reports=wrapper_reports,
+        runtime_reports=runtime_reports,
+        all_source_reports=all_source_reports,
+        sherpa_identities=sherpa_identities,
+        wrapper_identities=wrapper_identities,
+        runtime_identities=runtime_identities,
+        source_entries_by_abi=source_entries_by_abi,
+    )
+
+
+def _source_identity(
+    graph: StaticSourceGraph, report: dict[str, Any]
+) -> ArtifactIdentity:
+    artifact = report["artifact"]
+    identity = (
+        graph.sherpa_identities.get(artifact)
+        or graph.wrapper_identities.get(artifact)
+        or graph.runtime_identities.get(artifact)
+    )
+    if identity is None:  # pragma: no cover - internal graph construction invariant.
+        raise CompatibilityManifestError("selected source artifact has no identity")
+    return identity
+
+
+def _bind_final_package(
+    graph: StaticSourceGraph,
+    final_path: Path,
+    *,
+    label: str,
+    expected_kind: str | None,
+) -> BoundFinalPackage:
+    final_report = _inspect(
+        final_path,
+        label,
+        expected_package_kind=expected_kind,
+    )
+    _validate_ort_candidate_inventory(final_report, label)
+    _validate_final_graph(final_report, graph.abis)
+
+    for abi in graph.abis:
+        final_names = {
+            entry["name"]
+            for entry in final_report["libraries"]
+            if entry["abi"] == abi
+        }
+        unexpected_final = sorted(
+            final_names
+            - set(graph.source_entries_by_abi[abi])
+            - FINAL_PLATFORM_LIBRARY_NAMES
+        )
+        if unexpected_final:
+            raise CompatibilityManifestError(
+                f"{label} contains native libraries without a selected "
+                f"source input for {abi}: {', '.join(unexpected_final)}"
+            )
+
+    libraries_by_abi: dict[str, Any] = {}
+    platform_libraries_by_abi: dict[str, dict[str, dict[str, Any]]] = {}
+    final_ort_by_abi: dict[str, dict[str, Any]] = {}
+    for abi in graph.abis:
+        platform_libraries_by_abi[abi] = {
+            name: entries[0]
+            for name in sorted(FINAL_PLATFORM_LIBRARY_NAMES)
+            if (entries := _entries(final_report, name, abi))
+        }
+        runtime_report, runtime_ort = _single_across(
+            graph.runtime_reports,
+            VERIFIER.ORT_NAME,
+            abi,
+            "runtime owner artifacts",
+        )
+        wrapper_report, wrapper_shim = _single_across(
+            graph.wrapper_reports,
+            VERIFIER.SHIM_NAME,
+            abi,
+            "wrapper artifacts",
+        )
+        final_ort = _single(final_report, VERIFIER.ORT_NAME, abi, label)
+        final_shim = _single(final_report, VERIFIER.SHIM_NAME, abi, label)
+        if runtime_ort["elf"]["soname"] != VERIFIER.ORT_NAME:
+            raise CompatibilityManifestError(
+                f"runtime owner has wrong ORT SONAME for {abi}"
+            )
+        if (
+            wrapper_shim["elf"]["soname"] != VERIFIER.SHIM_NAME
+            or VERIFIER.ORT_NAME in wrapper_shim["elf"]["needed"]
+        ):
+            raise CompatibilityManifestError(
+                f"Fonix wrapper is not an external/process shim for {abi}"
+            )
+        _tie_source_to_final(runtime_ort, final_ort, "ORT", abi)
+        _tie_source_to_final(wrapper_shim, final_shim, "Fonix shim", abi)
+
+        sherpa_consumers: dict[str, Any] = {}
+        for (
+            name,
+            source_report,
+            source_entry,
+            final_entry,
+        ) in _profile_consumers(
+            graph.sherpa_reports,
+            final_report,
+            graph.sherpa_library_profile,
+            abi,
+        ):
+            _tie_source_to_final(source_entry, final_entry, name, abi)
+            sherpa_consumers[name] = _library_record(
+                source_entry,
+                final_entry,
+                graph.sherpa_identities[source_report["artifact"]],
+            )
+
+        source_libcxx = _entries_across(
+            graph.all_source_reports, VERIFIER.LIBCXX_NAME, abi
+        )
+        final_libcxx = _entries(final_report, VERIFIER.LIBCXX_NAME, abi)
+        if len(source_libcxx) > 1:
+            raise CompatibilityManifestError(
+                f"multiple input artifacts own {VERIFIER.LIBCXX_NAME} for {abi}"
+            )
+        if bool(source_libcxx) != bool(final_libcxx):
+            final_kind_label = expected_kind or "final"
+            raise CompatibilityManifestError(
+                f"source/{final_kind_label} {VERIFIER.LIBCXX_NAME} ownership "
+                f"differs for {abi}"
+            )
+
+        libcxx_record = None
+        if source_libcxx:
+            libcxx_report, libcxx_source = source_libcxx[0]
+            libcxx_final = final_libcxx[0]
+            _tie_source_to_final(
+                libcxx_source, libcxx_final, VERIFIER.LIBCXX_NAME, abi
+            )
+            libcxx_record = _library_record(
+                libcxx_source,
+                libcxx_final,
+                _source_identity(graph, libcxx_report),
+            )
+
+        core_names = {
+            VERIFIER.ORT_NAME,
+            VERIFIER.SHIM_NAME,
+            VERIFIER.LIBCXX_NAME,
+            *KNOWN_SHERPA_LIBRARY_NAMES,
+        }
+        companion_records: dict[str, Any] = {}
+        for name, (source_report, source_entry) in sorted(
+            graph.source_entries_by_abi[abi].items()
+        ):
+            if name in core_names:
+                continue
+            final_entry = _single(final_report, name, abi, label)
+            _tie_source_to_final(source_entry, final_entry, name, abi)
+            companion_records[name] = _library_record(
+                source_entry,
+                final_entry,
+                _source_identity(graph, source_report),
+            )
+
+        final_ort_by_abi[abi] = final_ort
+        libraries_by_abi[abi] = {
+            "onnxruntime": _library_record(
+                runtime_ort,
+                final_ort,
+                graph.runtime_identities[runtime_report["artifact"]],
+            ),
+            "sherpaRuntimeConsumers": sherpa_consumers,
+            "fonixShim": _library_record(
+                wrapper_shim,
+                final_shim,
+                graph.wrapper_identities[wrapper_report["artifact"]],
+            ),
+            "libcxxShared": libcxx_record,
+            "companionLibraries": companion_records,
+        }
+
+    return BoundFinalPackage(
+        report=final_report,
+        identity=final_report["_fonixArtifactIdentity"],
+        libraries_by_abi=libraries_by_abi,
+        platform_libraries_by_abi=platform_libraries_by_abi,
+        ort_by_abi=final_ort_by_abi,
+    )
+
+
+def _ordered_identities(
+    identities: dict[str, ArtifactIdentity]
+) -> list[dict[str, Any]]:
+    return sorted(
+        (identity.to_json() for identity in identities.values()),
+        key=lambda value: (value["fileName"], value["sha256"]),
+    )
+
+
+def _merge_library_record_finals(
+    apk_record: dict[str, Any], aab_record: dict[str, Any], label: str
+) -> dict[str, Any]:
+    if apk_record["source"] != aab_record["source"]:
+        raise CompatibilityManifestError(
+            f"APK/AAB {label} records do not bind the same source"
+        )
+    if apk_record["elf"] != aab_record["elf"]:
+        raise CompatibilityManifestError(
+            f"APK/AAB {label} loaded ELF identity differs"
+        )
+    return {
+        "source": apk_record["source"],
+        "finals": {
+            "apk": apk_record["final"],
+            "aab": aab_record["final"],
+        },
+        "elf": apk_record["elf"],
+    }
+
+
+def _merge_platform_library_finals(
+    apk_entry: dict[str, Any],
+    aab_entry: dict[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    if (
+        apk_entry["elf"]["class"] != aab_entry["elf"]["class"]
+        or apk_entry["elf"]["machine"] != aab_entry["elf"]["machine"]
+        or apk_entry["elf"]["soname"] != aab_entry["elf"]["soname"]
+        or apk_entry["elf"]["needed"] != aab_entry["elf"]["needed"]
+        or _loaded_identity(apk_entry) != _loaded_identity(aab_entry)
+    ):
+        raise CompatibilityManifestError(
+            f"APK/AAB {label} loaded ELF identity differs"
+        )
+    return {
+        "finals": {
+            "apk": {
+                "path": apk_entry["path"],
+                "sizeBytes": apk_entry["size"],
+                "sha256": apk_entry["sha256"],
+            },
+            "aab": {
+                "path": aab_entry["path"],
+                "sizeBytes": aab_entry["size"],
+                "sha256": aab_entry["sha256"],
+            },
+        },
+        "elf": {
+            "class": apk_entry["elf"]["class"],
+            "machine": apk_entry["elf"]["machine"],
+            "soname": apk_entry["elf"]["soname"],
+            "needed": apk_entry["elf"]["needed"],
+            "pageSize16KiBCompatible": apk_entry["elf"][
+                "pageSize16KiBCompatible"
+            ],
+            "loadedSegments": _loaded_identity(apk_entry),
+        },
+    }
+
+
+def _merge_package_libraries(
+    apk: BoundFinalPackage,
+    aab: BoundFinalPackage,
+    abis: tuple[str, ...],
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for abi in abis:
+        apk_libraries = apk.libraries_by_abi[abi]
+        aab_libraries = aab.libraries_by_abi[abi]
+        apk_platform = apk.platform_libraries_by_abi[abi]
+        aab_platform = aab.platform_libraries_by_abi[abi]
+        if set(apk_platform) != set(aab_platform):
+            raise CompatibilityManifestError(
+                f"APK/AAB Flutter platform-library inventory differs for {abi}"
+            )
+        if VERIFIER.FLUTTER_AOT_NAME not in apk_platform:
+            raise CompatibilityManifestError(
+                f"APK/AAB pair is missing {VERIFIER.FLUTTER_AOT_NAME} for {abi}"
+            )
+        apk_consumers = apk_libraries["sherpaRuntimeConsumers"]
+        aab_consumers = aab_libraries["sherpaRuntimeConsumers"]
+        if set(apk_consumers) != set(aab_consumers):
+            raise CompatibilityManifestError(
+                f"APK/AAB sherpa consumer inventory differs for {abi}"
+            )
+        apk_companions = apk_libraries["companionLibraries"]
+        aab_companions = aab_libraries["companionLibraries"]
+        if set(apk_companions) != set(aab_companions):
+            raise CompatibilityManifestError(
+                f"APK/AAB companion inventory differs for {abi}"
+            )
+        apk_libcxx = apk_libraries["libcxxShared"]
+        aab_libcxx = aab_libraries["libcxxShared"]
+        if (apk_libcxx is None) != (aab_libcxx is None):
+            raise CompatibilityManifestError(
+                f"APK/AAB {VERIFIER.LIBCXX_NAME} inventory differs for {abi}"
+            )
+        merged[abi] = {
+            "platformLibraries": {
+                name: _merge_platform_library_finals(
+                    apk_platform[name],
+                    aab_platform[name],
+                    f"{name} for {abi}",
+                )
+                for name in sorted(apk_platform)
+            },
+            "onnxruntime": _merge_library_record_finals(
+                apk_libraries["onnxruntime"],
+                aab_libraries["onnxruntime"],
+                f"ORT for {abi}",
+            ),
+            "sherpaRuntimeConsumers": {
+                name: _merge_library_record_finals(
+                    apk_consumers[name],
+                    aab_consumers[name],
+                    f"{name} for {abi}",
+                )
+                for name in sorted(apk_consumers)
+            },
+            "fonixShim": _merge_library_record_finals(
+                apk_libraries["fonixShim"],
+                aab_libraries["fonixShim"],
+                f"Fonix shim for {abi}",
+            ),
+            "libcxxShared": (
+                None
+                if apk_libcxx is None
+                else _merge_library_record_finals(
+                    apk_libcxx,
+                    aab_libcxx,
+                    f"{VERIFIER.LIBCXX_NAME} for {abi}",
+                )
+            ),
+            "companionLibraries": {
+                name: _merge_library_record_finals(
+                    apk_companions[name],
+                    aab_companions[name],
+                    f"{name} for {abi}",
+                )
+                for name in sorted(apk_companions)
+            },
+        }
+    return merged
+
+
+def _tool_identity(
+    path: Path,
+    label: str,
+    *,
+    expected: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    identity = _stable_file_identity(path, label, MAX_TOOL_SOURCE_BYTES)
+    if expected is not None and identity != expected:
+        raise CompatibilityManifestError(
+            f"{label} changed while the static package record was generated"
+        )
+    return {
+        "fileName": path.name,
+        "sizeBytes": identity["sizeBytes"],
+        "sha256": identity["sha256"],
+    }
+
+
+def generate_static_package_manifest(
+    arguments: argparse.Namespace,
+    *,
+    generator_path: Path,
+) -> dict[str, Any]:
+    """Build a closed record for APK/AAB bytes with one matching native graph."""
+
+    generator_path = generator_path.resolve(strict=True)
+    implementation_path = Path(__file__).resolve(strict=True)
+    generator_start_identity = _stable_file_identity(
+        generator_path,
+        "static package generator",
+        MAX_TOOL_SOURCE_BYTES,
+    )
+    implementation_start_identity = _stable_file_identity(
+        implementation_path,
+        "static package evidence implementation",
+        MAX_TOOL_SOURCE_BYTES,
+    )
+    abis = _validate_common_static_contract(arguments)
+    if arguments.mode != "sherpa-owned":
+        raise CompatibilityManifestError(
+            "the current static APK/AAB gate accepts only sherpa-owned mode"
+        )
+    if arguments.sherpa_library_profile != "flutter-ffi":
+        raise CompatibilityManifestError(
+            "the current static APK/AAB gate requires the Flutter FFI profile"
+        )
+
+    sherpa_paths = _resolve_unique_paths(
+        arguments.sherpa_artifact, "sherpa artifact"
+    )
+    wrapper_paths = _resolve_unique_paths(
+        arguments.wrapper_artifact, "wrapper artifact"
+    )
+    runtime_paths = sherpa_paths
+    _reject_cross_role_overlap(sherpa_paths, "sherpa", wrapper_paths, "wrapper")
+    final_apk = _resolve_regular_path(
+        arguments.final_apk, "final APK", MAX_ARTIFACT_BYTES
+    )
+    final_aab = _resolve_regular_path(
+        arguments.final_aab, "final AAB", MAX_ARTIFACT_BYTES
+    )
+    if final_apk == final_aab:
+        raise CompatibilityManifestError("final APK and AAB must be distinct inputs")
+    all_native_paths = tuple(dict.fromkeys((*sherpa_paths, *wrapper_paths)))
+    _reject_cross_role_overlap(
+        all_native_paths,
+        "native source",
+        (final_apk, final_aab),
+        "final package",
+    )
+    _reject_output_overlap(
+        arguments.output,
+        exact_inputs=(
+            *all_native_paths,
+            final_apk,
+            final_aab,
+            generator_path,
+            implementation_path,
+            VERIFIER_PATH.resolve(strict=True),
+        ),
+        native_inputs=all_native_paths,
+    )
+
+    graph = _prepare_static_source_graph(
+        mode=arguments.mode,
+        sherpa_library_profile=arguments.sherpa_library_profile,
+        abis=abis,
+        sherpa_paths=sherpa_paths,
+        wrapper_paths=wrapper_paths,
+        runtime_paths=runtime_paths,
+    )
+    apk = _bind_final_package(
+        graph,
+        final_apk,
+        label="final APK",
+        expected_kind="apk",
+    )
+    aab = _bind_final_package(
+        graph,
+        final_aab,
+        label="final AAB",
+        expected_kind="aab",
+    )
+    libraries_by_abi = _merge_package_libraries(apk, aab, abis)
+    sherpa_source = _validate_source_url(arguments.sherpa_source)
+    ordered_sherpa_identities = _ordered_identities(graph.sherpa_identities)
+    ordered_wrapper_identities = _ordered_identities(graph.wrapper_identities)
+    ordered_runtime_identities = _ordered_identities(graph.runtime_identities)
+
+    generator_tool = _tool_identity(
+        generator_path,
+        "static package generator",
+        expected=generator_start_identity,
+    )
+    implementation_tool = _tool_identity(
+        implementation_path,
+        "static package evidence implementation",
+        expected=implementation_start_identity,
+    )
+    native_verifier_identity = _stable_file_identity(
+        VERIFIER_PATH, "Android native verifier", MAX_TOOL_SOURCE_BYTES
+    )
+    if native_verifier_identity != EXECUTED_VERIFIER_IDENTITY:
+        raise CompatibilityManifestError(
+            "Android native verifier changed after its exact bytes were loaded"
+        )
+
+    return {
+        "schemaVersion": 1,
+        "result": "passed",
+        "claimStatus": "static-package-only",
+        "snapshotDate": arguments.snapshot_date,
+        "tools": {
+            "generator": generator_tool,
+            "staticEvidenceImplementation": implementation_tool,
+            "nativeVerifier": {
+                "fileName": VERIFIER_PATH.name,
+                "sizeBytes": native_verifier_identity["sizeBytes"],
+                "sha256": native_verifier_identity["sha256"],
+            },
+        },
+        "sherpaOnnx": {
+            "source": sherpa_source,
+            "revision": arguments.sherpa_revision,
+            "provenanceBinding": "caller-declared; enclosing-gate-required",
+            "libraryProfile": arguments.sherpa_library_profile,
+            "artifacts": ordered_sherpa_identities,
+        },
+        "android": {
+            "integrationMode": arguments.mode,
+            "buildType": arguments.build_type,
+            "buildTypeBinding": "caller-declared; enclosing-gate-required",
+            "abis": list(abis),
+            "ortOwner": "sherpa",
+            "ortApiRequired": arguments.ort_api_required,
+            "artifacts": {
+                "wrapperInputs": ordered_wrapper_identities,
+                "runtimeOwnerInputs": ordered_runtime_identities,
+                "finalApk": apk.identity.to_json(),
+                "finalAab": aab.identity.to_json(),
+            },
+            "packageEnvelopes": {
+                "apk": apk.report["_fonixPackageEnvelope"],
+                "aab": aab.report["_fonixPackageEnvelope"],
+            },
+            "librariesByAbi": libraries_by_abi,
+        },
+        "claimBoundary": (
+            "This static record binds one exact APK and one exact base-only AAB "
+            "to the selected sherpa-owned Flutter FFI native inputs and their "
+            "file-backed loaded segments. It proves neither signing, installation, "
+            "application/version manifest identity, declared source revision or "
+            "build-mode provenance, delivered split contents, runtime version/API "
+            "negotiation, inference, load order, device page size, nor target "
+            "compatibility. The source/build declarations require an enclosing "
+            "locked staged-build gate. Runtime "
+            "receipts remain APK-only until an AAB-derived split is installed and "
+            "exercised."
+        ),
+    }
+
+
+def generate_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
+    abis = _validate_common_static_contract(arguments)
     if VERSION.fullmatch(arguments.ort_version_observed) is None:
         raise CompatibilityManifestError("observed ORT version must be strict semver")
     ort_major, ort_minor, _ort_patch = (
@@ -2132,15 +2878,6 @@ def generate_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         raise CompatibilityManifestError(
             "observed ORT version cannot expose the required C API 27"
         )
-    if REVISION.fullmatch(arguments.sherpa_revision) is None:
-        raise CompatibilityManifestError("sherpa revision must be a full commit SHA")
-    if ISO_DATE.fullmatch(arguments.snapshot_date) is None:
-        raise CompatibilityManifestError("snapshot date must be YYYY-MM-DD")
-    try:
-        date.fromisoformat(arguments.snapshot_date)
-    except ValueError as error:
-        raise CompatibilityManifestError("snapshot date must be YYYY-MM-DD") from error
-
     sherpa_paths = _resolve_unique_paths(
         arguments.sherpa_artifact, "sherpa artifact"
     )
@@ -2208,215 +2945,24 @@ def generate_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         native_inputs=all_native_paths,
     )
 
-    sherpa_reports = _inspect_many(sherpa_paths, "sherpa artifact")
-    wrapper_reports = _inspect_many(wrapper_paths, "wrapper artifact")
-    runtime_reports = (
-        sherpa_reports
-        if arguments.mode == "sherpa-owned"
-        else _inspect_many(runtime_paths, "runtime artifact")
+    graph = _prepare_static_source_graph(
+        mode=arguments.mode,
+        sherpa_library_profile=arguments.sherpa_library_profile,
+        abis=abis,
+        sherpa_paths=sherpa_paths,
+        wrapper_paths=wrapper_paths,
+        runtime_paths=runtime_paths,
     )
-    final_report = _inspect(final_path, "final artifact")
-    for index, report in enumerate(sherpa_reports):
-        _validate_ort_candidate_inventory(report, f"sherpa artifact {index + 1}")
-    for index, report in enumerate(wrapper_reports):
-        _validate_ort_candidate_inventory(report, f"wrapper artifact {index + 1}")
-    for index, report in enumerate(runtime_reports):
-        _validate_ort_candidate_inventory(report, f"runtime artifact {index + 1}")
-    _validate_ort_candidate_inventory(final_report, "final artifact")
-    _validate_final_graph(final_report, abis)
-
-    undeclared_input_abis = sorted(
-        {
-            entry["abi"]
-            for report in _unique_reports(
-                sherpa_reports, wrapper_reports, runtime_reports
-            )
-            for entry in report["libraries"]
-        }
-        - set(abis)
+    final_package = _bind_final_package(
+        graph,
+        final_path,
+        label="final artifact",
+        expected_kind=None,
     )
-    if undeclared_input_abis:
-        raise CompatibilityManifestError(
-            "input artifacts contain undeclared ABIs: "
-            + ", ".join(undeclared_input_abis)
-        )
-    if any(report["ort_candidates"] for report in wrapper_reports):
-        raise CompatibilityManifestError(
-            "external Fonix wrapper artifacts must own no ORT"
-        )
-    if arguments.mode == "aligned" and any(
-        report["ort_candidates"] for report in sherpa_reports
-    ):
-        raise CompatibilityManifestError(
-            "aligned sherpa artifacts must own no ORT; the application runtime "
-            "artifacts are the sole source owners"
-        )
-
-    sherpa_identities = _identity_map(sherpa_paths, sherpa_reports)
-    wrapper_identities = _identity_map(wrapper_paths, wrapper_reports)
-    runtime_identities = (
-        sherpa_identities
-        if arguments.mode == "sherpa-owned"
-        else _identity_map(runtime_paths, runtime_reports)
-    )
-    all_source_reports = _unique_reports(
-        sherpa_reports, wrapper_reports, runtime_reports
-    )
-
-    source_entries_by_abi: dict[
-        str, dict[str, tuple[dict[str, Any], dict[str, Any]]]
-    ] = {}
-    for abi in abis:
-        entries_by_name: dict[
-            str, list[tuple[dict[str, Any], dict[str, Any]]]
-        ] = {}
-        for report in all_source_reports:
-            for entry in report["libraries"]:
-                if entry["abi"] == abi:
-                    entries_by_name.setdefault(entry["name"], []).append(
-                        (report, entry)
-                    )
-        duplicates = sorted(
-            name for name, entries in entries_by_name.items() if len(entries) != 1
-        )
-        if duplicates:
-            raise CompatibilityManifestError(
-                f"multiple input artifacts own native libraries for {abi}: "
-                + ", ".join(duplicates)
-            )
-        source_entries_by_abi[abi] = {
-            name: entries[0] for name, entries in entries_by_name.items()
-        }
-        final_names = {
-            entry["name"]
-            for entry in final_report["libraries"]
-            if entry["abi"] == abi
-        }
-        unexpected_final = sorted(
-            final_names
-            - set(entries_by_name)
-            - FINAL_PLATFORM_LIBRARY_NAMES
-        )
-        if unexpected_final:
-            raise CompatibilityManifestError(
-                f"final artifact contains native libraries without a selected "
-                f"source input for {abi}: {', '.join(unexpected_final)}"
-            )
-
-    libraries_by_abi: dict[str, Any] = {}
-    final_ort_by_abi: dict[str, dict[str, Any]] = {}
-    for abi in abis:
-        runtime_report, runtime_ort = _single_across(
-            runtime_reports, VERIFIER.ORT_NAME, abi, "runtime owner artifacts"
-        )
-        wrapper_report, wrapper_shim = _single_across(
-            wrapper_reports, VERIFIER.SHIM_NAME, abi, "wrapper artifacts"
-        )
-        final_ort = _single(final_report, VERIFIER.ORT_NAME, abi, "final artifact")
-        final_shim = _single(final_report, VERIFIER.SHIM_NAME, abi, "final artifact")
-        if runtime_ort["elf"]["soname"] != VERIFIER.ORT_NAME:
-            raise CompatibilityManifestError(
-                f"runtime owner has wrong ORT SONAME for {abi}"
-            )
-        if (
-            wrapper_shim["elf"]["soname"] != VERIFIER.SHIM_NAME
-            or VERIFIER.ORT_NAME in wrapper_shim["elf"]["needed"]
-        ):
-            raise CompatibilityManifestError(
-                f"Fonix wrapper is not an external/process shim for {abi}"
-            )
-        _tie_source_to_final(runtime_ort, final_ort, "ORT", abi)
-        _tie_source_to_final(wrapper_shim, final_shim, "Fonix shim", abi)
-
-        sherpa_consumers: dict[str, Any] = {}
-        for (
-            name,
-            source_report,
-            source_entry,
-            final_entry,
-        ) in _profile_consumers(
-            sherpa_reports,
-            final_report,
-            arguments.sherpa_library_profile,
-            abi,
-        ):
-            _tie_source_to_final(source_entry, final_entry, name, abi)
-            sherpa_consumers[name] = _library_record(
-                source_entry,
-                final_entry,
-                sherpa_identities[source_report["artifact"]],
-            )
-
-        source_libcxx = _entries_across(
-            all_source_reports, VERIFIER.LIBCXX_NAME, abi
-        )
-        final_libcxx = _entries(final_report, VERIFIER.LIBCXX_NAME, abi)
-        if len(source_libcxx) > 1:
-            raise CompatibilityManifestError(
-                f"multiple input artifacts own {VERIFIER.LIBCXX_NAME} for {abi}"
-            )
-        if bool(source_libcxx) != bool(final_libcxx):
-            raise CompatibilityManifestError(
-                f"source/final {VERIFIER.LIBCXX_NAME} ownership differs for {abi}"
-            )
-
-        libcxx_record = None
-        if source_libcxx:
-            libcxx_report, libcxx_source = source_libcxx[0]
-            libcxx_final = final_libcxx[0]
-            _tie_source_to_final(
-                libcxx_source, libcxx_final, VERIFIER.LIBCXX_NAME, abi
-            )
-            source_identity = (
-                sherpa_identities.get(libcxx_report["artifact"])
-                or wrapper_identities.get(libcxx_report["artifact"])
-                or runtime_identities[libcxx_report["artifact"]]
-            )
-            libcxx_record = _library_record(
-                libcxx_source, libcxx_final, source_identity
-            )
-
-        core_names = {
-            VERIFIER.ORT_NAME,
-            VERIFIER.SHIM_NAME,
-            VERIFIER.LIBCXX_NAME,
-            *KNOWN_SHERPA_LIBRARY_NAMES,
-        }
-        companion_records: dict[str, Any] = {}
-        for name, (source_report, source_entry) in sorted(
-            source_entries_by_abi[abi].items()
-        ):
-            if name in core_names:
-                continue
-            final_entry = _single(final_report, name, abi, "final artifact")
-            _tie_source_to_final(source_entry, final_entry, name, abi)
-            source_identity = (
-                sherpa_identities.get(source_report["artifact"])
-                or wrapper_identities.get(source_report["artifact"])
-                or runtime_identities[source_report["artifact"]]
-            )
-            companion_records[name] = _library_record(
-                source_entry, final_entry, source_identity
-            )
-
-        final_ort_by_abi[abi] = final_ort
-        libraries_by_abi[abi] = {
-            "onnxruntime": _library_record(
-                runtime_ort,
-                final_ort,
-                runtime_identities[runtime_report["artifact"]],
-            ),
-            "sherpaRuntimeConsumers": sherpa_consumers,
-            "fonixShim": _library_record(
-                wrapper_shim,
-                final_shim,
-                wrapper_identities[wrapper_report["artifact"]],
-            ),
-            "libcxxShared": libcxx_record,
-            "companionLibraries": companion_records,
-        }
-
-    final_identity = final_report["_fonixArtifactIdentity"]
+    final_report = final_package.report
+    final_identity = final_package.identity
+    final_ort_by_abi = final_package.ort_by_abi
+    libraries_by_abi = final_package.libraries_by_abi
     validator_identity = _stable_file_identity(
         LOAD_ORDER_VALIDATOR_PATH,
         "load-order validator",
@@ -2474,18 +3020,9 @@ def generate_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         )
     )
 
-    ordered_sherpa_identities = sorted(
-        (identity.to_json() for identity in sherpa_identities.values()),
-        key=lambda value: (value["fileName"], value["sha256"]),
-    )
-    ordered_wrapper_identities = sorted(
-        (identity.to_json() for identity in wrapper_identities.values()),
-        key=lambda value: (value["fileName"], value["sha256"]),
-    )
-    ordered_runtime_identities = sorted(
-        (identity.to_json() for identity in runtime_identities.values()),
-        key=lambda value: (value["fileName"], value["sha256"]),
-    )
+    ordered_sherpa_identities = _ordered_identities(graph.sherpa_identities)
+    ordered_wrapper_identities = _ordered_identities(graph.wrapper_identities)
+    ordered_runtime_identities = _ordered_identities(graph.runtime_identities)
 
     return {
         "schemaVersion": 2,

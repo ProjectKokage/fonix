@@ -50,7 +50,12 @@ the active documentation:
   gates; the Android one-shot mode has separate exact CPU and XNNPACK profiles,
   with the latter owning strict assignment, exact CPU parity, explicit fallback
   report/rejection, post-rejection recovery, and deterministic five-session
-  cleanup.
+  cleanup; and
+- a separate sherpa-owned Android arm64-v8a reference scaffold whose staged
+  runner binds the complete hosted dependency trees, generated plugin graph,
+  raw native inputs, and one exact R8 Release APK/base-only-AAB static pair.
+  Its app path remains deliberately unavailable until real native fixtures and
+  qualification adapters are provisioned.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM remain explicitly outside this API rather than unfinished
@@ -60,16 +65,16 @@ paths.
 
 | Gate | Result |
 | --- | --- |
-| Dart formatting | 78 files, 0 changes |
+| Dart formatting | 85 files, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 184 passed, 16 explicitly provisioned skips |
+| Ordinary offline Dart suite | 185 passed, 16 explicitly provisioned skips |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 183/183 passed |
-| Standalone Python verifier tests | 39/39 passed |
+| Python CI-script tests | 304/304 passed |
+| Standalone Python verifier tests | 54/54 passed |
 | C source quality | 34/34 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
 | Deterministic fixture inventory | 23 files and 23 closed model/data paths |
@@ -86,6 +91,7 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
+| Sherpa-owned Android arm64 static reference gate | 14 staged host tests, locked offline resolution, R8 Release APK/base-only-AAB build, exact hosted-package/native-input guards, and closed package-pair audit passed; no target run |
 | Closed source checksum manifest | Regenerated from and verified against this final tree |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
@@ -280,6 +286,42 @@ absence, and the gate verified that its owned emulator serial disappeared.
 These are final-package functional emulator results only, not API 24, 16 KiB
 runtime, physical-device, performance, thermal, AAB-split-install, x86_64,
 sherpa-coexistence, QNN, or XNNPACK provider-qualification evidence.
+
+## Android sherpa static reference evidence
+
+The dedicated sherpa-owned gate used the same pinned Flutter revision and
+OpenJDK 21.0.12, Android compile API 36, build-tools 36.0.0, and NDK
+28.2.13676358. It copied the committed scaffold outside the checkout, resolved
+the exact lock offline, verified all five hosted sherpa package trees and the
+generated four-plugin Android graph around every consuming command, passed 14
+host tests and analysis, and built one arm64-v8a R8 Release package pair:
+
+- APK: 41,842,141 bytes, SHA-256
+  `75ef12fc6fc0685f438c0af48432c1368b0bcec5bd511f257c0d21d616ecf3c4`;
+- base-only AAB: 25,184,411 bytes, SHA-256
+  `d9a3c9fabd75bc9e6732bc10f4da567d9564d430340742945313985d8744e56c`.
+
+The first real build failed closed because Android's default Release strip step
+rewrote bytes in ORT's first `PT_LOAD` segment. The scaffold now preserves the
+four provenance-bound native inputs with `keepDebugSymbols`; the rebuilt APK
+and AAB contain the exact raw ORT, sherpa C API, sherpa C++ API, and Fonix shim
+bytes. The final static manifest is 16,118 bytes with SHA-256
+`a5998a28d9e787aa25c4e45687b0d3e74f50fce9a7208f012beb17328f68fb22`.
+It also binds matching `libapp.so` and `libflutter.so` loaded identities across
+the APK/AAB pair, a complete non-system dependency graph, and static 16 KiB
+ELF compatibility.
+
+A preceding clean pass produced the same AAB hash and identical data/metadata
+for all 60 APK ZIP entries, but a different development-signed APK hash. The
+3,056 differing bytes were confined to the APK v2 signing block. This gate
+binds each exact build; it does not establish reproducible distribution
+signing.
+
+This is `static-package-only` evidence. The source app has no passed target
+path, and neither package was installed or executed. Application/version
+manifest identity, signing suitability, runtime negotiation, inference, both
+load orders, lifecycle behavior, actual 4 KiB/16 KiB environments, and an
+AAB-derived installed split remain unproved.
 
 ## Required CI coverage
 
