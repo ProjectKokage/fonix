@@ -138,6 +138,21 @@ asset-preparation command. Android applications integrating sherpa-onnx must
 follow the one-runtime contract in
 [Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md).
 
+## Committed macOS reference application
+
+[`example/`](example/) is a macOS arm64 Flutter reference application that
+imports only `package:fonix/fonix.dart`. It loads the lock-selected bundled
+runtime, creates a bounded worker-isolate session, runs an exact CPU-assignment
+smoke model, and owns retry, cancellation, suspension/resume, stale-result
+suppression, and idempotent shutdown. The fixture is deliberately tiny and is
+not a benchmark.
+
+The committed directory is a source template nested inside this package, so it
+must be copied outside the checkout before Flutter builds its native assets.
+The documented gate performs that copy, reproduces app-owned notices, analyzes
+and tests the app, builds Release, audits the packaged bytes, and then launches
+the final executable. See the [reference-app guide](example/README.md).
+
 ## Verification
 
 For an ordinary source check:
@@ -155,11 +170,12 @@ provider qualification paths are opt-in because they require exact external
 artifacts or target hardware. [Validation](VALIDATION.md) records what was
 actually executed and, equally importantly, what it does not prove.
 
-Current evidence includes a final macOS arm64 application CPU run and an exact
-ORT 1.27.1 CoreML `CPUOnly` assignment/parity run. iOS, Android, Linux, and
-Windows source or cross-build gates exist, but their outstanding target-host,
-device, packaging, and provider qualification gaps remain explicit release
-gates.
+Current evidence includes both a freshly generated final macOS arm64
+application CPU run and the committed public-API reference application's exact
+packaged CPU receipt, plus an exact ORT 1.27.1 CoreML `CPUOnly`
+assignment/parity run. iOS, Android, Linux, and Windows source or cross-build
+gates exist, but their outstanding target-host, device, packaging, and
+provider qualification gaps remain explicit release gates.
 
 ## Documentation
 

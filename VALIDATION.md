@@ -9,7 +9,9 @@
 The source implementation is complete for Fonix's declared development API
 and locally controllable package boundary. No known source, analysis, unit,
 native-shim, exact-runtime, artifact-audit, or macOS application-gate failure
-remains in this snapshot.
+remains in this snapshot. Both the freshly generated gate application and the
+committed public-API reference application load and execute their exact
+packaged CPU paths.
 
 This is not a redistribution or five-platform release approval. The package
 remains `publish_to: none`, and the external licensing, signing, target-host,
@@ -37,7 +39,11 @@ the active documentation:
 - five-OS build-hook paths, exact offline artifact resolution, final-package
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
-  release-evidence checks.
+  release-evidence checks; and
+- a committed macOS arm64 Flutter reference app over the public Fonix library,
+  with bounded worker ownership, exact model/runtime identity, cancellation,
+  retry, lifecycle replacement, stale-result suppression, and deterministic
+  cleanup.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM remain explicitly outside this API rather than unfinished
@@ -47,15 +53,15 @@ paths.
 
 | Gate | Result |
 | --- | --- |
-| Dart formatting | 62 files, 0 changes |
+| Dart formatting | 71 files, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 178 passed, 15 explicitly provisioned skips |
+| Ordinary offline Dart suite | 182 passed, 15 explicitly provisioned skips |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 109/109 passed |
+| Python CI-script tests | 128/128 passed |
 | Standalone Python verifier tests | 33/33 passed |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
 | Deterministic fixture inventory | 23 files and 23 closed model/data paths |
@@ -70,6 +76,7 @@ paths.
 | Linux x64/arm64 and Windows x64 Zig cross-build | 1/1 passed |
 | Flutter asset publication | 7/7 passed |
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
+| Committed macOS public-API reference application gate | 26 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Closed source checksum manifest | Regenerated from and verified against this final tree |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
@@ -125,6 +132,18 @@ verified code signatures and loaded-section parity with the lock-selected
 runtime, then loaded only through the packaged shim/framework layout and
 produced the expected CPU outputs.
 
+The separate committed-reference gate copied `example/` outside the package
+checkout, reproduced the exact manifest/notices, passed 26 controller/widget
+tests and analysis, built Release, and verified signatures, hardened runtime,
+the sandbox, and the explicit local ad-hoc library-validation exception. The
+independent final-application audit ran before the named Flutter executable was
+launched directly. The packaged public-API path then reported ORT 1.27.1,
+wrapper-owned bundled CPU,
+the exact 130-byte model SHA-256, output `[1,4,9,16,25,36]`, active provider
+`cpu`, full CPU assignment, and an idempotent double close. The gate removed
+all `DYLD_*` overrides and bounded its copy, commands, output, receipt, and
+runtime.
+
 The same exact runtime produced validated one-run assignment evidence for CPU
 and CoreML with `MLComputeUnits=CPUOnly`, output parity, scoped cache identity,
 and worker-isolate transport. CoreML required normal host filesystem access to
@@ -140,7 +159,8 @@ Windows, Linux/macOS native sanitizer jobs, the Windows shim/security
 contract, exact macOS ORT native/Dart/worker/provider tests, and the fresh
 macOS final-application gate. The exact macOS lane now runs both production
 native-asset bindings and the explicit dynamic-adapter seam against the same
-strict fake runtimes.
+strict fake runtimes. It also runs the committed reference application from a
+clean external copy after the independent bundle audit.
 
 ## Evidence not produced and release blockers
 
@@ -156,6 +176,11 @@ The following are deliberately not claimed:
 - physical-device or representative-hardware qualification and sustained
   benchmarks for non-CPU providers; or
 - notarization, public signing, publication, or redistribution approval.
+
+In particular, the reference app's local ad-hoc build disables library
+validation because it has no authorized Team ID shared with FlutterMacOS. That
+explicit development entitlement is executable gate evidence, not a
+distribution security/signing decision.
 
 The repository also has no project-level `LICENSE`, approved private security
 contact, signing identity, or publication authority. Those are product/legal/

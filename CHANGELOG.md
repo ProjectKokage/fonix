@@ -12,6 +12,9 @@
 - Added five-platform build-hook paths, pinned artifact resolution, Android
   single-runtime ownership enforcement, final-package auditors, aligned-build
   tooling, SBOM generation, and source checksum verification.
+- Added a committed macOS arm64 Flutter reference application that uses only
+  the public API, owns worker lifecycle/cancellation/retry, and is analyzed,
+  tested, launched, and independently audited from exact packaged bytes.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
   assignment/parity on macOS arm64. Other target/device/provider gates remain
   documented qualification requirements.

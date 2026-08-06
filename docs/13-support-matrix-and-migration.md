@@ -25,7 +25,7 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 
 | Target | Locked baseline | Highest current evidence | Missing before a support claim |
 | --- | --- | --- | --- |
-| macOS arm64, minimum 14.0 | bundled CPU | Final-app tested with a Release Flutter `.app`, exact packaged bytes, and numeric CPU inference | Distribution signing/notarization and release approval |
+| macOS arm64, minimum 14.0 | bundled CPU | Final-app tested with both a freshly generated gate app and the committed public-API reference `.app`, exact packaged bytes, and numeric CPU inference | Consistent distribution signing, removal/review of the local ad-hoc library-validation exception, notarization, and release approval |
 | iOS arm64 device, minimum 15.1 | linked CPU | Shim/runtime source resolution and device-target compilation | Signed final app, physical-device load/inference, lifecycle, and packaging audit |
 | iOS arm64 simulator, minimum 15.1 | linked CPU | Shim/runtime source resolution and simulator-target compilation | Final simulator app load/inference and packaging audit |
 | Android arm64-v8a, API 24 | application-owned CPU or sherpa-owned process shim | NDK cross-build, ELF/16 KiB static audit, and synthetic final native inventory | Flutter APK/AAB, exact sherpa artifact, both load orders, inference, release/R8, and 4/16 KiB devices |
@@ -41,7 +41,7 @@ have no locked baseline artifact and are not supported by this snapshot.
 
 | Provider | Configuration path | Highest current evidence | Qualification boundary |
 | --- | --- | --- | --- |
-| CPU | implicit or explicit last provider | Exact ORT 1.27.1 CPU inference and full-assignment receipt on macOS arm64; final-app CPU run | Other target tuples retain their platform gates |
+| CPU | implicit or explicit last provider | Exact ORT 1.27.1 CPU inference and full-assignment receipts on macOS arm64, including a direct run through the committed packaged public-API app | Other target tuples retain their platform gates |
 | XNNPACK | typed options and oversubscription checks | Implemented and failure-tested | Real mobile device assignment, parity, thermal behavior, and benchmark |
 | CoreML | typed format/compute/cache options | Exact macOS arm64 `CPUOnly` full assignment, CPU parity, and scoped-cache behavior | No inference about GPU/ANE; iOS and physical-device qualification remain open |
 | NNAPI | typed legacy flags; Android-only native symbol | Cross-built for locked Android ABIs | Deprecated/opt-in; requires real-device assignment, parity, and fallback evidence |

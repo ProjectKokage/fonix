@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "artifactId": "onnxruntime-1.27.1-macos-arm64-cpu",
+  "lock": {
+    "path": "native/versions.lock.yaml",
+    "sha256": "5cde32cc7633387632542996ac23492721f47b68434472b013dcc6db27d2392b",
+    "snapshotDate": "2026-08-06",
+    "releaseState": "unreleased-preview"
+  },
+  "target": {
+    "os": "macos",
+    "architecture": "arm64",
+    "variant": "default",
+    "minimumOs": "14.0",
+    "flavor": "cpu",
+    "runtimeMode": "bundled"
+  },
+  "source": {
+    "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/onnxruntime-osx-arm64-1.27.1.tgz",
+    "sourceRevision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+    "archive": "tgz",
+    "sha256": "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6",
+    "sizeBytes": 31959937
+  },
+  "containers": [],
+  "payloadFiles": [
+    {
+      "archivePath": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.1.27.1.dylib",
+      "stagedPath": "libonnxruntime.1.dylib",
+      "sha256": "a441a94433ebf38f1918009aba0199f88c6f877251b9946d89816427839964c8",
+      "sizeBytes": 38502216
+    },
+    {
+      "archivePath": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.dylib",
+      "stagedPath": "libonnxruntime.dylib",
+      "sha256": "a441a94433ebf38f1918009aba0199f88c6f877251b9946d89816427839964c8",
+      "sizeBytes": 38502216
+    }
+  ],
+  "verifiedSymlinks": [
+    {
+      "path": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.1.dylib",
+      "target": "libonnxruntime.1.27.1.dylib"
+    }
+  ],
+  "notices": [
+    {
+      "id": "MIT",
+      "containerDepth": 0,
+      "archivePath": "onnxruntime-osx-arm64-1.27.1/LICENSE",
+      "stagedPath": "notices/LICENSE",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+      "sizeBytes": 1073
+    },
+    {
+      "id": "ThirdPartyNotices",
+      "containerDepth": 0,
+      "archivePath": "onnxruntime-osx-arm64-1.27.1/ThirdPartyNotices.txt",
+      "stagedPath": "notices/ThirdPartyNotices.txt",
+      "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+      "sizeBytes": 325054
+    }
+  ],
+  "archiveInspections": [
+    {
+      "depth": 0,
+      "format": "tar",
+      "memberCount": 49,
+      "regularFileCount": 33,
+      "directoryCount": 15,
+      "symbolicLinkCount": 1,
+      "compressedBytes": 31959937,
+      "uncompressedBytes": 128769976
+    }
+  ],
+  "claimBoundary": "Successful staging proves exact archive and member bytes only. It does not prove loading, linking, provider registration, inference, packaging, signing, or target-device support."
+}

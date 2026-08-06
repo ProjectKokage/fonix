@@ -282,6 +282,35 @@ This gate is pinned to Flutter revision
 `bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter
 `3.47.0-0.1.pre`) so a toolchain change fails closed and requires new evidence.
 
+The repository also commits [`../example/`](../example/) as the public-API
+reference application. Because a native-asset consumer's staging directory
+must remain outside the Fonix checkout, its gate copies only bounded regular
+source files to a new absolute work directory, patches the local package path,
+and rebuilds there:
+
+```bash
+python3 -B tool/ci/run_macos_reference_app_gate.py \
+  --repository /absolute/path/to/fonix \
+  --flutter /absolute/flutter/bin/flutter \
+  --artifact-cache /absolute/offline/cache \
+  --reference-runtime /absolute/verified/libonnxruntime.1.27.1.dylib \
+  --work-dir /absolute/new/fonix-macos-reference-app-gate
+```
+
+The gate reproduces the committed manifest/notices byte-for-byte, analyzes and
+tests the app, builds Release, verifies the final signatures and hardened
+runtime, runs the independent application audit, then launches the named
+`CFBundleExecutable` through a bounded one-shot public-API path. The exact
+receipt binds the runtime/artifact/model identities, output values, active CPU
+provider, full assignment, and double close.
+
+The local Release build is ad-hoc signed. It keeps the sandbox and hardened
+runtime but explicitly disables library validation so the separately ad-hoc
+signed Flutter framework can load without a common Team ID. The gate verifies
+that signed entitlement and reports it as a development exception. It is not
+distribution-signing or notarization evidence; an approved distribution build
+must establish one consistent signing policy and re-evaluate the entitlement.
+
 ## 5.10 Android packaging
 
 ### ABIs

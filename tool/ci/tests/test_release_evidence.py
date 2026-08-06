@@ -351,6 +351,100 @@ class SourceChecksumManifestTests(unittest.TestCase):
             ):
                 source_checksum_manifest.build_manifest(repository)
 
+    def test_example_sources_are_included_and_exact_generated_paths_are_ignored(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            example = repository / "example"
+            included = (
+                "lib/main.dart",
+                ".dart_tool-copy/package_config.json",
+                "build-output/result.txt",
+                ".idea-copy/modules.xml",
+                ".fonix-artifact-cache-old/archive",
+                "macos/Flutter/ephemeral-copy/config.xcconfig",
+                ".flutter-plugins-dependencies.backup",
+                "module.iml.backup",
+            )
+            for relative in included:
+                path = example.joinpath(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(f"included: {relative}\n".encode())
+
+            ignored_directories = (
+                ".dart_tool",
+                "build",
+                ".idea",
+                ".fonix-artifact-cache",
+                "macos/Flutter/ephemeral",
+            )
+            for relative in ignored_directories:
+                path = example.joinpath(*relative.split("/")) / "generated.txt"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"generated\n")
+            (example / ".flutter-plugins-dependencies").write_bytes(b"generated\n")
+            (example / "fonix_reference.iml").write_bytes(b"generated\n")
+            (example / "android").mkdir()
+            (example / "android" / "fonix_reference_android.ipr").write_bytes(
+                b"generated\n"
+            )
+
+            paths = source_checksum_manifest.source_paths(repository)
+
+            self.assertEqual(
+                paths,
+                tuple(sorted(f"example/{relative}" for relative in included)),
+            )
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not portable on Windows")
+    def test_links_at_ignored_example_paths_are_rejected(self) -> None:
+        ignored_paths = (
+            (".dart_tool", True),
+            ("build", True),
+            (".idea", True),
+            (".fonix-artifact-cache", True),
+            ("macos/Flutter/ephemeral", True),
+            (".flutter-plugins-dependencies", False),
+            ("fonix_reference.iml", False),
+        )
+        for relative, target_is_directory in ignored_paths:
+            with (
+                self.subTest(relative=relative),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                repository = Path(temporary)
+                example = repository / "example"
+                example.mkdir()
+                target = repository / "target"
+                if target_is_directory:
+                    target.mkdir()
+                else:
+                    target.write_bytes(b"generated\n")
+                link = example.joinpath(*relative.split("/"))
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(target, target_is_directory=target_is_directory)
+
+                with self.assertRaisesRegex(
+                    source_checksum_manifest.SourceManifestError,
+                    "symbolic link|regular file, not a link",
+                ):
+                    source_checksum_manifest.source_paths(repository)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO creation is not portable")
+    def test_special_file_at_ignored_example_path_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            example = repository / "example"
+            example.mkdir()
+            os.mkfifo(example / ".flutter-plugins-dependencies")
+
+            with self.assertRaisesRegex(
+                source_checksum_manifest.SourceManifestError,
+                "regular file",
+            ):
+                source_checksum_manifest.source_paths(repository)
+
 
 class ReleaseEvidenceTests(unittest.TestCase):
     def setUp(self) -> None:

@@ -335,3 +335,11 @@ jobs:
           --artifact-cache "${{ steps.ort.outputs.ort_archive_dir }}"
           --reference-runtime "${{ steps.ort.outputs.ort_path }}"
           --work-dir "$RUNNER_TEMP/fonix-macos-application-gate"
+      - name: Build, run, and audit the committed macOS reference application
+        run: >-
+          python -B tool/ci/run_macos_reference_app_gate.py
+          --repository "${{ github.workspace }}"
+          --flutter "$RUNNER_TEMP/flutter/bin/flutter"
+          --artifact-cache "${{ steps.ort.outputs.ort_archive_dir }}"
+          --reference-runtime "${{ steps.ort.outputs.ort_path }}"
+          --work-dir "$RUNNER_TEMP/fonix-macos-reference-app-gate"

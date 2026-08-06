@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "mul-1-sha256-71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10",
+  "path": "assets/models/mul_1.onnx",
+  "source": "onnxruntime/test/testdata/mul_1.onnx",
+  "sourceRevision": "v1.27.1",
+  "sha256": "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10",
+  "sizeBytes": 130,
+  "input": {
+    "name": "X",
+    "elementType": "float32",
+    "shape": [3, 2],
+    "values": [1, 2, 3, 4, 5, 6]
+  },
+  "output": {
+    "name": "Y",
+    "elementType": "float32",
+    "shape": [3, 2],
+    "values": [1, 4, 9, 16, 25, 36]
+  },
+  "claimBoundary": "API and packaging smoke only; not representative performance or provider qualification."
+}

@@ -30,6 +30,7 @@ SOURCE_DIRECTORIES = frozenset(
         ".github",
         "bin",
         "docs",
+        "example",
         "hook",
         "lib",
         "native",
@@ -62,6 +63,17 @@ IGNORED_ROOT_DIRECTORIES = frozenset(
 FORBIDDEN_GENERATED_DIRECTORIES = frozenset({"__pycache__"})
 FORBIDDEN_GENERATED_FILES = frozenset({".DS_Store"})
 FORBIDDEN_GENERATED_SUFFIXES = (".pyc", ".pyo", ".swp", ".tmp", "~")
+IGNORED_SOURCE_DIRECTORIES = frozenset(
+    {
+        "example/.dart_tool",
+        "example/.fonix-artifact-cache",
+        "example/.idea",
+        "example/build",
+        "example/macos/Flutter/ephemeral",
+    }
+)
+IGNORED_SOURCE_FILES = frozenset({"example/.flutter-plugins-dependencies"})
+IGNORED_EXAMPLE_IDE_FILE_SUFFIXES = (".iml", ".ipr", ".iws")
 MANIFEST_NAME = "MANIFEST.sha256"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _MANIFEST_LINE = re.compile(r"^([0-9a-f]{64})  \./(.+)$")
@@ -69,6 +81,15 @@ _MANIFEST_LINE = re.compile(r"^([0-9a-f]{64})  \./(.+)$")
 
 class SourceManifestError(RuntimeError):
     """The source tree or checksum manifest violates its closed contract."""
+
+
+def _is_ignored_source_file(relative: str) -> bool:
+    return relative in IGNORED_SOURCE_FILES or (
+        relative.startswith("example/")
+        and PurePosixPath(relative).name.endswith(
+            IGNORED_EXAMPLE_IDE_FILE_SUFFIXES
+        )
+    )
 
 
 def _safe_relative_path(value: str, *, label: str) -> str:
@@ -155,29 +176,41 @@ def _walk_source_directory(repository: Path, directory_name: str) -> list[str]:
             raise SourceManifestError(
                 f"source root {directory_name} exceeds the entry bound"
             )
-        for name in directory_names:
+        for name in tuple(directory_names):
             candidate = current / name
-            if name in FORBIDDEN_GENERATED_DIRECTORIES:
-                relative = candidate.relative_to(repository).as_posix()
+            relative = _safe_relative_path(
+                candidate.relative_to(repository).as_posix(), label="source path"
+            )
+            try:
+                mode = candidate.lstat().st_mode
+            except OSError as error:
                 raise SourceManifestError(
-                    f"source tree contains generated directory {relative}"
-                )
-            if candidate.is_symlink():
-                relative = candidate.relative_to(repository).as_posix()
+                    f"source path {relative} cannot be inspected"
+                ) from error
+            if stat.S_ISLNK(mode):
                 raise SourceManifestError(
                     f"source path {relative} must not be a symbolic link"
+                )
+            if relative in IGNORED_SOURCE_DIRECTORIES:
+                if not stat.S_ISDIR(mode):
+                    raise SourceManifestError(
+                        f"ignored source path {relative} must be a directory"
+                    )
+                directory_names.remove(name)
+                continue
+            if _is_ignored_source_file(relative):
+                raise SourceManifestError(
+                    f"ignored source path {relative} must be a regular file"
+                )
+            if name in FORBIDDEN_GENERATED_DIRECTORIES:
+                raise SourceManifestError(
+                    f"source tree contains generated directory {relative}"
                 )
         for name in file_names:
             candidate = current / name
             relative = _safe_relative_path(
                 candidate.relative_to(repository).as_posix(), label="source path"
             )
-            if name in FORBIDDEN_GENERATED_FILES or name.endswith(
-                FORBIDDEN_GENERATED_SUFFIXES
-            ):
-                raise SourceManifestError(
-                    f"source tree contains generated file {relative}"
-                )
             try:
                 mode = candidate.lstat().st_mode
             except OSError as error:
@@ -187,6 +220,18 @@ def _walk_source_directory(repository: Path, directory_name: str) -> list[str]:
             if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
                 raise SourceManifestError(
                     f"source path {relative} must be a regular file, not a link"
+                )
+            if relative in IGNORED_SOURCE_DIRECTORIES:
+                raise SourceManifestError(
+                    f"ignored source path {relative} must be a directory"
+                )
+            if _is_ignored_source_file(relative):
+                continue
+            if name in FORBIDDEN_GENERATED_FILES or name.endswith(
+                FORBIDDEN_GENERATED_SUFFIXES
+            ):
+                raise SourceManifestError(
+                    f"source tree contains generated file {relative}"
                 )
             result.append(relative)
     return result

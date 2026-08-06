@@ -2,6 +2,30 @@
 
 The coding agent should implement vertical slices that produce runnable packaged evidence. Do not attempt all providers before the portable CPU path and ownership model are stable.
 
+## Active development order
+
+The current development sequence is narrower than the phase inventory below:
+
+1. keep the committed macOS arm64 public-API reference app and its packaged
+   lifecycle/inference gate green;
+2. build the Android standalone CPU vertical slice, qualify XNNPACK on the
+   available emulator/device targets, then integrate and exercise the exact
+   sherpa-owned process-runtime composition in both load orders;
+3. produce the iOS arm64 CPU/CoreML reference app, simulator gate, and
+   physical-device lifecycle/assignment evidence;
+4. produce and exercise the Linux x86_64 CPU reference package on a clean
+   target host; and
+5. finish cross-platform lifecycle stress, public API/ABI review, release
+   evidence, licensing, signing, and performance baselines for the advertised
+   rows.
+
+Android QNN/aligned-ORT device qualification is deferred until exact SDK,
+hardware, firmware, sherpa, and redistribution inputs are available. Windows
+target-host inference, final-app packaging, and installer qualification are
+also deferred until a Windows development environment is available. Their
+existing source, cross-build, and tamper gates remain required and must stay
+green, but neither deferral promotes a support claim.
+
 ## Phase 0: repository and contracts
 
 ### Work
@@ -120,6 +144,18 @@ claims.
 - Exports/dependencies/architectures match allowlists.
 - Android 16 KB page-size checks pass.
 - Apple/Windows packaged application load succeeds, not just unit tests.
+
+Implementation checkpoint (2026-08-06): a committed macOS arm64 Flutter
+reference app now exercises only the public Fonix library through one bounded
+worker-isolate CPU session. App-owned tests cover startup/run retry,
+cancellation and stale completion, suspend/resume replacement and oscillation,
+shutdown during startup/run/suspend, synchronous-listener reentrancy, double
+close, and compact UI layout. Its clean-copy gate
+reproduces exact assets, analyzes/tests/builds Release, verifies the local
+ad-hoc signing exception, runs the independent final-bundle audit, and obtains
+an exact full-CPU-assignment receipt from the packaged executable. This closes
+the macOS development-reference slice only; the iOS, Android, Linux, and
+deferred Windows target gates above remain open.
 
 ## Phase 5: async worker and throughput primitives
 

@@ -1,0 +1,34 @@
+name: fonix_reference
+description: A macOS reference application for the public Fonix API.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  crypto: ^3.0.7
+  flutter:
+    sdk: flutter
+  fonix:
+    path: ..
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/mul_1.onnx
+    - assets/models/model.json
+    - assets/fonix/fonix-native-artifact-manifest.json
+    - assets/fonix/ThirdPartyNotices.txt
+
+hooks:
+  user_defines:
+    fonix:
+      runtime_mode: bundled
+      artifact_cache: .fonix-artifact-cache
+      application_minimum_os: '14.0'

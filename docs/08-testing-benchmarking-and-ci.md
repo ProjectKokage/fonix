@@ -132,6 +132,17 @@ creates the sample from scratch and records the exact pinned Flutter revision,
 14.0 app/hook floors, arm64-only configuration, packaged identity/notices, and
 numeric CPU result.
 
+The same job separately invokes
+`tool/ci/run_macos_reference_app_gate.py` for the committed `example/` source.
+That gate copies the template outside the package checkout, verifies the exact
+offline archive, reproduces the committed Flutter assets, runs app-owned
+controller/widget tests, builds Release, and binds both the independent bundle
+audit and direct public-API one-shot receipt to the named final executable. The
+receipt requires exact model/output identities, active CPU-only evidence, full
+assignment, and idempotent double close. Process output, time, copied entries,
+copied bytes, assets, paths, JSON, and receipt fields are all bounded; loader
+override environment variables are removed before launch.
+
 ## 8.7 Android coexistence tests
 
 See document 7 for the full matrix. Automated gates include:
@@ -322,7 +333,8 @@ The checked-in pull-request/push workflow currently runs:
   documented sanitizers, plus the Windows x64 shim/security contract without
   real ORT inference; and
 - the exact ORT 1.27.1 macOS arm64 runtime, native bridge, worker lifecycle,
-  Dart value/provider profile, build-hook, and final Flutter application gates.
+  Dart value/provider profile, build-hook, freshly generated final Flutter
+  application gate, and committed public-API reference-application gate.
 
 The inexpensive C source-quality lane is deliberately offline and
 toolchain-independent. `tool/ci/check_c_source_quality.py` walks the closed
