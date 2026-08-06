@@ -19,6 +19,7 @@ import stat
 import sys
 from typing import Any, Callable, Mapping, NamedTuple, Sequence
 from urllib.parse import unquote, urlsplit
+import zipfile
 
 
 sys.dont_write_bytecode = True
@@ -34,6 +35,7 @@ from android_gate_common import (
     strict_json,
     tool_environment,
 )
+import generate_android_sherpa_fonix_fixtures as fixture_generator
 from validate_android_load_order_receipt import (
     LoadOrderReceiptError,
     _validate_pubspec_lock,
@@ -69,6 +71,34 @@ APK_RELATIVE = Path("build/app/outputs/flutter-apk/app-release.apk")
 AAB_RELATIVE = Path("build/app/outputs/bundle/release/app-release.aab")
 HOOK_BUILD_RELATIVE = Path(".dart_tool/hooks_runner/shared/fonix/build")
 SHIM_NAME = "libfonix_shim.so"
+RUNTIME_ASSET_DIRECTORY = Path("assets/qualification")
+APK_RUNTIME_ASSET_PREFIX = "assets/flutter_assets/assets/qualification/"
+AAB_RUNTIME_ASSET_PREFIX = "base/assets/flutter_assets/assets/qualification/"
+SHERPA_MODEL_NAME = "silero_vad.int8.onnx"
+SHERPA_MODEL_SIZE_BYTES = 212_860
+SHERPA_MODEL_SHA256 = (
+    "c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20"
+)
+GENERATED_RUNTIME_FIXTURE_NAMES = (
+    "fonix_cancellation_input.bin",
+    "fonix_dynamic_matmul_chain.onnx",
+    "fonix_fixture_manifest.json",
+    "fonix_reference_input.bin",
+    "fonix_reference_output.bin",
+    "sherpa_synthetic_speech.wav",
+    "sherpa_vad_reference.json",
+)
+RUNTIME_FIXTURE_NAMES = tuple(
+    sorted((*GENERATED_RUNTIME_FIXTURE_NAMES, SHERPA_MODEL_NAME))
+)
+
+STATIC_FLUTTER_STANZA = "flutter:\n  uses-material-design: true\n"
+RUNTIME_FLUTTER_STANZA = (
+    "flutter:\n"
+    "  uses-material-design: true\n"
+    "  assets:\n"
+    "    - assets/qualification/\n"
+)
 
 MAX_SOURCE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_TEMPLATE_ENTRIES = 100_000
@@ -79,6 +109,10 @@ MAX_PACKAGE_CONFIG_BYTES = 8 * 1024 * 1024
 MAX_PLUGIN_INVENTORY_BYTES = 8 * 1024 * 1024
 MAX_LOCAL_PROPERTIES_BYTES = 64 * 1024
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_ENTRIES = 100_000
+MAX_ARCHIVE_MEMBER_PATH_BYTES = 4_096
+MAX_RUNTIME_FIXTURE_FILE_BYTES = 16 * 1024 * 1024
+MAX_RUNTIME_FIXTURE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_SHIM_BYTES = 16 * 1024 * 1024
 MAX_SHERPA_LIBRARY_BYTES = 256 * 1024 * 1024
 MAX_HOSTED_PACKAGE_ENTRIES = 4_096
@@ -301,6 +335,361 @@ def _require_file_identity(
 ) -> None:
     if _file_identity(path, label, maximum=maximum) != expected:
         raise AndroidSherpaReferenceAppGateError(f"{label} identity changed")
+
+
+def _validate_sherpa_model(path: Path) -> tuple[Path, FileIdentity]:
+    try:
+        regular_file(
+            path,
+            "external Silero VAD model",
+            maximum=SHERPA_MODEL_SIZE_BYTES,
+        )
+        resolved = path.resolve(strict=True)
+    except (OSError, AndroidGateCommonError) as error:
+        if isinstance(error, AndroidGateCommonError):
+            raise _common(error) from error
+        raise AndroidSherpaReferenceAppGateError(
+            "could not resolve the external Silero VAD model"
+        ) from error
+    identity = _file_identity(
+        resolved,
+        "external Silero VAD model",
+        maximum=SHERPA_MODEL_SIZE_BYTES,
+    )
+    expected = FileIdentity(SHERPA_MODEL_SIZE_BYTES, SHERPA_MODEL_SHA256)
+    if identity != expected:
+        raise AndroidSherpaReferenceAppGateError(
+            "external Silero VAD model does not match the exact size and SHA-256"
+        )
+    return resolved, identity
+
+
+def _read_exact_file(
+    path: Path,
+    expected: FileIdentity,
+    label: str,
+    *,
+    maximum: int,
+) -> bytes:
+    _require_file_identity(path, expected, label, maximum=maximum)
+    try:
+        with path.open("rb") as stream:
+            contents = stream.read(maximum + 1)
+    except OSError as error:
+        raise AndroidSherpaReferenceAppGateError(
+            f"could not read {label}"
+        ) from error
+    if (
+        len(contents) > maximum
+        or FileIdentity(len(contents), hashlib.sha256(contents).hexdigest())
+        != expected
+    ):
+        raise AndroidSherpaReferenceAppGateError(f"{label} identity changed")
+    _require_file_identity(path, expected, label, maximum=maximum)
+    return contents
+
+
+def _generated_runtime_fixture_bytes() -> dict[str, bytes]:
+    try:
+        generated = fixture_generator.generated_files()
+    except Exception as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime fixture generator failed"
+        ) from error
+    if (
+        not isinstance(generated, dict)
+        or tuple(sorted(generated)) != GENERATED_RUNTIME_FIXTURE_NAMES
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime fixture generator did not return the exact seven-file set"
+        )
+    total = 0
+    result: dict[str, bytes] = {}
+    for name in GENERATED_RUNTIME_FIXTURE_NAMES:
+        contents = generated.get(name)
+        if (
+            type(contents) is not bytes
+            or not contents
+            or len(contents) > MAX_RUNTIME_FIXTURE_FILE_BYTES
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                f"generated runtime fixture {name} is outside its byte bound"
+            )
+        total += len(contents)
+        if total > MAX_RUNTIME_FIXTURE_TOTAL_BYTES:
+            raise AndroidSherpaReferenceAppGateError(
+                "generated runtime fixtures exceed their aggregate byte bound"
+            )
+        result[name] = contents
+    return result
+
+
+def _patch_runtime_assets(pubspec: Path) -> None:
+    try:
+        pubspec = regular_file(
+            pubspec,
+            "sherpa reference pubspec",
+            maximum=1024 * 1024,
+        )
+        source = pubspec.read_text(encoding="utf-8")
+    except (AndroidGateCommonError, UnicodeDecodeError) as error:
+        if isinstance(error, AndroidGateCommonError):
+            raise _common(error) from error
+        raise AndroidSherpaReferenceAppGateError(
+            "sherpa reference pubspec is not UTF-8"
+        ) from error
+    if (
+        "\r" in source
+        or source.count(STATIC_FLUTTER_STANZA) != 1
+        or "\n  assets:\n" in source
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "sherpa reference pubspec lost the exact asset-free Flutter stanza"
+        )
+    updated = source.replace(STATIC_FLUTTER_STANZA, RUNTIME_FLUTTER_STANZA)
+    if updated.replace(RUNTIME_FLUTTER_STANZA, STATIC_FLUTTER_STANZA) != source:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime qualification asset patch changed unexpected bytes"
+        )
+    pubspec.write_text(updated, encoding="utf-8", newline="")
+
+
+def _runtime_fixture_inventory(
+    asset_root: Path,
+    expected: Mapping[str, FileIdentity],
+) -> dict[str, FileIdentity]:
+    if tuple(sorted(expected)) != RUNTIME_FIXTURE_NAMES:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime fixture expectation is not the exact eight-file set"
+        )
+    try:
+        asset_root = directory(asset_root, "runtime qualification asset directory")
+        entries = list(asset_root.iterdir())
+    except (OSError, AndroidGateCommonError) as error:
+        if isinstance(error, AndroidGateCommonError):
+            raise _common(error) from error
+        raise AndroidSherpaReferenceAppGateError(
+            "could not inspect runtime qualification assets"
+        ) from error
+    if tuple(sorted(entry.name for entry in entries)) != RUNTIME_FIXTURE_NAMES:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime qualification assets are not the exact eight-file set"
+        )
+    result: dict[str, FileIdentity] = {}
+    total = 0
+    for entry in sorted(entries, key=lambda value: value.name):
+        identity = _file_identity(
+            entry,
+            f"runtime qualification asset {entry.name}",
+            maximum=MAX_RUNTIME_FIXTURE_FILE_BYTES,
+        )
+        if identity != expected[entry.name]:
+            raise AndroidSherpaReferenceAppGateError(
+                f"runtime qualification asset {entry.name} identity changed"
+            )
+        total += identity.size_bytes
+        if total > MAX_RUNTIME_FIXTURE_TOTAL_BYTES:
+            raise AndroidSherpaReferenceAppGateError(
+                "runtime qualification assets exceed their aggregate byte bound"
+            )
+        result[entry.name] = identity
+    return result
+
+
+def _stage_runtime_fixtures(
+    work_directory: Path,
+    pubspec: Path,
+    sherpa_model: Path,
+    sherpa_model_identity: FileIdentity,
+) -> dict[str, FileIdentity]:
+    generated = _generated_runtime_fixture_bytes()
+    model = _read_exact_file(
+        sherpa_model,
+        sherpa_model_identity,
+        "external Silero VAD model",
+        maximum=SHERPA_MODEL_SIZE_BYTES,
+    )
+    contents = {**generated, SHERPA_MODEL_NAME: model}
+    if tuple(sorted(contents)) != RUNTIME_FIXTURE_NAMES:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime qualification fixture composition changed"
+        )
+    if sum(len(value) for value in contents.values()) > MAX_RUNTIME_FIXTURE_TOTAL_BYTES:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime qualification fixtures exceed their aggregate byte bound"
+        )
+
+    assets = work_directory / RUNTIME_ASSET_DIRECTORY.parent
+    asset_root = work_directory / RUNTIME_ASSET_DIRECTORY
+    try:
+        if assets.exists() or assets.is_symlink():
+            directory(assets, "sherpa reference asset root")
+        else:
+            assets.mkdir(mode=0o755)
+        assets.chmod(0o755)
+        if asset_root.exists() or asset_root.is_symlink():
+            raise AndroidSherpaReferenceAppGateError(
+                "runtime qualification asset directory already exists"
+            )
+        asset_root.mkdir(mode=0o755)
+        for name in RUNTIME_FIXTURE_NAMES:
+            output = asset_root / name
+            with output.open("xb") as stream:
+                stream.write(contents[name])
+                stream.flush()
+            output.chmod(0o644)
+    except AndroidSherpaReferenceAppGateError:
+        raise
+    except (OSError, AndroidGateCommonError) as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "could not stage runtime qualification fixtures"
+        ) from error
+
+    _patch_runtime_assets(pubspec)
+    expected = {
+        name: FileIdentity(
+            len(contents[name]),
+            hashlib.sha256(contents[name]).hexdigest(),
+        )
+        for name in RUNTIME_FIXTURE_NAMES
+    }
+    return _runtime_fixture_inventory(asset_root, expected)
+
+
+def _validate_archive_member_name(name: str, label: str) -> None:
+    try:
+        encoded = name.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise AndroidSherpaReferenceAppGateError(
+            f"{label} contains a non-UTF-8 archive path"
+        ) from error
+    if (
+        not encoded
+        or len(encoded) > MAX_ARCHIVE_MEMBER_PATH_BYTES
+        or any(value < 0x20 for value in encoded)
+        or "\\" in name
+        or name.startswith("/")
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            f"{label} contains an unsafe archive path"
+        )
+    path = name[:-1] if name.endswith("/") else name
+    parts = path.split("/")
+    if (
+        not path
+        or any(part in ("", ".", "..") for part in parts)
+        or (parts and len(parts[0]) == 2 and parts[0][1] == ":")
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            f"{label} contains an unsafe archive path"
+        )
+
+
+def _audit_runtime_fixture_archive(
+    archive_path: Path,
+    expected: Mapping[str, FileIdentity],
+    *,
+    kind: str,
+) -> None:
+    if kind == "apk":
+        prefix = APK_RUNTIME_ASSET_PREFIX
+    elif kind == "aab":
+        prefix = AAB_RUNTIME_ASSET_PREFIX
+    else:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime fixture archive kind is not apk or aab"
+        )
+    if tuple(sorted(expected)) != RUNTIME_FIXTURE_NAMES:
+        raise AndroidSherpaReferenceAppGateError(
+            "runtime fixture archive expectation is not the exact eight-file set"
+        )
+    archive_identity = _file_identity(
+        archive_path,
+        f"runtime-provisioned Release {kind.upper()}",
+        maximum=MAX_ARCHIVE_BYTES,
+    )
+    expected_paths = {f"{prefix}{name}": name for name in RUNTIME_FIXTURE_NAMES}
+    selected: dict[str, zipfile.ZipInfo] = {}
+    seen: set[str] = set()
+    try:
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            entries = archive.infolist()
+            if len(entries) > MAX_ARCHIVE_ENTRIES:
+                raise AndroidSherpaReferenceAppGateError(
+                    f"runtime-provisioned Release {kind.upper()} has too many entries"
+                )
+            for entry in entries:
+                name = entry.filename
+                _validate_archive_member_name(
+                    name,
+                    f"runtime-provisioned Release {kind.upper()}",
+                )
+                if name in seen:
+                    raise AndroidSherpaReferenceAppGateError(
+                        f"runtime-provisioned Release {kind.upper()} has a "
+                        "duplicate path"
+                    )
+                seen.add(name)
+                base_name = name.rsplit("/", 1)[-1]
+                is_qualification_path = "assets/qualification/" in name
+                if name in expected_paths:
+                    selected[name] = entry
+                elif is_qualification_path or base_name in expected:
+                    raise AndroidSherpaReferenceAppGateError(
+                        f"runtime-provisioned Release {kind.upper()} has an "
+                        "unexpected qualification asset path"
+                    )
+            if set(selected) != set(expected_paths):
+                raise AndroidSherpaReferenceAppGateError(
+                    f"runtime-provisioned Release {kind.upper()} does not contain "
+                    "the exact qualification asset set"
+                )
+            total = 0
+            for member_path, fixture_name in sorted(expected_paths.items()):
+                entry = selected[member_path]
+                identity = expected[fixture_name]
+                mode = entry.external_attr >> 16
+                file_type = stat.S_IFMT(mode)
+                if (
+                    entry.is_dir()
+                    or (file_type not in (0, stat.S_IFREG))
+                    or entry.flag_bits & 0x1
+                    or entry.file_size != identity.size_bytes
+                    or entry.file_size > MAX_RUNTIME_FIXTURE_FILE_BYTES
+                    or entry.compress_size > MAX_ARCHIVE_BYTES
+                ):
+                    raise AndroidSherpaReferenceAppGateError(
+                        f"runtime-provisioned Release {kind.upper()} qualification "
+                        f"asset {fixture_name} has invalid metadata"
+                    )
+                total += entry.file_size
+                if total > MAX_RUNTIME_FIXTURE_TOTAL_BYTES:
+                    raise AndroidSherpaReferenceAppGateError(
+                        f"runtime-provisioned Release {kind.upper()} qualification "
+                        "assets exceed their aggregate byte bound"
+                    )
+                with archive.open(entry, "r") as stream:
+                    contents = stream.read(identity.size_bytes + 1)
+                if (
+                    len(contents) != identity.size_bytes
+                    or hashlib.sha256(contents).hexdigest() != identity.sha256
+                ):
+                    raise AndroidSherpaReferenceAppGateError(
+                        f"runtime-provisioned Release {kind.upper()} qualification "
+                        f"asset {fixture_name} identity changed"
+                    )
+    except AndroidSherpaReferenceAppGateError:
+        raise
+    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as error:
+        raise AndroidSherpaReferenceAppGateError(
+            f"could not inspect runtime-provisioned Release {kind.upper()}"
+        ) from error
+    _require_file_identity(
+        archive_path,
+        archive_identity,
+        f"runtime-provisioned Release {kind.upper()}",
+        maximum=MAX_ARCHIVE_BYTES,
+    )
 
 
 def _resolve_tool(path: Path, label: str) -> Path:
@@ -2098,6 +2487,7 @@ def _run_staged_gate(
     flutter_version: dict[str, object],
     source_manifest_identity: FileIdentity,
     runner: CommandRunner,
+    sherpa_model: tuple[Path, FileIdentity] | None,
 ) -> dict[str, object]:
     summary = _copy_template(repository / TEMPLATE, work_directory)
     if summary.file_count == 0:
@@ -2120,6 +2510,14 @@ def _run_staged_gate(
         work_directory / "pubspec.lock",
         repository,
     )
+    runtime_fixtures: dict[str, FileIdentity] | None = None
+    if sherpa_model is not None:
+        runtime_fixtures = _stage_runtime_fixtures(
+            work_directory,
+            work_directory / "pubspec.yaml",
+            sherpa_model[0],
+            sherpa_model[1],
+        )
     host_source_identity = _staged_source_identity(work_directory)
 
     _run_locked_pub_get(
@@ -2285,6 +2683,22 @@ def _run_staged_gate(
         raise _common(error) from error
     aab_identity = _file_identity(aab, "Release AAB", maximum=MAX_ARCHIVE_BYTES)
 
+    if runtime_fixtures is not None:
+        _runtime_fixture_inventory(
+            work_directory / RUNTIME_ASSET_DIRECTORY,
+            runtime_fixtures,
+        )
+        _audit_runtime_fixture_archive(
+            apk,
+            runtime_fixtures,
+            kind="apk",
+        )
+        _audit_runtime_fixture_archive(
+            aab,
+            runtime_fixtures,
+            kind="aab",
+        )
+
     wrapper_input, raw_shim_identity = _stage_wrapper_input(work_directory)
     raw_audit, raw_audit_identity, static_manifest, static_manifest_identity = (
         _run_static_audits(
@@ -2332,10 +2746,20 @@ def _run_staged_gate(
         android_package_graph,
         "final sherpa reference",
     )
+    if runtime_fixtures is not None:
+        _runtime_fixture_inventory(
+            work_directory / RUNTIME_ASSET_DIRECTORY,
+            runtime_fixtures,
+        )
 
     report: dict[str, object] = {
         "schemaVersion": 1,
         "result": "passed",
+        "mode": (
+            "runtime-provisioned"
+            if runtime_fixtures is not None
+            else "static-template"
+        ),
         "abi": ABI,
         "buildType": BUILD_TYPE,
         "sourceManifestSha256": source_manifest_identity.sha256,
@@ -2450,6 +2874,15 @@ def _run_staged_gate(
             "authenticate the host cache or defend against mutate-and-restore races."
         ),
     }
+    if runtime_fixtures is not None:
+        report["runtimeFixtures"] = [
+            {
+                "fileName": name,
+                "sizeBytes": runtime_fixtures[name].size_bytes,
+                "sha256": runtime_fixtures[name].sha256,
+            }
+            for name in RUNTIME_FIXTURE_NAMES
+        ]
     encoded = json.dumps(report, sort_keys=True, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > MAX_REPORT_BYTES:
         raise AndroidSherpaReferenceAppGateError(
@@ -2466,6 +2899,7 @@ def run_gate(
     android_sdk: Path,
     java_home: Path,
     command_runner: CommandRunner | None = None,
+    sherpa_model: Path | None = None,
 ) -> dict[str, object]:
     runner = _run_command if command_runner is None else command_runner
     try:
@@ -2510,6 +2944,10 @@ def run_gate(
             "--work-dir must not contain the Fonix repository"
         )
 
+    validated_sherpa_model = (
+        None if sherpa_model is None else _validate_sherpa_model(sherpa_model)
+    )
+
     android_sdk = _validate_android_sdk(android_sdk)
     java_home, _java, java_vendor = _validate_java_home(java_home, runner)
     environment = _build_environment(java_home, android_sdk)
@@ -2532,6 +2970,7 @@ def run_gate(
             flutter_version=flutter_version,
             source_manifest_identity=source_manifest_identity,
             runner=runner,
+            sherpa_model=validated_sherpa_model,
         )
     finally:
         try:
@@ -2567,6 +3006,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--android-sdk", type=Path, required=True)
     parser.add_argument("--java-home", type=Path, required=True)
+    parser.add_argument(
+        "--sherpa-model",
+        type=Path,
+        help=(
+            "exact external silero_vad.int8.onnx used to provision the "
+            "runtime qualification build"
+        ),
+    )
     return parser
 
 
@@ -2579,6 +3026,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             work_directory=arguments.work_dir,
             android_sdk=arguments.android_sdk,
             java_home=arguments.java_home,
+            sherpa_model=arguments.sherpa_model,
         )
     except AndroidSherpaReferenceAppGateError as error:
         print(f"android_sherpa_reference_app_gate: {error}", file=sys.stderr)

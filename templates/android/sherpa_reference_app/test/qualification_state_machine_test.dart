@@ -16,7 +16,7 @@ void main() {
         final _FakeDriverFactory factory = _FakeDriverFactory();
         final QualificationStateMachine machine = QualificationStateMachine(
           driverFactory: factory,
-          publicationGate: AuthoritativeLifecyclePublicationGate(),
+          publicationSink: AuthoritativeLifecyclePublicationSink(),
           pins: _pins(),
           references: QualificationReferences(
             fonixOutputBytes: _fonixBytes,
@@ -130,6 +130,7 @@ void main() {
         );
         expect(factory.temporaryRootsCreated, 2);
         expect(factory.temporaryRootsRemaining, 0);
+        expect(factory.fonixSettlementReads, 5);
 
         final int firstFonixRun = factory.events.indexOf(
           'fonix1:run:reference',
@@ -176,7 +177,7 @@ void main() {
       );
       final QualificationStateMachine machine = QualificationStateMachine(
         driverFactory: _FakeDriverFactory(),
-        publicationGate: AuthoritativeLifecyclePublicationGate(),
+        publicationSink: AuthoritativeLifecyclePublicationSink(),
         pins: pins,
         references: QualificationReferences(
           fonixOutputBytes: _fonixBytes,
@@ -210,6 +211,10 @@ void main() {
       () => SherpaInitializationObservation(
         getVersion: '1.13.4',
         getGitSha1: 'deadbe',
+        profile: _sherpaProfile(),
+        modelSha256: _digest('5'),
+        audioSha256: _digest('6'),
+        referenceSha256: _digest('7'),
       ),
       throwsA(isA<QualificationFailure>()),
     );
@@ -223,7 +228,7 @@ void main() {
       );
       final QualificationStateMachine machine = QualificationStateMachine(
         driverFactory: factory,
-        publicationGate: AuthoritativeLifecyclePublicationGate(),
+        publicationSink: AuthoritativeLifecyclePublicationSink(),
         pins: _pins(),
         references: QualificationReferences(
           fonixOutputBytes: _fonixBytes,
@@ -248,13 +253,40 @@ void main() {
     },
   );
 
+  test('rejects adapter-observed fixture identity drift', () async {
+    final _FakeDriverFactory factory = _FakeDriverFactory(
+      driftFirstFonixObservation: true,
+    );
+    final QualificationStateMachine machine = QualificationStateMachine(
+      driverFactory: factory,
+      publicationSink: AuthoritativeLifecyclePublicationSink(),
+      pins: _pins(),
+      references: QualificationReferences(
+        fonixOutputBytes: _fonixBytes,
+        sherpaBounds: _sherpaBounds(),
+      ),
+    );
+
+    await expectLater(
+      machine.run(_launch(HarnessLoadOrder.dartFirst)),
+      throwsA(
+        isA<QualificationFailure>().having(
+          (QualificationFailure failure) => failure.code,
+          'code',
+          'fixture-observation-mismatch',
+        ),
+      ),
+    );
+    expect(factory.temporaryRootsRemaining, 0);
+  });
+
   test('rejects and cleans native work during driver construction', () async {
     final _FakeDriverFactory factory = _FakeDriverFactory(
       eagerFirstFonixConstruction: true,
     );
     final QualificationStateMachine machine = QualificationStateMachine(
       driverFactory: factory,
-      publicationGate: AuthoritativeLifecyclePublicationGate(),
+      publicationSink: AuthoritativeLifecyclePublicationSink(),
       pins: _pins(),
       references: QualificationReferences(
         fonixOutputBytes: _fonixBytes,
@@ -285,7 +317,7 @@ void main() {
       );
       final QualificationStateMachine machine = QualificationStateMachine(
         driverFactory: factory,
-        publicationGate: AuthoritativeLifecyclePublicationGate(),
+        publicationSink: AuthoritativeLifecyclePublicationSink(),
         pins: _pins(),
         references: QualificationReferences(
           fonixOutputBytes: _fonixBytes,
@@ -310,11 +342,11 @@ void main() {
     },
   );
 
-  test('fails when the publication gate leaks a stale completion', () async {
+  test('fails when the publication sink leaks a stale completion', () async {
     final _FakeDriverFactory factory = _FakeDriverFactory();
     final QualificationStateMachine machine = QualificationStateMachine(
       driverFactory: factory,
-      publicationGate: _LeakyPublicationGate(),
+      publicationSink: _LeakyPublicationSink(),
       pins: _pins(),
       references: QualificationReferences(
         fonixOutputBytes: _fonixBytes,
@@ -344,7 +376,7 @@ void main() {
       );
       final QualificationStateMachine machine = QualificationStateMachine(
         driverFactory: factory,
-        publicationGate: AuthoritativeLifecyclePublicationGate(),
+        publicationSink: AuthoritativeLifecyclePublicationSink(),
         pins: _pins(),
         references: QualificationReferences(
           fonixOutputBytes: _fonixBytes,
@@ -372,7 +404,7 @@ void main() {
     );
     final QualificationStateMachine machine = QualificationStateMachine(
       driverFactory: factory,
-      publicationGate: AuthoritativeLifecyclePublicationGate(),
+      publicationSink: AuthoritativeLifecyclePublicationSink(),
       pins: _pins(),
       references: QualificationReferences(
         fonixOutputBytes: _fonixBytes,
@@ -392,6 +424,118 @@ void main() {
     );
     expect(factory.temporaryRootsRemaining, 0);
   });
+
+  test(
+    'cancellation dispatch failure retires and drains late output',
+    () async {
+      final _FakeDriverFactory factory = _FakeDriverFactory(
+        throwCancellationDispatch: true,
+      );
+      final AuthoritativeLifecyclePublicationSink sink =
+          AuthoritativeLifecyclePublicationSink();
+      final QualificationStateMachine machine = QualificationStateMachine(
+        driverFactory: factory,
+        publicationSink: sink,
+        pins: _pins(),
+        references: QualificationReferences(
+          fonixOutputBytes: _fonixBytes,
+          sherpaBounds: _sherpaBounds(),
+        ),
+      );
+
+      await expectLater(
+        machine.run(_launch(HarnessLoadOrder.dartFirst)),
+        throwsA(
+          isA<StateError>().having(
+            (StateError error) => error.message,
+            'message',
+            'injected cancellation dispatch failure',
+          ),
+        ),
+      );
+      final LifecyclePublicationSnapshot snapshot = sink.snapshot;
+      expect(sink.authoritativeGeneration, 2);
+      expect(snapshot.boundRuns, 3);
+      expect(snapshot.settledRuns, 3);
+      expect(snapshot.activeBindings, 0);
+      expect(snapshot.currentPublishedOutputs, 2);
+      expect(snapshot.cancellationSettlements, 1);
+      expect(snapshot.cancellationPublishedOutputs, 0);
+      expect(factory.fonixSettlementReads, 3);
+      expect(factory.temporaryRootsRemaining, 0);
+      expect(factory.fonixSessionsClosed, factory.fonixSessionsCreated);
+      expect(factory.sherpaDetectorsFreed, factory.sherpaDetectorsCreated);
+    },
+  );
+
+  test(
+    'cancellation dispatch error wins when the drained settlement also fails',
+    () async {
+      final _FakeDriverFactory factory = _FakeDriverFactory(
+        throwCancellationDispatch: true,
+        failCancellationSettlement: true,
+      );
+      final AuthoritativeLifecyclePublicationSink sink =
+          AuthoritativeLifecyclePublicationSink();
+      final QualificationStateMachine machine = QualificationStateMachine(
+        driverFactory: factory,
+        publicationSink: sink,
+        pins: _pins(),
+        references: QualificationReferences(
+          fonixOutputBytes: _fonixBytes,
+          sherpaBounds: _sherpaBounds(),
+        ),
+      );
+
+      await expectLater(
+        machine.run(_launch(HarnessLoadOrder.dartFirst)),
+        throwsA(
+          isA<StateError>().having(
+            (StateError error) => error.message,
+            'message',
+            'injected cancellation dispatch failure',
+          ),
+        ),
+      );
+      expect(sink.authoritativeGeneration, 2);
+      expect(sink.snapshot.activeBindings, 0);
+      expect(sink.snapshot.cancellationPublishedOutputs, 0);
+      expect(factory.fonixSettlementReads, 3);
+      expect(factory.temporaryRootsRemaining, 0);
+      expect(factory.fonixSessionsClosed, factory.fonixSessionsCreated);
+      expect(factory.sherpaDetectorsFreed, factory.sherpaDetectorsCreated);
+    },
+  );
+
+  test('binds the sole settlement path before generation retirement', () async {
+    var settlementReads = 0;
+    final _FakeFonixRun run = _FakeFonixRun(
+      purpose: FonixRunPurpose.stale,
+      cancellationDisposition:
+          FonixCancellationDisposition.nativeTerminationRequested,
+      onSettlementRead: () {
+        settlementReads += 1;
+      },
+      onSettled: () {},
+    );
+    final AuthoritativeLifecyclePublicationSink sink =
+        AuthoritativeLifecyclePublicationSink();
+
+    final Future<FonixPublication> publication = sink.bind(
+      run: run,
+      generation: sink.authoritativeGeneration,
+      purpose: FonixRunPurpose.stale,
+    );
+    expect(settlementReads, 1);
+    expect(sink.advanceGeneration(), 2);
+
+    final FonixPublication result = await publication;
+    expect(result.outcome, FonixPublicationOutcome.staleSuppressed);
+    expect(result.settledOutputBytes, _fonixBytes);
+    expect(result.publishedOutputBytes, isNull);
+    expect(settlementReads, 1);
+    expect(sink.snapshot.activeBindings, 0);
+  });
 }
 
 QualificationPins _pins({String? fonixReferenceOutputSha256}) =>
@@ -401,7 +545,7 @@ QualificationPins _pins({String? fonixReferenceOutputSha256}) =>
       fonixInputSha256: _digest('2'),
       fonixReferenceOutputSha256:
           fonixReferenceOutputSha256 ?? sha256.convert(_fonixBytes).toString(),
-      fonixCancellationModelSha256: _digest('3'),
+      fonixCancellationModelSha256: _digest('1'),
       fonixCancellationInputSha256: _digest('4'),
       sherpaModelSha256: _digest('5'),
       sherpaAudioSha256: _digest('6'),
@@ -410,6 +554,7 @@ QualificationPins _pins({String? fonixReferenceOutputSha256}) =>
 
 FonixInitializationObservation _fonixInitialization({
   String ortVersion = '1.27.0',
+  String? modelSha256,
 }) => FonixInitializationObservation(
   runtimeOwner: 'sherpa',
   runtimeSource: 'process',
@@ -418,13 +563,35 @@ FonixInitializationObservation _fonixInitialization({
   negotiatedOrtApi: 27,
   shimAbi: 1,
   shimBuildId: 'android-owner-sherpa-source-process',
+  modelSha256: modelSha256 ?? _digest('1'),
+  referenceInputSha256: _digest('2'),
+  referenceOutputSha256: sha256.convert(_fonixBytes).toString(),
+  cancellationModelSha256: _digest('1'),
+  cancellationInputSha256: _digest('4'),
 );
 
 SherpaInitializationObservation _sherpaInitialization() =>
     SherpaInitializationObservation(
       getVersion: '1.13.4',
       getGitSha1: '14280725',
+      profile: _sherpaProfile(),
+      modelSha256: _digest('5'),
+      audioSha256: _digest('6'),
+      referenceSha256: _digest('7'),
     );
+
+SherpaProfileObservation _sherpaProfile() => SherpaProfileObservation(
+  id: 'silero-vad-1.13.4',
+  provider: 'cpu',
+  sampleRateHz: 16000,
+  windowSamples: 512,
+  numThreads: 1,
+  thresholdMillionths: 500000,
+  minimumSpeechMilliseconds: 250,
+  minimumSilenceMilliseconds: 800,
+  maximumSpeechMilliseconds: 30000,
+  bufferMilliseconds: 60000,
+);
 
 String _digest(String character) => List<String>.filled(64, character).join();
 
@@ -458,6 +625,9 @@ final class _FakeDriverFactory implements QualificationDriverFactory {
     this.failSherpaCreateOrdinal,
     this.eagerFirstFonixConstruction = false,
     this.leakAfterSherpaRetire = false,
+    this.driftFirstFonixObservation = false,
+    this.throwCancellationDispatch = false,
+    this.failCancellationSettlement = false,
     this.cancellationDisposition =
         FonixCancellationDisposition.nativeTerminationRequested,
   });
@@ -466,6 +636,9 @@ final class _FakeDriverFactory implements QualificationDriverFactory {
   final int? failSherpaCreateOrdinal;
   final bool eagerFirstFonixConstruction;
   final bool leakAfterSherpaRetire;
+  final bool driftFirstFonixObservation;
+  final bool throwCancellationDispatch;
+  final bool failCancellationSettlement;
   final FonixCancellationDisposition cancellationDisposition;
   final List<String> events = <String>[];
   var _fonixCount = 0;
@@ -477,6 +650,7 @@ final class _FakeDriverFactory implements QualificationDriverFactory {
   var _temporaryRootsCreated = 0;
   var _temporaryRootsRemoved = 0;
   var _temporaryRootsRemaining = 0;
+  var fonixSettlementReads = 0;
 
   @override
   int get fonixSessionsCreated => _fonixSessionsCreated;
@@ -507,6 +681,8 @@ final class _FakeDriverFactory implements QualificationDriverFactory {
       this,
       _fonixCount,
       cancellationDisposition: cancellationDisposition,
+      throwCancellationDispatch: throwCancellationDispatch,
+      failCancellationSettlement: failCancellationSettlement,
       eagerNativeConstruction: eagerFirstFonixConstruction && _fonixCount == 1,
     );
   }
@@ -553,6 +729,8 @@ final class _FakeFonixDriver implements FonixQualificationDriver {
     this.factory,
     this.id, {
     required this.cancellationDisposition,
+    required this.throwCancellationDispatch,
+    required this.failCancellationSettlement,
     required bool eagerNativeConstruction,
   }) {
     if (eagerNativeConstruction) {
@@ -565,6 +743,8 @@ final class _FakeFonixDriver implements FonixQualificationDriver {
   final _FakeDriverFactory factory;
   final int id;
   final FonixCancellationDisposition cancellationDisposition;
+  final bool throwCancellationDispatch;
+  final bool failCancellationSettlement;
   var _alive = false;
   var _closed = false;
   var _initialized = false;
@@ -585,7 +765,11 @@ final class _FakeFonixDriver implements FonixQualificationDriver {
     _initialized = true;
     factory.recordFonixInitialized();
     factory.events.add('fonix$id:init');
-    return _fonixInitialization();
+    return _fonixInitialization(
+      modelSha256: factory.driftFirstFonixObservation && id == 1
+          ? _digest('8')
+          : null,
+    );
   }
 
   @override
@@ -602,6 +786,11 @@ final class _FakeFonixDriver implements FonixQualificationDriver {
     return _FakeFonixRun(
       purpose: purpose,
       cancellationDisposition: cancellationDisposition,
+      throwCancellationDispatch: throwCancellationDispatch,
+      failCancellationSettlement: failCancellationSettlement,
+      onSettlementRead: () {
+        factory.fonixSettlementReads += 1;
+      },
       onSettled: () {
         _outstanding -= 1;
       },
@@ -623,9 +812,12 @@ final class _FakeFonixRun implements FonixQualificationRun {
   _FakeFonixRun({
     required this.purpose,
     required this.cancellationDisposition,
+    this.throwCancellationDispatch = false,
+    this.failCancellationSettlement = false,
+    required this.onSettlementRead,
     required void Function() onSettled,
   }) : _completer = Completer<FonixRunResult>() {
-    settled = _completer.future.whenComplete(onSettled);
+    _settled = _completer.future.whenComplete(onSettled);
     if (purpose != FonixRunPurpose.cancellation) {
       scheduleMicrotask(
         () => _completer.complete(FonixRunResult.completed(_fonixBytes)),
@@ -635,15 +827,35 @@ final class _FakeFonixRun implements FonixQualificationRun {
 
   final FonixRunPurpose purpose;
   final FonixCancellationDisposition cancellationDisposition;
+  final bool throwCancellationDispatch;
+  final bool failCancellationSettlement;
+  final void Function() onSettlementRead;
   final Completer<FonixRunResult> _completer;
+  late final Future<FonixRunResult> _settled;
 
   @override
-  late final Future<FonixRunResult> settled;
+  Future<FonixRunResult> get settled {
+    onSettlementRead();
+    return _settled;
+  }
 
   @override
   Future<FonixCancellationDisposition> cancelWithDisposition() async {
     if (purpose != FonixRunPurpose.cancellation || _completer.isCompleted) {
       return FonixCancellationDisposition.notCancelled;
+    }
+    if (throwCancellationDispatch) {
+      scheduleMicrotask(() {
+        if (_completer.isCompleted) return;
+        if (failCancellationSettlement) {
+          _completer.completeError(
+            StateError('injected cancellation settlement failure'),
+          );
+        } else {
+          _completer.complete(FonixRunResult.completed(_fonixBytes));
+        }
+      });
+      throw StateError('injected cancellation dispatch failure');
     }
     if (cancellationDisposition == FonixCancellationDisposition.notCancelled) {
       _completer.complete(FonixRunResult.completed(_fonixBytes));
@@ -756,38 +968,46 @@ final class _FakeSherpaDriver implements SherpaQualificationDriver {
   }
 }
 
-final class _LeakyPublicationGate implements LifecyclePublicationGate {
-  LifecyclePublicationSnapshot _snapshot =
-      const LifecyclePublicationSnapshot.empty();
+final class _LeakyPublicationSink implements LifecyclePublicationSink {
+  final AuthoritativeLifecyclePublicationSink _delegate =
+      AuthoritativeLifecyclePublicationSink();
 
   @override
-  LifecyclePublicationSnapshot get snapshot => _snapshot;
+  int get authoritativeGeneration => _delegate.authoritativeGeneration;
 
   @override
-  void observeCancellation(FonixRunResult result) {
-    _snapshot = const LifecyclePublicationSnapshot(
-      cancellationSettlements: 1,
-      cancellationCancelledResults: 1,
-      cancellationPublishedOutputs: 0,
-      staleObserved: 0,
-      staleSuppressed: 0,
-      stalePublishedOutputs: 0,
-    );
-  }
-
-  @override
-  void observeStaleCompletion({
-    required int completionGeneration,
-    required int authoritativeGeneration,
-    required FonixRunResult result,
-  }) {
-    _snapshot = const LifecyclePublicationSnapshot(
-      cancellationSettlements: 1,
-      cancellationCancelledResults: 1,
-      cancellationPublishedOutputs: 0,
-      staleObserved: 1,
+  LifecyclePublicationSnapshot get snapshot {
+    final LifecyclePublicationSnapshot value = _delegate.snapshot;
+    if (value.staleObserved == 0) return value;
+    return LifecyclePublicationSnapshot(
+      boundRuns: value.boundRuns,
+      settledRuns: value.settledRuns,
+      activeBindings: value.activeBindings,
+      currentPublishedOutputs: value.currentPublishedOutputs + 1,
+      cancellationSettlements: value.cancellationSettlements,
+      cancellationCancelledResults: value.cancellationCancelledResults,
+      cancellationPublishedOutputs: value.cancellationPublishedOutputs,
+      staleObserved: value.staleObserved,
       staleSuppressed: 0,
       stalePublishedOutputs: 1,
     );
   }
+
+  @override
+  Future<FonixPublication> bind({
+    required FonixQualificationRun run,
+    required int generation,
+    required FonixRunPurpose purpose,
+  }) async {
+    final FonixPublication publication = await _delegate.bind(
+      run: run,
+      generation: generation,
+      purpose: purpose,
+    );
+    if (purpose != FonixRunPurpose.stale) return publication;
+    return FonixPublication.currentOutput(publication.settledOutputBytes!);
+  }
+
+  @override
+  int advanceGeneration() => _delegate.advanceGeneration();
 }

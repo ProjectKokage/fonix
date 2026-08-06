@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 const int harnessWireSchemaVersion = 1;
-const int maximumLaunchChallengeBytes = 4096;
+const int maximumLaunchChallengeBytes = 1024;
 const int maximumCompletionPayloadBytes = 512 * 1024;
 
 enum HarnessLoadOrder {

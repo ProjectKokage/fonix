@@ -279,8 +279,8 @@ class MainActivity : FlutterActivity() {
         const val NATIVE_FIXTURES_UNPROVISIONED =
             "native-fixtures-unprovisioned"
         const val QUALIFICATION_FAILED = "qualification-failed"
-        const val MAX_CHALLENGE_BYTES = 4096
-        const val MAX_CHALLENGE_BASE64_BYTES = 5464
+        const val MAX_CHALLENGE_BYTES = 1024
+        const val MAX_CHALLENGE_BASE64_BYTES = 1368
         const val MAX_COMPLETION_BYTES = 512 * 1024
         const val LOG_CHUNK_CHARACTERS = 3000
         const val LOG_TAG = "FonixSherpaRef"

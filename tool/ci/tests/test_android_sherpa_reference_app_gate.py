@@ -8,6 +8,8 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import warnings
+import zipfile
 from unittest import mock
 
 
@@ -48,6 +50,8 @@ class GateFixture:
             "dependencies:\n"
             "  fonix:\n"
             "    path: ../../..\n"
+            "flutter:\n"
+            "  uses-material-design: true\n"
             "hooks:\n"
             "  user_defines:\n"
             "    fonix:\n"
@@ -195,6 +199,7 @@ class FakeRunner:
         mutate_lock: bool = False,
         mutate_sherpa_native: bool = False,
         mutate_staged_source: bool = False,
+        mutate_runtime_asset: bool = False,
         mutate_hosted_operation: str | None = None,
         mutate_package_config_operation: str | None = None,
         mutate_plugin_inventory_operation: str | None = None,
@@ -208,6 +213,7 @@ class FakeRunner:
         self.mutate_lock = mutate_lock
         self.mutate_sherpa_native = mutate_sherpa_native
         self.mutate_staged_source = mutate_staged_source
+        self.mutate_runtime_asset = mutate_runtime_asset
         self.mutate_hosted_operation = mutate_hosted_operation
         self.mutate_package_config_operation = mutate_package_config_operation
         self.mutate_plugin_inventory_operation = mutate_plugin_inventory_operation
@@ -375,12 +381,24 @@ class FakeRunner:
             assert cwd is not None
             apk = cwd / gate.APK_RELATIVE
             apk.parent.mkdir(parents=True, exist_ok=True)
-            apk.write_bytes(b"release apk")
+            runtime_assets = cwd / gate.RUNTIME_ASSET_DIRECTORY
+            if runtime_assets.exists():
+                with zipfile.ZipFile(apk, "w") as archive:
+                    for asset in sorted(runtime_assets.iterdir()):
+                        archive.write(
+                            asset,
+                            f"{gate.APK_RUNTIME_ASSET_PREFIX}{asset.name}",
+                        )
+            else:
+                apk.write_bytes(b"release apk")
             if self.mutate_staged_source:
                 (cwd / "lib/main.dart").write_text(
                     "void main() { throw StateError('mutated'); }\n",
                     encoding="utf-8",
                 )
+            if self.mutate_runtime_asset and runtime_assets.exists():
+                asset = runtime_assets / gate.RUNTIME_FIXTURE_NAMES[0]
+                asset.write_bytes(asset.read_bytes() + b"mutated")
             if self.mutate_sherpa_native:
                 (
                     fixture.sherpa_jni / gate.ABI / "libonnxruntime.so"
@@ -390,7 +408,16 @@ class FakeRunner:
             assert cwd is not None
             aab = cwd / gate.AAB_RELATIVE
             aab.parent.mkdir(parents=True, exist_ok=True)
-            aab.write_bytes(b"release aab")
+            runtime_assets = cwd / gate.RUNTIME_ASSET_DIRECTORY
+            if runtime_assets.exists():
+                with zipfile.ZipFile(aab, "w") as archive:
+                    for asset in sorted(runtime_assets.iterdir()):
+                        archive.write(
+                            asset,
+                            f"{gate.AAB_RUNTIME_ASSET_PREFIX}{asset.name}",
+                        )
+            else:
+                aab.write_bytes(b"release aab")
             host = cwd / gate.HOOK_BUILD_RELATIVE / "aaaaaaaaaa"
             host.mkdir(parents=True)
             (host / "libfonix_shim.dylib").write_bytes(b"host shim")
@@ -628,6 +655,99 @@ class AndroidSherpaReferenceConfigurationTest(unittest.TestCase):
                 gate.RELATIVE_FONIX_LOCK,
             ),
             original_lock,
+        )
+
+    def test_external_sherpa_model_rejects_size_digest_and_symlink(self) -> None:
+        wrong_size = self.fixture.root / "wrong-size.onnx"
+        wrong_size.write_bytes(b"not the exact model")
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exact size and SHA-256",
+        ):
+            gate._validate_sherpa_model(wrong_size)
+
+        wrong_digest = self.fixture.root / "wrong-digest.onnx"
+        wrong_digest.write_bytes(b"\0" * gate.SHERPA_MODEL_SIZE_BYTES)
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "exact size and SHA-256",
+        ):
+            gate._validate_sherpa_model(wrong_digest)
+
+        if os.name != "nt":
+            link = self.fixture.root / "model-link.onnx"
+            link.symlink_to(wrong_digest)
+            with self.assertRaisesRegex(
+                gate.AndroidSherpaReferenceAppGateError,
+                "not a regular file",
+            ):
+                gate._validate_sherpa_model(link)
+
+    def test_runtime_fixture_staging_is_exact_and_patches_only_asset_directory(
+        self,
+    ) -> None:
+        work = self.fixture.root / "runtime-stage"
+        work.mkdir()
+        pubspec = work / "pubspec.yaml"
+        original_pubspec = (
+            "name: runtime_stage\n" + gate.STATIC_FLUTTER_STANZA
+        )
+        pubspec.write_text(original_pubspec, encoding="utf-8")
+        model_bytes = b"exact synthetic model for staging test"
+        model = self.fixture.root / gate.SHERPA_MODEL_NAME
+        model.write_bytes(model_bytes)
+        model_digest = hashlib.sha256(model_bytes).hexdigest()
+
+        with (
+            mock.patch.object(
+                gate,
+                "SHERPA_MODEL_SIZE_BYTES",
+                len(model_bytes),
+            ),
+            mock.patch.object(gate, "SHERPA_MODEL_SHA256", model_digest),
+        ):
+            resolved_model, model_identity = gate._validate_sherpa_model(model)
+            inventory = gate._stage_runtime_fixtures(
+                work,
+                pubspec,
+                resolved_model,
+                model_identity,
+            )
+
+        generated = gate.fixture_generator.generated_files()
+        self.assertEqual(tuple(inventory), gate.RUNTIME_FIXTURE_NAMES)
+        self.assertEqual(
+            sorted((work / gate.RUNTIME_ASSET_DIRECTORY).iterdir()),
+            [
+                work / gate.RUNTIME_ASSET_DIRECTORY / name
+                for name in gate.RUNTIME_FIXTURE_NAMES
+            ],
+        )
+        for name, contents in generated.items():
+            self.assertEqual(
+                (work / gate.RUNTIME_ASSET_DIRECTORY / name).read_bytes(),
+                contents,
+            )
+        self.assertEqual(
+            (
+                work
+                / gate.RUNTIME_ASSET_DIRECTORY
+                / gate.SHERPA_MODEL_NAME
+            ).read_bytes(),
+            model_bytes,
+        )
+        self.assertEqual(
+            pubspec.read_text(encoding="utf-8"),
+            original_pubspec.replace(
+                gate.STATIC_FLUTTER_STANZA,
+                gate.RUNTIME_FLUTTER_STANZA,
+            ),
+        )
+        self.assertEqual(
+            pubspec.read_text(encoding="utf-8").count(
+                "    - assets/qualification/\n"
+            ),
+            1,
         )
 
     def test_package_config_resolves_one_exact_arm64_native_root(self) -> None:
@@ -895,6 +1015,168 @@ class AndroidSherpaReferenceConfigurationTest(unittest.TestCase):
             gate._stage_wrapper_input(second_work)
 
 
+class AndroidSherpaRuntimeFixtureArchiveTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="fonix-sherpa-runtime-archive-"
+        )
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.contents = {
+            name: f"fixture:{name}\n".encode("ascii")
+            for name in gate.RUNTIME_FIXTURE_NAMES
+        }
+        self.expected = {
+            name: gate.FileIdentity(
+                len(contents),
+                hashlib.sha256(contents).hexdigest(),
+            )
+            for name, contents in self.contents.items()
+        }
+
+    def _write_archive(
+        self,
+        name: str,
+        *,
+        kind: str,
+        replacements: dict[str, bytes] | None = None,
+        wrong_path: str | None = None,
+        duplicate: str | None = None,
+        unexpected: tuple[str, bytes] | None = None,
+    ) -> Path:
+        path = self.root / name
+        prefix = (
+            gate.APK_RUNTIME_ASSET_PREFIX
+            if kind == "apk"
+            else gate.AAB_RUNTIME_ASSET_PREFIX
+        )
+        values = {**self.contents, **(replacements or {})}
+        with zipfile.ZipFile(path, "w") as archive:
+            for fixture_name, contents in values.items():
+                member = f"{prefix}{fixture_name}"
+                if fixture_name == wrong_path:
+                    member = f"wrong/{member}"
+                archive.writestr(member, contents)
+            if duplicate is not None:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    archive.writestr(
+                        f"{prefix}{duplicate}",
+                        values[duplicate],
+                    )
+            if unexpected is not None:
+                archive.writestr(unexpected[0], unexpected[1])
+        return path
+
+    def test_exact_apk_and_base_aab_fixture_sets_pass(self) -> None:
+        apk = self._write_archive("runtime.apk", kind="apk")
+        aab = self._write_archive("runtime.aab", kind="aab")
+
+        gate._audit_runtime_fixture_archive(apk, self.expected, kind="apk")
+        gate._audit_runtime_fixture_archive(aab, self.expected, kind="aab")
+
+    def test_fixture_size_and_hash_drift_fail_closed(self) -> None:
+        fixture_name = gate.RUNTIME_FIXTURE_NAMES[0]
+        original = self.contents[fixture_name]
+        cases = {
+            "size": original + b"x",
+            "hash": b"x" * len(original),
+        }
+        for label, replacement in cases.items():
+            with self.subTest(label=label):
+                archive = self._write_archive(
+                    f"{label}.apk",
+                    kind="apk",
+                    replacements={fixture_name: replacement},
+                )
+                with self.assertRaises(gate.AndroidSherpaReferenceAppGateError):
+                    gate._audit_runtime_fixture_archive(
+                        archive,
+                        self.expected,
+                        kind="apk",
+                    )
+
+    def test_duplicate_and_unexpected_qualification_assets_fail_closed(self) -> None:
+        fixture_name = gate.RUNTIME_FIXTURE_NAMES[0]
+        duplicate = self._write_archive(
+            "duplicate.apk",
+            kind="apk",
+            duplicate=fixture_name,
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "duplicate path",
+        ):
+            gate._audit_runtime_fixture_archive(
+                duplicate,
+                self.expected,
+                kind="apk",
+            )
+
+        unexpected = self._write_archive(
+            "unexpected.aab",
+            kind="aab",
+            unexpected=(
+                f"{gate.AAB_RUNTIME_ASSET_PREFIX}unexpected.bin",
+                b"unexpected",
+            ),
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "unexpected qualification asset path",
+        ):
+            gate._audit_runtime_fixture_archive(
+                unexpected,
+                self.expected,
+                kind="aab",
+            )
+
+    def test_wrong_and_unsafe_asset_paths_fail_closed(self) -> None:
+        fixture_name = gate.RUNTIME_FIXTURE_NAMES[0]
+        wrong = self._write_archive(
+            "wrong-path.apk",
+            kind="apk",
+            wrong_path=fixture_name,
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "unexpected qualification asset path",
+        ):
+            gate._audit_runtime_fixture_archive(wrong, self.expected, kind="apk")
+
+        unsafe = self._write_archive(
+            "unsafe.aab",
+            kind="aab",
+            unexpected=("../assets/qualification/unexpected.bin", b"unsafe"),
+        )
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "unsafe archive path",
+        ):
+            gate._audit_runtime_fixture_archive(
+                unsafe,
+                self.expected,
+                kind="aab",
+            )
+
+    def test_oversized_archive_fails_before_member_read(self) -> None:
+        archive = self._write_archive("bounded.apk", kind="apk")
+        with mock.patch.object(
+            gate,
+            "MAX_ARCHIVE_BYTES",
+            archive.stat().st_size - 1,
+        ):
+            with self.assertRaisesRegex(
+                gate.AndroidSherpaReferenceAppGateError,
+                "exceeds",
+            ):
+                gate._audit_runtime_fixture_archive(
+                    archive,
+                    self.expected,
+                    kind="apk",
+                )
+
+
 class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="fonix-sherpa-gate-")
@@ -905,6 +1187,8 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
     def _run_fixture(
         fixture: GateFixture,
         runner: FakeRunner,
+        *,
+        sherpa_model: Path | None = None,
     ) -> dict[str, object]:
         with (
             mock.patch.object(
@@ -925,10 +1209,20 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
                 android_sdk=fixture.android_sdk,
                 java_home=fixture.java_home,
                 command_runner=runner,
+                sherpa_model=sherpa_model,
             )
 
-    def _run(self, runner: FakeRunner) -> dict[str, object]:
-        return self._run_fixture(self.fixture, runner)
+    def _run(
+        self,
+        runner: FakeRunner,
+        *,
+        sherpa_model: Path | None = None,
+    ) -> dict[str, object]:
+        return self._run_fixture(
+            self.fixture,
+            runner,
+            sherpa_model=sherpa_model,
+        )
 
     def test_gate_runs_locked_builds_then_both_static_audits(self) -> None:
         original_pubspec = (self.fixture.template / "pubspec.yaml").read_bytes()
@@ -990,6 +1284,8 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
         self.assertIn("--final-aab", static_command)
         self.assertNotIn("--load-order-validation-record", static_command)
         self.assertEqual(report["result"], "passed")
+        self.assertEqual(report["mode"], "static-template")
+        self.assertNotIn("runtimeFixtures", report)
         self.assertNotIn("applicationId", report)
         self.assertIsNone(report["targetEvidence"])
         self.assertNotIn(
@@ -1038,6 +1334,73 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
         )
         self.assertIn(gate.ANDROID_HOOK, staged_pubspec)
         self.assertIn(json.dumps(str(self.fixture.repository)), staged_pubspec)
+        self.assertNotIn("assets/qualification", staged_pubspec)
+        self.assertEqual(
+            (self.fixture.work / gate.APK_RELATIVE).read_bytes(),
+            b"release apk",
+        )
+        self.assertEqual(
+            (self.fixture.work / gate.AAB_RELATIVE).read_bytes(),
+            b"release aab",
+        )
+
+    def test_runtime_provisioned_gate_binds_exact_assets_without_target_claim(
+        self,
+    ) -> None:
+        model_bytes = b"runtime orchestration model"
+        model = self.fixture.root / gate.SHERPA_MODEL_NAME
+        model.write_bytes(model_bytes)
+        model_digest = hashlib.sha256(model_bytes).hexdigest()
+        runner = FakeRunner(self.fixture)
+
+        with (
+            mock.patch.object(
+                gate,
+                "SHERPA_MODEL_SIZE_BYTES",
+                len(model_bytes),
+            ),
+            mock.patch.object(gate, "SHERPA_MODEL_SHA256", model_digest),
+        ):
+            report = self._run(runner, sherpa_model=model)
+
+        self.assertEqual(report["mode"], "runtime-provisioned")
+        self.assertIsNone(report["targetEvidence"])
+        self.assertEqual(
+            [entry["fileName"] for entry in report["runtimeFixtures"]],
+            list(gate.RUNTIME_FIXTURE_NAMES),
+        )
+        self.assertNotIn(
+            str(self.fixture.root),
+            json.dumps(report, sort_keys=True),
+        )
+        staged_pubspec = (self.fixture.work / "pubspec.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(staged_pubspec.count("assets/qualification/"), 1)
+        self.assertIn(gate.ANDROID_HOOK, staged_pubspec)
+
+    def test_runtime_fixture_mutation_is_caught_by_staged_source_guard(self) -> None:
+        model_bytes = b"runtime source guard model"
+        model = self.fixture.root / gate.SHERPA_MODEL_NAME
+        model.write_bytes(model_bytes)
+        runner = FakeRunner(self.fixture, mutate_runtime_asset=True)
+        with (
+            mock.patch.object(
+                gate,
+                "SHERPA_MODEL_SIZE_BYTES",
+                len(model_bytes),
+            ),
+            mock.patch.object(
+                gate,
+                "SHERPA_MODEL_SHA256",
+                hashlib.sha256(model_bytes).hexdigest(),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                gate.AndroidSherpaReferenceAppGateError,
+                "Release APK build output staged source identity changed",
+            ):
+                self._run(runner, sherpa_model=model)
 
     def test_lock_mutation_fails_even_when_command_reports_success(self) -> None:
         runner = FakeRunner(self.fixture, mutate_lock=True)
@@ -1159,7 +1522,7 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
         ):
             self._run(runner)
 
-    def test_parser_has_no_device_or_runtime_receipt_inputs(self) -> None:
+    def test_parser_has_model_but_no_device_or_runtime_receipt_inputs(self) -> None:
         parser = gate._parser()
         arguments = parser.parse_args(
             (
@@ -1175,6 +1538,26 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
         )
         self.assertFalse(hasattr(arguments, "avd_name"))
         self.assertFalse(hasattr(arguments, "load_order_validation_record"))
+        self.assertIsNone(arguments.sherpa_model)
+
+        provisioned = parser.parse_args(
+            (
+                "--flutter",
+                "/flutter",
+                "--work-dir",
+                "/work",
+                "--android-sdk",
+                "/sdk",
+                "--java-home",
+                "/java",
+                "--sherpa-model",
+                "/fixtures/silero_vad.int8.onnx",
+            )
+        )
+        self.assertEqual(
+            provisioned.sherpa_model,
+            Path("/fixtures/silero_vad.int8.onnx"),
+        )
 
 
 if __name__ == "__main__":

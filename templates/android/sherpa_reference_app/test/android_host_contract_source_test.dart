@@ -14,6 +14,8 @@ void main() {
     expect(source, contains('payloadChallengeSha256 !is String'));
     expect(source, contains('if (reason !is String) return null'));
     expect(source, contains('extras.keySet() != LAUNCH_EXTRA_KEYS'));
+    expect(source, contains('const val MAX_CHALLENGE_BYTES = 1024'));
+    expect(source, contains('const val MAX_CHALLENGE_BASE64_BYTES = 1368'));
     expect(source, contains('The app does not self-exit.'));
     expect(source, isNot(contains('android.os.Process.myUid')));
     expect(source, isNot(contains('android.os.Process.myPid')));

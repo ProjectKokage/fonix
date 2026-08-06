@@ -44,6 +44,19 @@ void main() {
     }
   });
 
+  test('shares the validator challenge bound', () {
+    expect(maximumLaunchChallengeBytes, 1024);
+    expect(
+      () => HarnessLaunch.fromPlatform(<String, Object?>{
+        ..._launchMap(HarnessLoadOrder.dartFirst),
+        'launchChallengeBase64': base64Encode(
+          Uint8List(maximumLaunchChallengeBytes + 1),
+        ),
+      }),
+      throwsA(isA<HarnessContractException>()),
+    );
+  });
+
   test('publishes the exact unavailable completion envelope', () async {
     final TestDefaultBinaryMessenger messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

@@ -198,6 +198,48 @@ EXPECTED_PROFILE = {
     "bufferMilliseconds": 60000,
 }
 
+EXTENDED_SHERPA_REFERENCE_KEYS = {
+    "schemaVersion",
+    "sherpa",
+    "profile",
+    "model",
+    "audio",
+    "observedSegments",
+    "invariant",
+    "claimBoundary",
+}
+SHERPA_REFERENCE_PROFILE_ID = "silero-vad-load-order-v1"
+SHERPA_REFERENCE_MODEL_FILE = "silero_vad.int8.onnx"
+SHERPA_REFERENCE_MODEL_SIZE = 212_860
+SHERPA_REFERENCE_MODEL_SHA256 = (
+    "c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20"
+)
+SHERPA_REFERENCE_AUDIO_FILE = "sherpa_synthetic_speech.wav"
+SHERPA_REFERENCE_AUDIO_GENERATOR = "android-sherpa-synthetic-vad-v1"
+SHERPA_REFERENCE_AUDIO_SAMPLES = 128_000
+SHERPA_REFERENCE_AUDIO_SIZE = 256_044
+SHERPA_REFERENCE_AUDIO_SHA256 = (
+    "2956ffe337260f54408e90f03f705e2c354074bb97b8935cdcd0d1760c313c46"
+)
+SHERPA_REFERENCE_FILE_SIZE = 1_159
+SHERPA_REFERENCE_FILE_SHA256 = (
+    "fb49299f25a4287c4c0b726e62ebafb099c6984f304bc0d3c09d4c722c8306cd"
+)
+SHERPA_REFERENCE_OBSERVED_START = 11_872
+SHERPA_REFERENCE_OBSERVED_SAMPLES = 96_160
+SHERPA_REFERENCE_INVARIANT = {
+    "minimumSegments": 1,
+    "maximumSegments": 1,
+    "minimumTotalSegmentSamples": 95_232,
+    "maximumTotalSegmentSamples": 97_280,
+    "maximumSegmentSamples": 97_280,
+}
+SHERPA_REFERENCE_CLAIM_BOUNDARY = (
+    "The observed segment was generated on macOS arm64 with the pinned "
+    "sherpa package and is only an invariant source. Android target "
+    "execution remains required."
+)
+
 
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
@@ -1338,24 +1380,64 @@ def _parse_wav(raw: bytes, sample_rate: int) -> int:
 
 
 def _validate_vad_reference(
-    value: dict[str, Any], profile: dict[str, Any], source_samples: int
+    value: dict[str, Any],
+    profile: dict[str, Any],
+    source_samples: int,
+    *,
+    model_identity: dict[str, Any],
+    audio_identity: dict[str, Any],
+    reference_identity: dict[str, Any],
+    package_version: str,
+    source_revision: str,
 ) -> dict[str, Any]:
-    _exact_keys(value, {"schemaVersion", "profile", "audio", "invariant"}, "Sherpa reference")
+    legacy_keys = {"schemaVersion", "profile", "audio", "invariant"}
+    keys = set(value)
+    if keys not in (legacy_keys, EXTENDED_SHERPA_REFERENCE_KEYS):
+        raise LoadOrderReceiptError("Sherpa reference has an unexpected field set")
     if _integer(value["schemaVersion"], "Sherpa reference.schemaVersion", 1, 1) != 1:
         raise LoadOrderReceiptError("Sherpa reference schemaVersion must be 1")
-    _validate_profile(value["profile"], "Sherpa reference.profile")
-    if not _json_equal(value["profile"], profile):
-        raise LoadOrderReceiptError("Sherpa reference profile does not match the receipt")
+    reference_profile = _validate_profile(
+        value["profile"], "Sherpa reference.profile"
+    )
+    if not _json_equal(reference_profile, profile):
+        raise LoadOrderReceiptError(
+            "Sherpa reference profile does not match the receipt"
+        )
+
     audio = _object(value["audio"], "Sherpa reference.audio")
-    _exact_keys(audio, {"encoding", "sampleCount"}, "Sherpa reference.audio")
+    if keys == legacy_keys:
+        _exact_keys(
+            audio,
+            {"encoding", "sampleCount"},
+            "Sherpa reference.audio",
+        )
+    else:
+        _exact_keys(
+            audio,
+            {
+                "file",
+                "encoding",
+                "generatorId",
+                "sampleCount",
+                "sizeBytes",
+                "sha256",
+            },
+            "Sherpa reference.audio",
+        )
     reference_sample_count = _integer(
-        audio["sampleCount"], "Sherpa reference.audio.sampleCount", 1, 57_600_000
+        audio["sampleCount"],
+        "Sherpa reference.audio.sampleCount",
+        1,
+        57_600_000,
     )
     if (
         audio["encoding"] != "wav-pcm-s16le-mono"
         or reference_sample_count != source_samples
     ):
-        raise LoadOrderReceiptError("Sherpa reference audio identity does not match the WAV")
+        raise LoadOrderReceiptError(
+            "Sherpa reference audio identity does not match the WAV"
+        )
+
     invariant = _object(value["invariant"], "Sherpa reference.invariant")
     _exact_keys(
         invariant,
@@ -1368,13 +1450,147 @@ def _validate_vad_reference(
         },
         "Sherpa reference.invariant",
     )
-    minimum_segments = _integer(invariant["minimumSegments"], "minimumSegments", 1, MAX_SEGMENTS)
-    maximum_segments = _integer(invariant["maximumSegments"], "maximumSegments", 1, MAX_SEGMENTS)
-    minimum_total = _integer(invariant["minimumTotalSegmentSamples"], "minimumTotalSegmentSamples", 1, source_samples)
-    maximum_total = _integer(invariant["maximumTotalSegmentSamples"], "maximumTotalSegmentSamples", 1, source_samples)
-    maximum_segment = _integer(invariant["maximumSegmentSamples"], "maximumSegmentSamples", 1, source_samples)
-    if minimum_segments > maximum_segments or minimum_total > maximum_total or maximum_segment > maximum_total:
+    minimum_segments = _integer(
+        invariant["minimumSegments"], "minimumSegments", 1, MAX_SEGMENTS
+    )
+    maximum_segments = _integer(
+        invariant["maximumSegments"], "maximumSegments", 1, MAX_SEGMENTS
+    )
+    minimum_total = _integer(
+        invariant["minimumTotalSegmentSamples"],
+        "minimumTotalSegmentSamples",
+        1,
+        source_samples,
+    )
+    maximum_total = _integer(
+        invariant["maximumTotalSegmentSamples"],
+        "maximumTotalSegmentSamples",
+        1,
+        source_samples,
+    )
+    maximum_segment = _integer(
+        invariant["maximumSegmentSamples"],
+        "maximumSegmentSamples",
+        1,
+        source_samples,
+    )
+    if (
+        minimum_segments > maximum_segments
+        or minimum_total > maximum_total
+        or maximum_segment > maximum_total
+    ):
         raise LoadOrderReceiptError("Sherpa reference invariants are contradictory")
+
+    if keys == legacy_keys:
+        return value
+
+    if reference_identity != {
+        "sizeBytes": SHERPA_REFERENCE_FILE_SIZE,
+        "sha256": SHERPA_REFERENCE_FILE_SHA256,
+    }:
+        raise LoadOrderReceiptError(
+            "Sherpa reference does not match the exact generated fixture"
+        )
+
+    identity = _object(value["sherpa"], "Sherpa reference.sherpa")
+    _exact_keys(
+        identity,
+        {"packageVersion", "nativeRevision"},
+        "Sherpa reference.sherpa",
+    )
+    if (
+        identity["packageVersion"] != package_version
+        or identity["nativeRevision"] != source_revision
+    ):
+        raise LoadOrderReceiptError(
+            "Sherpa reference native identity does not match the receipt"
+        )
+    if reference_profile["id"] != SHERPA_REFERENCE_PROFILE_ID:
+        raise LoadOrderReceiptError(
+            "Sherpa reference profile ID is not the closed qualification profile"
+        )
+
+    model = _object(value["model"], "Sherpa reference.model")
+    _exact_keys(
+        model,
+        {"file", "sizeBytes", "sha256"},
+        "Sherpa reference.model",
+    )
+    model_size = _integer(
+        model["sizeBytes"], "Sherpa reference.model.sizeBytes", 1, MAX_MODEL_BYTES
+    )
+    model_hash = _digest(model["sha256"], "Sherpa reference.model.sha256")
+    if (
+        model["file"] != SHERPA_REFERENCE_MODEL_FILE
+        or model_size != model_identity["sizeBytes"]
+        or model_hash != model_identity["sha256"]
+        or model_size != SHERPA_REFERENCE_MODEL_SIZE
+        or model_hash != SHERPA_REFERENCE_MODEL_SHA256
+    ):
+        raise LoadOrderReceiptError(
+            "Sherpa reference model identity does not match the supplied bytes"
+        )
+
+    audio_size = _integer(
+        audio["sizeBytes"], "Sherpa reference.audio.sizeBytes", 1, MAX_FIXTURE_BYTES
+    )
+    audio_hash = _digest(audio["sha256"], "Sherpa reference.audio.sha256")
+    if (
+        audio["file"] != SHERPA_REFERENCE_AUDIO_FILE
+        or audio["generatorId"] != SHERPA_REFERENCE_AUDIO_GENERATOR
+        or reference_sample_count != SHERPA_REFERENCE_AUDIO_SAMPLES
+        or audio_size != audio_identity["sizeBytes"]
+        or audio_hash != audio_identity["sha256"]
+        or audio_size != SHERPA_REFERENCE_AUDIO_SIZE
+        or audio_hash != SHERPA_REFERENCE_AUDIO_SHA256
+    ):
+        raise LoadOrderReceiptError(
+            "Sherpa reference audio provenance does not match the supplied bytes"
+        )
+    if invariant != SHERPA_REFERENCE_INVARIANT:
+        raise LoadOrderReceiptError(
+            "Sherpa reference invariant is not the closed Android tolerance"
+        )
+    if value["claimBoundary"] != SHERPA_REFERENCE_CLAIM_BOUNDARY:
+        raise LoadOrderReceiptError(
+            "Sherpa reference claim boundary does not match the closed contract"
+        )
+
+    observed = _array(value["observedSegments"], "Sherpa reference.observedSegments")
+    if len(observed) != 1:
+        raise LoadOrderReceiptError(
+            "Sherpa reference must contain one bounded host observation"
+        )
+    segment = _object(
+        observed[0], "Sherpa reference.observedSegments[0]"
+    )
+    _exact_keys(
+        segment,
+        {"startSample", "sampleCount"},
+        "Sherpa reference.observedSegments[0]",
+    )
+    start = _integer(
+        segment["startSample"],
+        "Sherpa reference.observedSegments[0].startSample",
+        0,
+        source_samples,
+    )
+    count = _integer(
+        segment["sampleCount"],
+        "Sherpa reference.observedSegments[0].sampleCount",
+        1,
+        source_samples,
+    )
+    if (
+        start != SHERPA_REFERENCE_OBSERVED_START
+        or count != SHERPA_REFERENCE_OBSERVED_SAMPLES
+        or count > source_samples - start
+        or not minimum_total <= count <= maximum_total
+        or count > maximum_segment
+    ):
+        raise LoadOrderReceiptError(
+            "Sherpa reference host observation does not match the closed fixture"
+        )
     return value
 
 
@@ -1917,6 +2133,12 @@ def validate(arguments: argparse.Namespace) -> dict[str, Any]:
         fixtures["sherpaReferenceSha256"],
         "Sherpa reference",
     )
+    sherpa_model_identity = _bind_file(
+        arguments.sherpa_model,
+        fixtures["sherpaModelSha256"],
+        "Sherpa model",
+        MAX_MODEL_BYTES,
+    )
 
     bindings = {
         "receipt": receipt_identity,
@@ -1951,9 +2173,7 @@ def validate(arguments: argparse.Namespace) -> dict[str, Any]:
             "Fonix cancellation input",
             MAX_FIXTURE_BYTES,
         ),
-        "sherpaModel": _bind_file(
-            arguments.sherpa_model, fixtures["sherpaModelSha256"], "Sherpa model", MAX_MODEL_BYTES
-        ),
+        "sherpaModel": sherpa_model_identity,
         "sherpaAudio": audio_identity,
         "sherpaReference": vad_reference_identity,
     }
@@ -1963,7 +2183,16 @@ def validate(arguments: argparse.Namespace) -> dict[str, Any]:
     source_samples = _parse_wav(
         audio_raw, receipt["sherpa"]["profile"]["sampleRateHz"]
     )
-    _validate_vad_reference(vad_reference, receipt["sherpa"]["profile"], source_samples)
+    _validate_vad_reference(
+        vad_reference,
+        receipt["sherpa"]["profile"],
+        source_samples,
+        model_identity=sherpa_model_identity,
+        audio_identity=audio_identity,
+        reference_identity=vad_reference_identity,
+        package_version=receipt["sherpa"]["packageVersion"],
+        source_revision=revision,
+    )
 
     _validate_initialization(receipt, matrix["loadOrder"])
     _validate_workload(receipt, reference_bytes, vad_reference, source_samples)

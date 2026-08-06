@@ -82,20 +82,69 @@ abstract interface class QualificationDriverFactory {
   SherpaQualificationDriver createSherpa();
 }
 
-abstract interface class LifecyclePublicationGate {
+enum FonixPublicationOutcome {
+  currentOutput,
+  cancelled,
+  cancellationOutputSuppressed,
+  staleSuppressed,
+}
+
+final class FonixPublication {
+  FonixPublication.currentOutput(Iterable<int> outputBytes)
+    : outcome = FonixPublicationOutcome.currentOutput,
+      settlementOutcome = FonixRunOutcome.completed,
+      settledOutputBytes = List<int>.unmodifiable(outputBytes),
+      publishedOutputBytes = List<int>.unmodifiable(outputBytes);
+
+  const FonixPublication.cancelled()
+    : outcome = FonixPublicationOutcome.cancelled,
+      settlementOutcome = FonixRunOutcome.cancelled,
+      settledOutputBytes = null,
+      publishedOutputBytes = null;
+
+  FonixPublication.cancellationOutputSuppressed(Iterable<int> outputBytes)
+    : outcome = FonixPublicationOutcome.cancellationOutputSuppressed,
+      settlementOutcome = FonixRunOutcome.completed,
+      settledOutputBytes = List<int>.unmodifiable(outputBytes),
+      publishedOutputBytes = null;
+
+  FonixPublication.staleSuppressed(Iterable<int> outputBytes)
+    : outcome = FonixPublicationOutcome.staleSuppressed,
+      settlementOutcome = FonixRunOutcome.completed,
+      settledOutputBytes = List<int>.unmodifiable(outputBytes),
+      publishedOutputBytes = null;
+
+  final FonixPublicationOutcome outcome;
+  final FonixRunOutcome settlementOutcome;
+  final List<int>? settledOutputBytes;
+  final List<int>? publishedOutputBytes;
+}
+
+abstract interface class LifecyclePublicationSink {
   LifecyclePublicationSnapshot get snapshot;
+  int get authoritativeGeneration;
 
-  void observeCancellation(FonixRunResult result);
-
-  void observeStaleCompletion({
-    required int completionGeneration,
-    required int authoritativeGeneration,
-    required FonixRunResult result,
+  /// Binds the run's sole settlement path before cancellation or retirement.
+  ///
+  /// The returned future is the only completion future consumed by the state
+  /// machine. Implementations decide whether a settlement is current,
+  /// cancelled, cancellation output that must be suppressed, or stale.
+  Future<FonixPublication> bind({
+    required FonixQualificationRun run,
+    required int generation,
+    required FonixRunPurpose purpose,
   });
+
+  /// Retires the current generation after its run has already been bound.
+  int advanceGeneration();
 }
 
 final class LifecyclePublicationSnapshot {
   const LifecyclePublicationSnapshot({
+    required this.boundRuns,
+    required this.settledRuns,
+    required this.activeBindings,
+    required this.currentPublishedOutputs,
     required this.cancellationSettlements,
     required this.cancellationCancelledResults,
     required this.cancellationPublishedOutputs,
@@ -105,13 +154,21 @@ final class LifecyclePublicationSnapshot {
   });
 
   const LifecyclePublicationSnapshot.empty()
-    : cancellationSettlements = 0,
+    : boundRuns = 0,
+      settledRuns = 0,
+      activeBindings = 0,
+      currentPublishedOutputs = 0,
+      cancellationSettlements = 0,
       cancellationCancelledResults = 0,
       cancellationPublishedOutputs = 0,
       staleObserved = 0,
       staleSuppressed = 0,
       stalePublishedOutputs = 0;
 
+  final int boundRuns;
+  final int settledRuns;
+  final int activeBindings;
+  final int currentPublishedOutputs;
   final int cancellationSettlements;
   final int cancellationCancelledResults;
   final int cancellationPublishedOutputs;
@@ -120,6 +177,10 @@ final class LifecyclePublicationSnapshot {
   final int stalePublishedOutputs;
 
   bool get isEmpty =>
+      boundRuns == 0 &&
+      settledRuns == 0 &&
+      activeBindings == 0 &&
+      currentPublishedOutputs == 0 &&
       cancellationSettlements == 0 &&
       cancellationCancelledResults == 0 &&
       cancellationPublishedOutputs == 0 &&
@@ -128,17 +189,36 @@ final class LifecyclePublicationSnapshot {
       stalePublishedOutputs == 0;
 }
 
-final class AuthoritativeLifecyclePublicationGate
-    implements LifecyclePublicationGate {
+final class AuthoritativeLifecyclePublicationSink
+    implements LifecyclePublicationSink {
+  AuthoritativeLifecyclePublicationSink({this.maximumBoundRuns = 128}) {
+    if (maximumBoundRuns < 1 || maximumBoundRuns > 1024) {
+      throw RangeError.range(maximumBoundRuns, 1, 1024, 'maximumBoundRuns');
+    }
+  }
+
+  final int maximumBoundRuns;
+  var _authoritativeGeneration = 1;
+  var _boundRuns = 0;
+  var _settledRuns = 0;
+  var _activeBindings = 0;
+  var _currentPublishedOutputs = 0;
   var _cancellationSettlements = 0;
   var _cancellationCancelledResults = 0;
-  var _cancellationPublishedOutputs = 0;
+  final int _cancellationPublishedOutputs = 0;
   var _staleObserved = 0;
   var _staleSuppressed = 0;
   var _stalePublishedOutputs = 0;
 
   @override
+  int get authoritativeGeneration => _authoritativeGeneration;
+
+  @override
   LifecyclePublicationSnapshot get snapshot => LifecyclePublicationSnapshot(
+    boundRuns: _boundRuns,
+    settledRuns: _settledRuns,
+    activeBindings: _activeBindings,
+    currentPublishedOutputs: _currentPublishedOutputs,
     cancellationSettlements: _cancellationSettlements,
     cancellationCancelledResults: _cancellationCancelledResults,
     cancellationPublishedOutputs: _cancellationPublishedOutputs,
@@ -148,32 +228,101 @@ final class AuthoritativeLifecyclePublicationGate
   );
 
   @override
-  void observeCancellation(FonixRunResult result) {
-    _cancellationSettlements += 1;
-    if (result.outcome == FonixRunOutcome.cancelled &&
-        result.outputBytes == null) {
-      _cancellationCancelledResults += 1;
-    } else if (result.outputBytes != null) {
-      _cancellationPublishedOutputs += 1;
+  Future<FonixPublication> bind({
+    required FonixQualificationRun run,
+    required int generation,
+    required FonixRunPurpose purpose,
+  }) {
+    if (generation != _authoritativeGeneration) {
+      throw const QualificationFailure('publication-generation-not-current');
     }
+    if (_boundRuns >= maximumBoundRuns || _activeBindings != 0) {
+      throw const QualificationFailure('publication-sink-capacity-exceeded');
+    }
+    _boundRuns += 1;
+    _activeBindings += 1;
+    final Future<FonixRunResult> soleSettlement;
+    try {
+      soleSettlement = run.settled;
+    } on Object {
+      _activeBindings -= 1;
+      rethrow;
+    }
+    return soleSettlement
+        .then((FonixRunResult result) {
+          _settledRuns += 1;
+          final List<int>? output = result.outputBytes;
+          if (purpose == FonixRunPurpose.cancellation) {
+            _cancellationSettlements += 1;
+            if (result.outcome == FonixRunOutcome.cancelled && output == null) {
+              _cancellationCancelledResults += 1;
+              return const FonixPublication.cancelled();
+            }
+            if (output != null) {
+              return FonixPublication.cancellationOutputSuppressed(output);
+            }
+            return const FonixPublication.cancelled();
+          }
+
+          if (purpose == FonixRunPurpose.stale) {
+            _staleObserved += 1;
+          }
+          if (result.outcome != FonixRunOutcome.completed || output == null) {
+            return const FonixPublication.cancelled();
+          }
+          if (generation != _authoritativeGeneration) {
+            if (purpose == FonixRunPurpose.stale) {
+              _staleSuppressed += 1;
+            }
+            return FonixPublication.staleSuppressed(output);
+          }
+          if (purpose == FonixRunPurpose.stale) {
+            _stalePublishedOutputs += 1;
+          }
+          _currentPublishedOutputs += 1;
+          return FonixPublication.currentOutput(output);
+        })
+        .whenComplete(() {
+          _activeBindings -= 1;
+        });
   }
 
   @override
-  void observeStaleCompletion({
-    required int completionGeneration,
-    required int authoritativeGeneration,
-    required FonixRunResult result,
-  }) {
-    _staleObserved += 1;
-    if (result.outcome != FonixRunOutcome.completed ||
-        result.outputBytes == null) {
-      return;
+  int advanceGeneration() {
+    if (_authoritativeGeneration >= 0x7fffffff) {
+      throw const QualificationFailure('publication-generation-exhausted');
     }
-    if (completionGeneration == authoritativeGeneration) {
-      _stalePublishedOutputs += 1;
-    } else {
-      _staleSuppressed += 1;
+    _authoritativeGeneration += 1;
+    return _authoritativeGeneration;
+  }
+}
+
+final class _CapturedFonixPublication {
+  const _CapturedFonixPublication.completed(this._value)
+    : _error = null,
+      _stackTrace = null;
+
+  const _CapturedFonixPublication.failed(this._error, this._stackTrace)
+    : _value = null;
+
+  final FonixPublication? _value;
+  final Object? _error;
+  final StackTrace? _stackTrace;
+
+  static Future<_CapturedFonixPublication> capture(
+    Future<FonixPublication> source,
+  ) => source.then<_CapturedFonixPublication>(
+    _CapturedFonixPublication.completed,
+    onError: (Object error, StackTrace stackTrace) =>
+        _CapturedFonixPublication.failed(error, stackTrace),
+  );
+
+  FonixPublication valueOrThrow() {
+    final Object? error = _error;
+    if (error != null) {
+      Error.throwWithStackTrace(error, _stackTrace!);
     }
+    return _value!;
   }
 }
 
@@ -205,6 +354,9 @@ final class QualificationPins {
       if (!isLowercaseSha256(digest)) {
         throw const QualificationFailure('invalid-qualification-digest');
       }
+    }
+    if (fonixCancellationModelSha256 != fonixModelSha256) {
+      throw const QualificationFailure('fonix-session-model-identity-drift');
     }
   }
 
@@ -254,6 +406,11 @@ final class FonixInitializationObservation {
     required this.negotiatedOrtApi,
     required this.shimAbi,
     required this.shimBuildId,
+    required this.modelSha256,
+    required this.referenceInputSha256,
+    required this.referenceOutputSha256,
+    required this.cancellationModelSha256,
+    required this.cancellationInputSha256,
   }) {
     if (runtimeOwner != 'sherpa' ||
         runtimeSource != 'process' ||
@@ -271,6 +428,17 @@ final class FonixInitializationObservation {
     if (parts[0] != 1 || parts[1] < 27) {
       throw const QualificationFailure('incompatible-ort-version');
     }
+    for (final String digest in <String>[
+      modelSha256,
+      referenceInputSha256,
+      referenceOutputSha256,
+      cancellationModelSha256,
+      cancellationInputSha256,
+    ]) {
+      if (!isLowercaseSha256(digest)) {
+        throw const QualificationFailure('invalid-fonix-fixture-observation');
+      }
+    }
   }
 
   final String runtimeOwner;
@@ -280,6 +448,11 @@ final class FonixInitializationObservation {
   final int negotiatedOrtApi;
   final int shimAbi;
   final String shimBuildId;
+  final String modelSha256;
+  final String referenceInputSha256;
+  final String referenceOutputSha256;
+  final String cancellationModelSha256;
+  final String cancellationInputSha256;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'runtimeOwner': runtimeOwner,
@@ -291,6 +464,21 @@ final class FonixInitializationObservation {
     'shimBuildId': shimBuildId,
   };
 
+  Map<String, Object?> fixturesJson() => <String, Object?>{
+    'fonixModelSha256': modelSha256,
+    'fonixInputSha256': referenceInputSha256,
+    'fonixReferenceOutputSha256': referenceOutputSha256,
+    'fonixCancellationModelSha256': cancellationModelSha256,
+    'fonixCancellationInputSha256': cancellationInputSha256,
+  };
+
+  bool matchesPins(QualificationPins pins) =>
+      modelSha256 == pins.fonixModelSha256 &&
+      referenceInputSha256 == pins.fonixInputSha256 &&
+      referenceOutputSha256 == pins.fonixReferenceOutputSha256 &&
+      cancellationModelSha256 == pins.fonixCancellationModelSha256 &&
+      cancellationInputSha256 == pins.fonixCancellationInputSha256;
+
   @override
   bool operator ==(Object other) =>
       other is FonixInitializationObservation &&
@@ -300,7 +488,12 @@ final class FonixInitializationObservation {
       requiredOrtApi == other.requiredOrtApi &&
       negotiatedOrtApi == other.negotiatedOrtApi &&
       shimAbi == other.shimAbi &&
-      shimBuildId == other.shimBuildId;
+      shimBuildId == other.shimBuildId &&
+      modelSha256 == other.modelSha256 &&
+      referenceInputSha256 == other.referenceInputSha256 &&
+      referenceOutputSha256 == other.referenceOutputSha256 &&
+      cancellationModelSha256 == other.cancellationModelSha256 &&
+      cancellationInputSha256 == other.cancellationInputSha256;
 
   @override
   int get hashCode => Object.hash(
@@ -311,6 +504,11 @@ final class FonixInitializationObservation {
     negotiatedOrtApi,
     shimAbi,
     shimBuildId,
+    modelSha256,
+    referenceInputSha256,
+    referenceOutputSha256,
+    cancellationModelSha256,
+    cancellationInputSha256,
   );
 
   static final RegExp _semanticVersion = RegExp(
@@ -318,38 +516,180 @@ final class FonixInitializationObservation {
   );
 }
 
+final class SherpaProfileObservation {
+  SherpaProfileObservation({
+    required this.id,
+    required this.provider,
+    required this.sampleRateHz,
+    required this.windowSamples,
+    required this.numThreads,
+    required this.thresholdMillionths,
+    required this.minimumSpeechMilliseconds,
+    required this.minimumSilenceMilliseconds,
+    required this.maximumSpeechMilliseconds,
+    required this.bufferMilliseconds,
+  }) {
+    if (!QualificationPins._token.hasMatch(id) ||
+        !QualificationPins._token.hasMatch(provider) ||
+        sampleRateHz < 1 ||
+        sampleRateHz > 384000 ||
+        windowSamples < 1 ||
+        windowSamples > 65536 ||
+        numThreads < 1 ||
+        numThreads > 64 ||
+        thresholdMillionths < 0 ||
+        thresholdMillionths > 1000000 ||
+        minimumSpeechMilliseconds < 0 ||
+        minimumSpeechMilliseconds > 3600000 ||
+        minimumSilenceMilliseconds < 0 ||
+        minimumSilenceMilliseconds > 3600000 ||
+        maximumSpeechMilliseconds < 1 ||
+        maximumSpeechMilliseconds > 3600000 ||
+        bufferMilliseconds < 1 ||
+        bufferMilliseconds > 3600000) {
+      throw const QualificationFailure('invalid-sherpa-profile-observation');
+    }
+  }
+
+  final String id;
+  final String provider;
+  final int sampleRateHz;
+  final int windowSamples;
+  final int numThreads;
+  final int thresholdMillionths;
+  final int minimumSpeechMilliseconds;
+  final int minimumSilenceMilliseconds;
+  final int maximumSpeechMilliseconds;
+  final int bufferMilliseconds;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'provider': provider,
+    'sampleRateHz': sampleRateHz,
+    'windowSamples': windowSamples,
+    'numThreads': numThreads,
+    'thresholdMillionths': thresholdMillionths,
+    'minimumSpeechMilliseconds': minimumSpeechMilliseconds,
+    'minimumSilenceMilliseconds': minimumSilenceMilliseconds,
+    'maximumSpeechMilliseconds': maximumSpeechMilliseconds,
+    'bufferMilliseconds': bufferMilliseconds,
+  };
+
+  bool matchesPins(QualificationPins pins) {
+    final Map<String, Object?> expected = pins.profileJson();
+    final Map<String, Object?> observed = toJson();
+    return expected.length == observed.length &&
+        expected.entries.every(
+          (MapEntry<String, Object?> entry) =>
+              observed[entry.key] == entry.value,
+        );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SherpaProfileObservation &&
+      id == other.id &&
+      provider == other.provider &&
+      sampleRateHz == other.sampleRateHz &&
+      windowSamples == other.windowSamples &&
+      numThreads == other.numThreads &&
+      thresholdMillionths == other.thresholdMillionths &&
+      minimumSpeechMilliseconds == other.minimumSpeechMilliseconds &&
+      minimumSilenceMilliseconds == other.minimumSilenceMilliseconds &&
+      maximumSpeechMilliseconds == other.maximumSpeechMilliseconds &&
+      bufferMilliseconds == other.bufferMilliseconds;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    provider,
+    sampleRateHz,
+    windowSamples,
+    numThreads,
+    thresholdMillionths,
+    minimumSpeechMilliseconds,
+    minimumSilenceMilliseconds,
+    maximumSpeechMilliseconds,
+    bufferMilliseconds,
+  );
+}
+
 final class SherpaInitializationObservation {
   SherpaInitializationObservation({
     required this.getVersion,
     required this.getGitSha1,
+    required this.profile,
+    required this.modelSha256,
+    required this.audioSha256,
+    required this.referenceSha256,
   }) {
     if (!FonixInitializationObservation._semanticVersion.hasMatch(getVersion) ||
         !_nativeRevision.hasMatch(getGitSha1)) {
       throw const QualificationFailure('invalid-sherpa-diagnostics');
     }
+    for (final String digest in <String>[
+      modelSha256,
+      audioSha256,
+      referenceSha256,
+    ]) {
+      if (!isLowercaseSha256(digest)) {
+        throw const QualificationFailure('invalid-sherpa-fixture-observation');
+      }
+    }
   }
 
   final String getVersion;
   final String getGitSha1;
+  final SherpaProfileObservation profile;
+  final String modelSha256;
+  final String audioSha256;
+  final String referenceSha256;
+
+  Map<String, Object?> fixturesJson() => <String, Object?>{
+    'sherpaModelSha256': modelSha256,
+    'sherpaAudioSha256': audioSha256,
+    'sherpaReferenceSha256': referenceSha256,
+  };
+
+  bool matchesPins(QualificationPins pins) =>
+      modelSha256 == pins.sherpaModelSha256 &&
+      audioSha256 == pins.sherpaAudioSha256 &&
+      referenceSha256 == pins.sherpaReferenceSha256 &&
+      profile.matchesPins(pins);
 
   @override
   bool operator ==(Object other) =>
       other is SherpaInitializationObservation &&
       getVersion == other.getVersion &&
-      getGitSha1 == other.getGitSha1;
+      getGitSha1 == other.getGitSha1 &&
+      profile == other.profile &&
+      modelSha256 == other.modelSha256 &&
+      audioSha256 == other.audioSha256 &&
+      referenceSha256 == other.referenceSha256;
 
   @override
-  int get hashCode => Object.hash(getVersion, getGitSha1);
+  int get hashCode => Object.hash(
+    getVersion,
+    getGitSha1,
+    profile,
+    modelSha256,
+    audioSha256,
+    referenceSha256,
+  );
 
   static final RegExp _nativeRevision = RegExp(r'^[0-9a-f]{7,40}$');
 }
 
 final class QualificationIdentity {
-  const QualificationIdentity._({
+  QualificationIdentity._({
     required this.pins,
     required this.fonix,
     required this.sherpa,
-  });
+  }) {
+    if (!fonix.matchesPins(pins) || !sherpa.matchesPins(pins)) {
+      throw const QualificationFailure('fixture-observation-mismatch');
+    }
+  }
 
   final QualificationPins pins;
   final FonixInitializationObservation fonix;
@@ -360,10 +700,13 @@ final class QualificationIdentity {
   Map<String, Object?> sherpaJson() => <String, Object?>{
     'getVersion': sherpa.getVersion,
     'getGitSha1': sherpa.getGitSha1,
-    'profile': pins.profileJson(),
+    'profile': sherpa.profile.toJson(),
   };
 
-  Map<String, Object?> fixturesJson() => pins.fixturesJson();
+  Map<String, Object?> fixturesJson() => <String, Object?>{
+    ...fonix.fixturesJson(),
+    ...sherpa.fixturesJson(),
+  };
 }
 
 final class VadSegment {
@@ -634,14 +977,14 @@ final class DeviceQualificationResult implements HarnessCompletionPayload {
 final class QualificationStateMachine {
   const QualificationStateMachine({
     required this.driverFactory,
-    required this.publicationGate,
+    required this.publicationSink,
     required this.pins,
     required this.references,
     this.requestedCycles = 2,
   });
 
   final QualificationDriverFactory driverFactory;
-  final LifecyclePublicationGate publicationGate;
+  final LifecyclePublicationSink publicationSink;
   final QualificationPins pins;
   final QualificationReferences references;
   final int requestedCycles;
@@ -654,7 +997,8 @@ final class QualificationStateMachine {
         pins.fonixReferenceOutputSha256) {
       throw const QualificationFailure('fonix-reference-identity-mismatch');
     }
-    if (!publicationGate.snapshot.isEmpty) {
+    if (!publicationSink.snapshot.isEmpty ||
+        publicationSink.authoritativeGeneration != 1) {
       throw const QualificationFailure('publication-gate-not-fresh');
     }
 
@@ -678,10 +1022,11 @@ final class QualificationStateMachine {
       final List<_QualificationStep> steps = <_QualificationStep>[];
       var ordinal = 1;
       for (var cycle = 0; cycle < requestedCycles; cycle += 1) {
-        final FonixRunResult fonixResult = await primaryFonix
-            .startRun(FonixRunPurpose.reference)
-            .settled;
-        final List<int> fonixBytes = _completedFonixBytes(fonixResult);
+        final FonixPublication fonixPublication = await _publishFonixRun(
+          primaryFonix.startRun(FonixRunPurpose.reference),
+          FonixRunPurpose.reference,
+        );
+        final List<int> fonixBytes = _publishedFonixBytes(fonixPublication);
         _expectFonixReference(fonixBytes);
         steps.add(_FonixStep(ordinal: ordinal, outputBytes: fonixBytes));
         ordinal += 1;
@@ -698,20 +1043,42 @@ final class QualificationStateMachine {
       final FonixQualificationRun cancellationRun = primaryFonix.startRun(
         FonixRunPurpose.cancellation,
       );
-      final FonixCancellationDisposition cancellationDisposition =
-          await cancellationRun.cancelWithDisposition();
-      final FonixRunResult cancellationResult = await cancellationRun.settled;
-      publicationGate.observeCancellation(cancellationResult);
+      final Future<FonixPublication> cancellationPublicationFuture =
+          publicationSink.bind(
+            run: cancellationRun,
+            generation: publicationSink.authoritativeGeneration,
+            purpose: FonixRunPurpose.cancellation,
+          );
+      final Future<_CapturedFonixPublication> cancellationPublicationDrain =
+          _CapturedFonixPublication.capture(cancellationPublicationFuture);
+      final FonixCancellationDisposition cancellationDisposition;
+      try {
+        cancellationDisposition = await cancellationRun.cancelWithDisposition();
+      } on Object catch (dispatchError, dispatchStack) {
+        try {
+          publicationSink.advanceGeneration();
+        } on Object {
+          // The cancellation dispatch failure remains authoritative. The sink
+          // also suppresses cancellation-purpose output independently, so a
+          // broken retirement implementation cannot make output publishable.
+        }
+        await cancellationPublicationDrain;
+        Error.throwWithStackTrace(dispatchError, dispatchStack);
+      }
+      final FonixPublication cancellationResult =
+          (await cancellationPublicationDrain).valueOrThrow();
       final LifecyclePublicationSnapshot cancellationPublication =
-          publicationGate.snapshot;
+          publicationSink.snapshot;
       final int nativeCancellationAcceptedCount =
           cancellationDisposition ==
               FonixCancellationDisposition.nativeTerminationRequested
           ? 1
           : 0;
       if (nativeCancellationAcceptedCount != 1 ||
-          cancellationResult.outcome != FonixRunOutcome.cancelled ||
-          cancellationResult.outputBytes != null ||
+          cancellationResult.outcome != FonixPublicationOutcome.cancelled ||
+          cancellationResult.settlementOutcome != FonixRunOutcome.cancelled ||
+          cancellationResult.settledOutputBytes != null ||
+          cancellationResult.publishedOutputBytes != null ||
           cancellationPublication.cancellationSettlements != 1 ||
           cancellationPublication.cancellationCancelledResults != 1 ||
           cancellationPublication.cancellationPublishedOutputs != 0 ||
@@ -761,22 +1128,28 @@ final class QualificationStateMachine {
         throw const QualificationFailure('sherpa-detector-not-retired');
       }
 
-      var authoritativeGeneration = 1;
-      final int retiredGeneration = authoritativeGeneration;
+      final int retiredGeneration = publicationSink.authoritativeGeneration;
       final FonixQualificationRun staleRun = primaryFonix.startRun(
         FonixRunPurpose.stale,
       );
-      authoritativeGeneration += 1;
-      final FonixRunResult staleResult = await staleRun.settled;
-      publicationGate.observeStaleCompletion(
-        completionGeneration: retiredGeneration,
-        authoritativeGeneration: authoritativeGeneration,
-        result: staleResult,
-      );
-      final List<int> staleBytes = _completedFonixBytes(staleResult);
+      final Future<FonixPublication> stalePublicationFuture = publicationSink
+          .bind(
+            run: staleRun,
+            generation: retiredGeneration,
+            purpose: FonixRunPurpose.stale,
+          );
+      final int authoritativeGeneration = publicationSink.advanceGeneration();
+      final FonixPublication staleResult = await stalePublicationFuture;
+      final List<int>? staleBytes = staleResult.settledOutputBytes;
+      if (staleResult.outcome != FonixPublicationOutcome.staleSuppressed ||
+          staleResult.settlementOutcome != FonixRunOutcome.completed ||
+          staleBytes == null ||
+          staleResult.publishedOutputBytes != null) {
+        throw const QualificationFailure('stale-publication-not-suppressed');
+      }
       _expectFonixReference(staleBytes);
       final LifecyclePublicationSnapshot lifecyclePublication =
-          publicationGate.snapshot;
+          publicationSink.snapshot;
       if (retiredGeneration == authoritativeGeneration ||
           lifecyclePublication.staleObserved != 1 ||
           lifecyclePublication.staleSuppressed != 1 ||
@@ -795,10 +1168,11 @@ final class QualificationStateMachine {
       if (recoverySherpaIdentity != identity.sherpa) {
         throw const QualificationFailure('sherpa-recovery-identity-drift');
       }
-      final FonixRunResult recoveryFonixResult = await primaryFonix
-          .startRun(FonixRunPurpose.recovery)
-          .settled;
-      final List<int> recoveryFonixBytes = _completedFonixBytes(
+      final FonixPublication recoveryFonixResult = await _publishFonixRun(
+        primaryFonix.startRun(FonixRunPurpose.recovery),
+        FonixRunPurpose.recovery,
+      );
+      final List<int> recoveryFonixBytes = _publishedFonixBytes(
         recoveryFonixResult,
       );
       _expectFonixReference(recoveryFonixBytes);
@@ -849,7 +1223,13 @@ final class QualificationStateMachine {
         (int sum, SherpaQualificationDriver driver) =>
             sum + driver.queuedSegments,
       );
-      if (fonixDrivers.any(
+      final LifecyclePublicationSnapshot finalPublication =
+          publicationSink.snapshot;
+      if (finalPublication.boundRuns != requestedCycles + 3 ||
+          finalPublication.settledRuns != requestedCycles + 3 ||
+          finalPublication.activeBindings != 0 ||
+          finalPublication.currentPublishedOutputs != requestedCycles + 1 ||
+          fonixDrivers.any(
             (FonixQualificationDriver driver) =>
                 driver.isAlive || driver.outstandingRuns != 0,
           ) ||
@@ -895,7 +1275,7 @@ final class QualificationStateMachine {
         temporaryRootsRemoved: driverFactory.temporaryRootsRemoved,
         pendingFonixRuns: pendingFonixRuns,
         queuedSherpaSegments: queuedSherpaSegments,
-        publicationSnapshot: lifecyclePublication,
+        publicationSnapshot: finalPublication,
         nativeCancellationAcceptedCount: nativeCancellationAcceptedCount,
       );
       completed = true;
@@ -996,12 +1376,22 @@ final class QualificationStateMachine {
     return driver;
   }
 
-  List<int> _completedFonixBytes(FonixRunResult result) {
-    final List<int>? bytes = result.outputBytes;
-    if (result.outcome != FonixRunOutcome.completed ||
+  Future<FonixPublication> _publishFonixRun(
+    FonixQualificationRun run,
+    FonixRunPurpose purpose,
+  ) => publicationSink.bind(
+    run: run,
+    generation: publicationSink.authoritativeGeneration,
+    purpose: purpose,
+  );
+
+  List<int> _publishedFonixBytes(FonixPublication result) {
+    final List<int>? bytes = result.publishedOutputBytes;
+    if (result.outcome != FonixPublicationOutcome.currentOutput ||
+        result.settlementOutcome != FonixRunOutcome.completed ||
         bytes == null ||
         bytes.isEmpty) {
-      throw const QualificationFailure('fonix-run-not-completed');
+      throw const QualificationFailure('fonix-output-not-published');
     }
     return bytes;
   }

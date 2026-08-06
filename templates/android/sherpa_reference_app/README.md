@@ -7,30 +7,34 @@ single ONNX Runtime packaged by sherpa-onnx.
 
 ## Current evidence status
 
-This checkpoint includes source/host-test scaffolding and one exact staged
-arm64-v8a R8 Release APK/base-only-AAB static package audit. It contains no
-target execution evidence.
+This checkpoint includes the real bounded qualification path plus the earlier
+exact arm64-v8a R8 Release APK/base-only-AAB static package audit. It contains
+no target execution evidence yet.
 
-- `main.dart` validates the trusted-runner launch envelope and emits
-  `unavailable/native-fixtures-unprovisioned`.
-- No model, audio, reference output, model weight, microphone path, network
-  permission, or native qualification adapter is present.
-- The deterministic state-machine tests use injected Dart fakes. A passing
-  fake test proves only orchestration, bounds, publication ownership, and
-  cleanup logic. It is not Android, ONNX Runtime, Fonix, sherpa, VAD, load-order,
-  APK, or device evidence.
-- A `passed` app payload must not be wired into `main.dart` until real Fonix and
-  sherpa adapters hash the bytes they actually use, return their observed
-  fixture identities and effective sherpa configuration to the state machine,
-  and match those observations to the closed pins. Caller-supplied hashes are
-  not evidence that an adapter used those bytes.
-- The same prerequisite applies to stale-result evidence: current and retired
-  completions must traverse the same bounded authoritative publication sink,
-  and the receipt must use that sink's observed emissions. Comparing local
-  generation integers or self-reporting counters is not target evidence.
-- The locked repository runner has built this exact scaffold and passed the
-  closed package-pair gate. That proves the staged dependency/native graph and
-  final APK/AAB bytes only; it does not change the unavailable app result.
+- The committed template declares no qualification assets. `main.dart`
+  validates the trusted-runner launch envelope and emits
+  `unavailable/native-fixtures-unprovisioned` only when the fixed marker is
+  absent from Flutter's asset index.
+- The opt-in staged build generates the exact Fonix model/input/reference and
+  synthetic VAD audio/reference bytes, accepts one exact externally
+  provisioned Silero model, and audits all eight assets in both the APK and
+  base AAB. No model weight, recording, microphone path, or network permission
+  is committed to the template.
+- The ready path uses real process-runtime `OrtIsolateSession` and
+  `sherpa_onnx` VAD adapters. They hash or validate the bytes they consume,
+  report observed runtime/fixture/profile identities, and use bounded native
+  owners with idempotent cleanup.
+- Current, cancellation, and retired Fonix completions traverse one bounded
+  authoritative publication sink. The state machine requires accepted active
+  native termination, suppresses the induced stale completion, recovers both
+  engines, and settles both disposal orders with no pending work.
+- Host tests retain injected seams. They prove orchestration, strict decoding,
+  bounds, publication ownership, failure reduction, and cleanup logic; they
+  are not Android, ONNX Runtime, Fonix, sherpa, VAD, APK, or device evidence.
+- The trusted one-tuple target runner owns installation, a fresh challenge,
+  queried device/page-size facts, UID/PID-bound log framing, force-stop,
+  uninstall, schema-2 receipt assembly, and offline validation. A passing
+  runner test is still not a target run.
 
 ## Locked composition
 
@@ -76,7 +80,7 @@ dev.fonix.sherpa_reference.LOAD_ORDER
   dart-first | sherpa-first
 
 dev.fonix.sherpa_reference.LAUNCH_CHALLENGE_BASE64
-  canonical standard base64 for 1..4096 bytes
+  canonical standard base64 for 1..1024 bytes
 ```
 
 For example, after safely producing `CHALLENGE_BASE64` outside this example:
@@ -124,7 +128,7 @@ is at most 512 KiB. Android rehashes it, requires exact primitive JSON types,
 binds its challenge hash and load order to the validated launch, and rejects a
 second completion.
 
-The current application emits exactly this unavailable payload:
+The asset-free committed template emits exactly this unavailable payload:
 
 ```json
 {
@@ -136,7 +140,7 @@ The current application emits exactly this unavailable payload:
 }
 ```
 
-A future unexpected native qualification failure may emit the same five keys
+An unexpected staged native qualification failure emits the same five keys
 with `result: "failed"` and `reason: "qualification-failed"`. Neither status
 is a passed receipt.
 
@@ -262,8 +266,8 @@ the launched application. Its top-level keys and order are:
       "sherpaDoubleFree": "passed",
       "pendingFonixRuns": 0,
       "queuedSherpaSegments": 0,
-      "temporaryRootsCreated": 2,
-      "temporaryRootsRemoved": 2,
+      "temporaryRootsCreated": 5,
+      "temporaryRootsRemoved": 5,
       "temporaryRootsRemaining": 0
     }
   }
@@ -277,15 +281,14 @@ invariants for source length, segment count, per-segment length, and total
 detected samples; the scaffold does not require one synthetic exact segment
 layout. Initialization event order follows the requested load order.
 
-The scaffold's state machine models a sole lifecycle-output publisher. Drivers
-return settlements; the injected publication gate records cancellation and
-generation decisions, and a deliberately leaky fake must fail. This is only an
-orchestration contract. Before a passed path exists, the native adapters must
-route current and retired completions through one real bounded authoritative
-publication sink and return that sink's observed publication counts. The
-current local generation comparison must not be promoted to target evidence.
+The state machine owns a sole lifecycle-output publisher. Every real and fake
+Fonix run is bound to that sink before cancellation or generation retirement;
+the sink consumes the run's sole settlement future and decides whether output
+is current, cancelled, or stale and suppressed. A deliberately leaky fake must
+fail. Host tests prove this orchestration contract, while only a trusted target
+run can turn the real adapter's observed counts into device evidence.
 
-The future Fonix adapter must map
+The Fonix adapter maps
 `OrtIsolateRun.cancelWithDisposition()` exactly into the harness's closed
 cancellation disposition. Only
 `OrtRunCancellationDisposition.nativeTerminationRequested` maps to
@@ -297,9 +300,9 @@ same session. The disposition proves that registered run options accepted a
 termination request; it does not by itself prove precisely when ORT entered
 `Run`.
 
-Initialization success also requires an adapter-owned native liveness probe of
-the first owner after the second owner reports ready; a cached Dart boolean is
-not sufficient. Driver factory construction is native-inert: it must not load a
+Initialization requires an adapter-owned native liveness probe of the first
+owner after the second owner reports ready; a cached Dart boolean is not
+sufficient. Driver factory construction is native-inert: it does not load a
 library, allocate a native owner, or create a temporary root. `initialize()` is
 the first native operation, and the requested first owner is initialized before
 the second driver is constructed. The state machine rejects non-zero driver
@@ -385,6 +388,26 @@ build/app/outputs/flutter-apk/app-release.apk
 build/app/outputs/bundle/release/app-release.aab
 ```
 
-The repository gate builds and statically audits both outputs. Installation,
-trusted log capture, and the native device workload are separate future gates;
-no target result is claimed by this scaffold.
+Run the locked runtime-provisioned build in a new directory outside the
+repository:
+
+```bash
+python3 -B tool/ci/run_android_sherpa_reference_app_gate.py \
+  --flutter /absolute/path/to/flutter \
+  --work-dir /absolute/new/path/fonix-sherpa-runtime \
+  --android-sdk /absolute/path/to/android-sdk \
+  --java-home /absolute/path/to/jdk-21.0.12 \
+  --sherpa-model /absolute/path/to/silero_vad.int8.onnx
+```
+
+The model is an external build input and must match the gate's exact size and
+SHA-256. It is copied only into the new staged build and must not be added to
+this repository.
+
+The repository gate builds and statically audits both outputs. Passing
+`--sherpa-model` opts into the exact runtime fixture set; omitting it preserves
+the asset-free unavailable template. The separate trusted target runner
+installs one audited APK on one selected adb serial, captures one load order and
+queried page size, validates it, then force-stops and removes only the package
+installed by that invocation. Until that runner succeeds on a target, this
+source still carries no runtime coexistence claim.

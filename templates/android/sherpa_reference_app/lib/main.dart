@@ -2,49 +2,47 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'src/harness_channel.dart';
-import 'src/harness_contract.dart';
+import 'src/qualification_fixtures.dart';
+import 'src/qualification_harness.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const _HarnessApp());
+  runApp(HarnessApp(harness: createAndroidQualificationHarness()));
 }
 
-final class _HarnessApp extends StatefulWidget {
-  const _HarnessApp();
+final class HarnessApp extends StatefulWidget {
+  const HarnessApp({super.key, required this.harness});
+
+  final QualificationHarness<AndroidQualificationFixtures> harness;
 
   @override
-  State<_HarnessApp> createState() => _HarnessAppState();
+  State<HarnessApp> createState() => _HarnessAppState();
 }
 
-final class _HarnessAppState extends State<_HarnessApp> {
+final class _HarnessAppState extends State<HarnessApp> {
   String _status = 'Reading the trusted-runner launch contract…';
 
   @override
   void initState() {
     super.initState();
-    unawaited(_reportCurrentCapability());
+    unawaited(_runQualification());
   }
 
-  Future<void> _reportCurrentCapability() async {
-    const HarnessChannel channel = HarnessChannel();
-    final HarnessLaunch launch;
-    try {
-      launch = await channel.readLaunch();
-    } on Object {
-      _setStatus('Launch rejected: the host contract is invalid.');
-      return;
-    }
-
-    try {
-      await channel.complete(HarnessUnavailableResult.nativeFixtures(launch));
-      _setStatus(
-        'Harness contract accepted. Native qualification fixtures and '
-        'drivers are not provisioned in this source template.',
-      );
-    } on Object {
-      _setStatus('The bounded unavailable result could not be published.');
-    }
+  Future<void> _runQualification() async {
+    final QualificationHarnessOutcome outcome = await widget.harness.run();
+    _setStatus(switch (outcome) {
+      QualificationHarnessOutcome.passed =>
+        'The bounded native qualification completed and was published.',
+      QualificationHarnessOutcome.nativeFixturesUnprovisioned =>
+        'Harness contract accepted. Native qualification fixtures are not '
+            'provisioned in this source template.',
+      QualificationHarnessOutcome.qualificationFailed =>
+        'Native qualification failed. No native error details were published.',
+      QualificationHarnessOutcome.launchRejected =>
+        'Launch rejected: the host contract is invalid.',
+      QualificationHarnessOutcome.publicationFailed =>
+        'The bounded harness result could not be published.',
+    });
   }
 
   void _setStatus(String value) {

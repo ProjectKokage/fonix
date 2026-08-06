@@ -17,6 +17,9 @@ import zipfile
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY / "tool/ci/validate_android_load_order_receipt.py"
+GENERATOR_SCRIPT = (
+    REPOSITORY / "tool/ci/generate_android_sherpa_fonix_fixtures.py"
+)
 SCHEMA = REPOSITORY / "templates/android/load_order_receipt.schema.json"
 ELF_TESTS = REPOSITORY / "tool/tests/test_verify_native_libs.py"
 _ELF_SPEC = importlib.util.spec_from_file_location(
@@ -32,6 +35,13 @@ _VALIDATOR_SPEC = importlib.util.spec_from_file_location(
 assert _VALIDATOR_SPEC is not None and _VALIDATOR_SPEC.loader is not None
 VALIDATOR = importlib.util.module_from_spec(_VALIDATOR_SPEC)
 _VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
+
+_GENERATOR_SPEC = importlib.util.spec_from_file_location(
+    "fonix_android_sherpa_fixture_generator", GENERATOR_SCRIPT
+)
+assert _GENERATOR_SPEC is not None and _GENERATOR_SPEC.loader is not None
+GENERATOR = importlib.util.module_from_spec(_GENERATOR_SPEC)
+_GENERATOR_SPEC.loader.exec_module(GENERATOR)
 
 
 def _sha256(path: Path) -> str:
@@ -669,6 +679,54 @@ class AndroidLoadOrderReceiptTest(unittest.TestCase):
         )
         self._rewrite_evidence()
         self._assert_rejected("Sherpa reference.audio.sampleCount must be an integer")
+
+    def test_accepts_only_the_exact_extended_sherpa_reference_fixture(self) -> None:
+        audio = GENERATOR.sherpa_audio_bytes()
+        raw_reference = GENERATOR.sherpa_reference_bytes(audio)
+        reference = json.loads(raw_reference)
+        model_identity = {
+            "sizeBytes": GENERATOR.SHERPA_MODEL_SIZE_BYTES,
+            "sha256": GENERATOR.SHERPA_MODEL_SHA256,
+        }
+        audio_identity = {
+            "sizeBytes": len(audio),
+            "sha256": hashlib.sha256(audio).hexdigest(),
+        }
+        reference_identity = {
+            "sizeBytes": len(raw_reference),
+            "sha256": hashlib.sha256(raw_reference).hexdigest(),
+        }
+
+        self.assertIs(
+            VALIDATOR._validate_vad_reference(
+                reference,
+                reference["profile"],
+                GENERATOR.SHERPA_AUDIO_SAMPLES,
+                model_identity=model_identity,
+                audio_identity=audio_identity,
+                reference_identity=reference_identity,
+                package_version=GENERATOR.SHERPA_PACKAGE_VERSION,
+                source_revision=GENERATOR.SHERPA_NATIVE_REVISION,
+            ),
+            reference,
+        )
+
+        changed_identity = dict(reference_identity)
+        changed_identity["sha256"] = "0" * 64
+        with self.assertRaisesRegex(
+            VALIDATOR.LoadOrderReceiptError,
+            "exact generated fixture",
+        ):
+            VALIDATOR._validate_vad_reference(
+                reference,
+                reference["profile"],
+                GENERATOR.SHERPA_AUDIO_SAMPLES,
+                model_identity=model_identity,
+                audio_identity=audio_identity,
+                reference_identity=changed_identity,
+                package_version=GENERATOR.SHERPA_PACKAGE_VERSION,
+                source_revision=GENERATOR.SHERPA_NATIVE_REVISION,
+            )
 
     def test_rejects_malformed_pubspec_lock_without_packages_root(self) -> None:
         self.pubspec_lock.write_text(
