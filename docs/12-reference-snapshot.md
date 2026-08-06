@@ -1,6 +1,6 @@
 # 12. Reference Snapshot and Upstream Sources
 
-Snapshot date: **2026-08-06**
+Snapshot date: **2026-08-07**
 
 This file records facts used to design the initial implementation. It is not a permanent compatibility guarantee. Before each release, re-check the current official sources and the exact artifacts selected by the application.
 
@@ -172,7 +172,17 @@ Observed from the sherpa-onnx `master` Android arm64 build script on the snapsho
 
 The sherpa CMake integration also supports preinstalled/external ORT paths and imports a shared `libonnxruntime.so` on Android.
 
-The semantic release `v1.13.4` (2026-07-07) states that sherpa-onnx updated ONNX Runtime to `1.27.0`. GitHub currently marks a later platform-package release named `xcframework` (2026-07-31) as `Latest`; its Apple SPM note sets ONNX Runtime to `1.27.1`. Consequently, the word "latest" must be resolved against the exact Android AAR/source revision or Apple package being consumed, not inferred from the repository's release badge alone.
+The semantic release `v1.13.4` (2026-07-07) states that sherpa-onnx updated ONNX Runtime to `1.27.0`. GitHub currently marks a later platform-package release named `xcframework` (2026-07-31) as `Latest`; its Apple SPM note sets ONNX Runtime to `1.27.1`. Consequently, the word "latest" must be resolved against the exact Android publication/source native inputs or Apple package being consumed, not inferred from the repository's release badge alone.
+
+The exact Kokage Flutter dependency graph inspected on 2026-08-07 selects the
+1.13.4 federated Android arm64-v8a and x86_64 packages. Unlike the source-build
+JNI layout above, each selected package exposes raw `jniLibs` containing
+`libonnxruntime.so`, `libsherpa-onnx-c-api.so`, and
+`libsherpa-onnx-cxx-api.so`. The observed shared-library dependency graph is C
+API to ORT and C++ API to both C API and ORT. All six selected 64-bit ELFs have
+16 KiB-compatible file-backed load segments. This is exact source-artifact
+inventory evidence only; it does not establish final Gradle selection or
+runtime coexistence.
 
 Official sources:
 
@@ -185,8 +195,24 @@ Official sources:
 Implementation consequence:
 
 - Default coexistence is sherpa-owned shared ORT plus a runtime-resolved Dart shim.
+- Treat source-built JNI and published Flutter FFI native layouts as separate
+  closed profiles; never infer one from the other.
 - Advanced/custom EP coexistence rebuilds sherpa against one aligned ORT.
-- CI records exact sherpa revision/AAR hash and per-ABI ORT hash.
+- CI records the exact sherpa revision, selected publication provenance,
+  native-input inventory identities, and per-ABI library hashes.
+- Current target evidence is a three-stage contract: raw Android load-order
+  receipt schema 2, validator-emitted record schema 1, then compatibility
+  manifest schema 2. The current validator accepts only an exact APK using the
+  sherpa-owned Flutter FFI C API/C++ API topology. A closed matching-AAB
+  coexistence gate is still to be implemented; current `sherpa-audit` output
+  is preliminary inventory until that gate exists and a delivered split is
+  installed and exercised. The offline validator
+  proves closed contract and hash consistency, not the origin of supplied
+  device/log evidence; trusted runner provenance is a separate target gate.
+- Android aligned/QNN device qualification and Windows target-host/package
+  qualification are deferred. Existing QNN schema/tamper/static checks and
+  Windows source/cross-build/secure-loader checks remain evidence only for
+  those layers.
 
 ## 12.9 Release-update checklist
 
@@ -196,7 +222,8 @@ Before changing any pinned runtime/provider/sherpa version:
 2. Read C header `ORT_API_VERSION` at the proposed runtime and compatibility-floor tags.
 3. Review security fixes and provider/platform breaking changes.
 4. Inspect selected ORT artifacts and dependency layout.
-5. Inspect current sherpa Android build scripts and exact application AAR.
+5. Inspect current sherpa Android build scripts and the exact selected
+   publication/source native inputs, including resolved raw `jniLibs` roots.
 6. Determine shared vs static sherpa ORT and per-ABI hashes.
 7. Review XNNPACK/CoreML/QNN/OpenVINO/CUDA/TensorRT/DirectML/MIGraphX/WebGPU/Vitis AI compatibility sources for affected flavors.
 8. Review current Dart/Flutter build-hook and minimum SDK requirements.

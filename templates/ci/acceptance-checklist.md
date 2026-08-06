@@ -52,17 +52,30 @@
 
 ## Android and sherpa-onnx
 
-- [ ] Exact sherpa artifact/revision and hashes are recorded.
+- [ ] Exact sherpa publication/source revision, native-input identities, and
+      hashes are recorded.
+- [ ] One closed `jni` or `flutter-ffi` native-library profile is selected for
+      every delivered ABI; missing, duplicate, and mixed consumers are rejected.
 - [ ] Shared vs static sherpa ORT was determined.
 - [ ] Wrapper external mode contains no `libonnxruntime.so`.
 - [ ] External shim has no `DT_NEEDED` on ORT.
 - [ ] No `pickFirst`/merge-order workaround exists.
 - [ ] Final APK/AAB has exactly one ORT per ABI.
-- [ ] Dart-first and sherpa-first tests pass.
+- [ ] Raw schema-2 Dart-first and sherpa-first receipts are independently
+      validated into schema-1 records that bind the exact final APK, harness,
+      fixtures, UID/PID claims, runtime, schema, verifier, and validator.
+- [ ] Trusted runner provenance authenticates installation, raw `adb`/package-
+      manager/logcat capture, and the exact installed APK; offline JSON/hash
+      consistency alone is not reported as target execution.
+- [ ] Every claimed ABI/build has four distinct records: both load orders on
+      4 KiB and 16 KiB environments; the closed matching-AAB static
+      coexistence gate is implemented and passes, and remains static-only until
+      a delivered split is installed and exercised.
 - [ ] Dart and sherpa workloads run alternately in one process.
 - [ ] Release/R8 build passes.
 - [ ] 16 KB page-size validation passes.
-- [ ] QNN/custom EP uses one aligned ORT.
+- [ ] If QNN/custom EP support is claimed, it uses one aligned ORT; target
+      qualification remains deferred until the required inputs exist.
 
 ## CI evidence
 

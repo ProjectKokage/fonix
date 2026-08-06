@@ -4,7 +4,7 @@
 
 Allow a Flutter/Dart application to use both:
 
-- sherpa-onnx through its Android JNI/native libraries; and
+- sherpa-onnx through its Android JNI or Flutter FFI native libraries; and
 - the Dart ONNX Runtime wrapper for independent models;
 
 without packaging ambiguity, ABI mismatch, duplicate ORT runtimes, or silent loss of execution-provider capability.
@@ -21,7 +21,18 @@ The sherpa-onnx `master` Android arm64 build script inspected on 2026-08-06:
 
 The semantic sherpa-onnx release `v1.13.4` (2026-07-07) records the update to ORT `1.27.0`. GitHub's later `xcframework` platform-package release (2026-07-31), currently marked `Latest`, references ORT `1.27.1` for Apple SPM. These observations show why the integration must inspect the selected Android artifact/source revision instead of assuming one repository-wide ORT version from a release badge.
 
-Do not bake these numbers permanently into application logic. Record the exact sherpa revision/AAR and inspect it in CI.
+Do not bake these numbers permanently into application logic. Record the exact
+sherpa revision and selected publication/source artifact, then inspect its
+native bytes in CI.
+
+The exact Kokage dependency selection inspected on 2026-08-07 uses the
+federated `sherpa_onnx` 1.13.4 Flutter packages rather than the source-build JNI
+layout above. Its arm64-v8a and x86_64 package directories contribute raw
+`jniLibs`: `libonnxruntime.so`, `libsherpa-onnx-c-api.so`, and
+`libsherpa-onnx-cxx-api.so`. The C API depends on ORT; the C++ API depends on
+both the C API and ORT. The compatibility tooling therefore treats `jni` and
+`flutter-ffi` as separate closed library profiles. A source-tree default does
+not override the inspected publication selected by the application lockfile.
 
 ## 7.3 Why duplicate packaging is unsafe
 
@@ -51,8 +62,9 @@ Use when the selected sherpa artifact packages a shared `libonnxruntime.so` comp
 Packaging:
 
 ```text
-sherpa AAR/application:
-  lib/<abi>/libsherpa-onnx-jni.so
+sherpa Flutter FFI package/application:
+  lib/<abi>/libsherpa-onnx-c-api.so
+  lib/<abi>/libsherpa-onnx-cxx-api.so
   lib/<abi>/libonnxruntime.so
 
 Dart wrapper external flavor:
@@ -63,13 +75,23 @@ Dart wrapper external flavor:
 Link graph:
 
 ```text
-libsherpa-onnx-jni.so --DT_NEEDED--> libonnxruntime.so
+libsherpa-onnx-c-api.so --DT_NEEDED--> libonnxruntime.so
+libsherpa-onnx-cxx-api.so --DT_NEEDED--> libsherpa-onnx-c-api.so
+libsherpa-onnx-cxx-api.so --DT_NEEDED--> libonnxruntime.so
 libfonix_shim.so --dlopen/dlsym--> libonnxruntime.so
 ```
 
+The legacy/source-built `jni` profile instead contains exactly
+`libsherpa-onnx-jni.so`, which must depend on `libonnxruntime.so`. The two
+profiles must never be mixed for one ABI or across the ABIs of one
+compatibility record.
+
 The shim must not have `DT_NEEDED` on ORT. It resolves `OrtGetApiBase`, obtains the version string, requests API 27 (in this snapshot), and retains the loader handle.
 
-This mode lets either component load first. If the wrapper opens ORT first, sherpa's `DT_NEEDED` should bind to the same SONAME object when JNI loads. If sherpa loads first, the shim resolves the already loaded/package-visible object. Both orders are mandatory tests.
+This mode lets either component load first. If the wrapper opens ORT first,
+sherpa's `DT_NEEDED` must bind to the same SONAME object when its selected
+native consumer loads. If sherpa loads first, the shim resolves the already
+loaded/package-visible object. Both orders are mandatory tests.
 
 ### Mode B: application-owned aligned runtime (advanced/preferred for custom EPs)
 
@@ -86,7 +108,9 @@ Process:
 1. Pin and build one ORT source revision for every Android ABI with the desired EPs/options.
 2. Build sherpa-onnx from the selected revision using that ORT's exact include and library directories.
 3. Build the Dart shim against the compatibility-floor headers or exact aligned headers as specified by the shim ABI.
-4. Package one `libonnxruntime.so`, the sherpa JNI library, the Dart shim, and matching provider dependencies.
+4. Package one `libonnxruntime.so`, the selected sherpa native consumer set,
+   the Dart shim, and matching provider dependencies. The current aligned-build
+   driver produces the source-build JNI consumer.
 5. Verify ELF dependencies, versions, hashes, provider registration, and both load orders.
 
 The sherpa build script's external ORT variables are the intended integration
@@ -227,9 +251,10 @@ The wrapper cannot rely on Maven/Gradle metadata to know the actual native libra
 
 The base shim uses C API 27 in this snapshot because the observed sherpa Android runtime is 1.27.x. A standalone ORT 1.28 artifact may still be used while the base shim remains on API 27. Features requiring API 28 must be separately gated; never index beyond the negotiated function table.
 
-## 7.7 AAR and final-artifact inspection
+## 7.7 Native-input and final-artifact inspection
 
-Inspect every selected AAR and the final APK/AAB.
+Inspect every selected publication/source native input—AAR, ZIP, or exact raw
+`jniLibs` directory—and the final APK/AAB.
 
 ### Inventory
 
@@ -250,7 +275,14 @@ Use [`../templates/android/verify_native_libs.py`](../templates/android/verify_n
 The Python verifier has three explicit policy modes:
 
 - `generic` inventories valid loadable paths, hashes, ELF identity, PT_LOAD layout, SONAME, and `DT_NEEDED` without inventing dependency expectations for an unknown producer;
-- `sherpa-audit` additionally requires an observed Fonix external shim to have its own SONAME and no ORT `DT_NEEDED`, while an observed shared sherpa JNI library must depend on `libonnxruntime.so`; and
+- `sherpa-audit` additionally requires an observed Fonix external shim to have
+  its own SONAME and no ORT `DT_NEEDED`. It validates every observed JNI, C API,
+  and C++ API sherpa consumer. With
+  `--sherpa-library-profile jni|flutter-ffi`, it requires the exact selected
+  profile across the aggregate input set and rejects missing, duplicate, or
+  mixed consumers. Because it validates a shim only when one is present and
+  does not bind source bytes to final bytes, this policy remains an input and
+  preliminary inventory gate even when pointed at an APK/AAB; and
 - `fonix-standalone-final` accepts only a final APK/AAB, requires exactly one ORT and Fonix shim per included/required ABI, enforces their closed SONAME and Android-system dependency sets, validates every counted library's SONAME and resolvable non-system dependencies, and rejects unexpected ORT dependencies or ambiguous `libc++_shared.so` ownership.
 
 For the current standalone contract, `libonnxruntime.so` must depend on exactly `libandroid.so`, `libc.so`, `libdl.so`, `liblog.so`, and `libm.so`; `libfonix_shim.so` must depend on exactly `libc.so` and `libdl.so`. This is an artifact policy keyed to the selected builds, not a permanent Android-wide assumption.
@@ -264,6 +296,26 @@ python3 templates/android/verify_native_libs.py \
   --require-16k-page-alignment \
   --require-abi arm64-v8a
 ```
+
+For the selected Flutter FFI publication, audit each exact `jniLibs` root (the
+directory whose direct children are ABI directories) together with the
+external Fonix native input:
+
+```bash
+python3 templates/android/verify_native_libs.py \
+  --artifact /absolute/path/sherpa-arm64/android/src/main/jniLibs \
+  --artifact /absolute/path/fonix-external-native-input \
+  --policy sherpa-audit \
+  --sherpa-library-profile flutter-ffi \
+  --require-16k-page-alignment \
+  --require-abi arm64-v8a \
+  --reject-multiple-ort-owners \
+  --reject-multiple-libcxx-owners
+```
+
+An explicit profile is mandatory for claim evidence. The default `auto` mode
+is an inventory convenience and does not turn an input with no recognized
+sherpa consumer into coexistence evidence.
 
 Add `--require-abi x86_64` only when x86_64 is deliberately delivered in that
 same final artifact; the committed standalone reference package is arm64-only.
@@ -279,7 +331,7 @@ exact CPU parity, explicit fallback reporting and rejection, post-rejection
 recovery, and deterministic cleanup. The XNNPACK result is a bounded functional
 checkpoint, not physical-device, performance, thermal, or provider-
 qualification evidence. Neither profile is sherpa coexistence evidence: no
-exact sherpa AAR was supplied, neither Dart-first nor sherpa-first was
+exact sherpa publication was integrated, neither Dart-first nor sherpa-first was
 exercised, no alternating speech workload ran, and no 16 KiB runtime was
 tested.
 
@@ -291,7 +343,9 @@ When auditing multiple wrapper/sherpa/provider inputs, also pass `--reject-multi
 - The wrapper input artifact owns none.
 - The final package has exactly one ORT path per ABI.
 - The shim has no `DT_NEEDED: libonnxruntime.so`.
-- sherpa JNI's ORT dependency resolves in the final package.
+- The selected sherpa profile is closed: either one JNI consumer or the C API
+  plus C++ API pair. Every required ORT/C-API dependency resolves in the final
+  package.
 - All included ABIs have the same logical runtime version/flavor.
 - Provider companion libraries match that runtime.
 - No accidental second Java ORT dependency contributes another native runtime.
@@ -299,7 +353,7 @@ When auditing multiple wrapper/sherpa/provider inputs, also pass `--reject-multi
 ### Required assertions for aligned mode
 
 - The ORT hash equals the aligned build output recorded in the lockfile.
-- sherpa JNI links to the aligned SONAME.
+- Every selected sherpa native consumer links to the aligned SONAME graph.
 - shim linked/process mode matches the plan.
 - QNN/provider libraries are the exact recorded versions.
 - No default sherpa-downloaded ORT remains in an intermediate/final artifact.
@@ -360,6 +414,11 @@ The wrapper can only use EPs compiled into/available to the shared runtime. In s
 
 For QNN, aligned mode is strongly preferred because the ORT/QNN SDK/backend tuple and provider libraries must match. Building a second QNN-enabled ORT for the wrapper is not acceptable.
 
+Android aligned/QNN device qualification is currently deferred until an exact
+SDK, licensed backend, device, firmware, and redistribution decision are
+available. The aligned-build and QNN receipt schemas, static linkage gates, and
+tamper tests remain active contracts; passing them alone creates no QNN claim.
+
 ### QNN qualification receipt gate
 
 An aligned build does not establish that QNN accepted the graph. A QNN claim
@@ -413,102 +472,179 @@ substitute.
 
 ## 7.11 Compatibility manifest
 
-For each tested sherpa integration, store a record such as:
+Compatibility evidence has three distinct, versioned layers:
 
-```yaml
-sherpa_onnx:
-  source: k2-fsa/sherpa-onnx
-  revision: <commit-or-release>
-  artifact_sha256: <sha256>
-  android:
-    abis: [arm64-v8a, x86_64]
-    ort_owner: sherpa
-    ort_version_observed: 1.27.0
-    ort_api_required: 27
-    ort_sha256_by_abi:
-      arm64-v8a: <sha256>
-      x86_64: <sha256>
-    load_orders_tested: [dart-first, sherpa-first]
+1. The target harness emits a closed raw receipt conforming to
+   [`load_order_receipt.schema.json`](../templates/android/load_order_receipt.schema.json)
+   schema 2 for one exact APK, ABI, build type, load order, page-size
+   environment, process, device, fixture set, workload, and lifecycle run.
+2. [`validate_android_load_order_receipt.py`](../tool/ci/validate_android_load_order_receipt.py)
+   independently rehashes and checks that raw evidence, then emits one closed,
+   path-free validation record at schema 1. A raw receipt is not an input to the
+   compatibility generator.
+3. [`android_compatibility_manifest.py`](../tool/ci/android_compatibility_manifest.py)
+   consumes only current-validator schema-1 records and emits the final Android
+   compatibility record at schema 2.
+
+Do not publish placeholder hashes or hand-author a validation record. The
+compatibility generator independently revalidates the closed record contract
+and requires identities for the current receipt schema, native verifier, and
+validator. Those public hashes identify the toolchain; they are not a
+signature and do not prove which process emitted a record.
+
+This is an offline consistency gate, not a device-attestation system. Supplied
+target and logcat JSON can be fabricated by an untrusted caller even when all
+hashes agree. A target compatibility claim therefore also requires trusted
+runner provenance for installation, `adb`/package-manager capture, the raw
+logs, and the exact installed APK. Until that capture path exists and is run,
+validator and compatibility-generator output is contract/tooling evidence
+only. Both emitted layers carry `claimStatus: offline-consistency-only`, and
+the validator record carries `targetEvidenceProvenance: unverified`. A future
+trusted capture path must use a new closed status/schema rather than rewriting
+either value in place.
+
+### Raw target workload and lifecycle gate
+
+The raw schema-2 receipt is intentionally stronger than two successful smoke
+calls. It must prove all of the following:
+
+- initialization events match the declared load order and the first native
+  owner remains alive when the second becomes ready;
+- 2--64 complete cycles strictly alternate Fonix then sherpa; every Fonix
+  float32-le output equals the separately hashed reference bytes, while every
+  sherpa step runs the closed single-thread 16 kHz/512-sample Silero VAD
+  profile, submits exactly the padded audio, produces ordered non-overlapping
+  segments within the separately hashed reference bounds, and drains its
+  queue;
+- Fonix cancellation is one accepted active native termination, settles once,
+  publishes no output, and leaves no outstanding run before recovery;
+- sherpa cancellation is honestly limited to a request between bounded VAD
+  frames: no frame, flush, or segment is accepted/published afterward, and the
+  detector is retired before recovery. It is not evidence of cancellation in
+  the middle of a native sherpa call;
+- one induced late Fonix completion is observed and suppressed under a newer
+  authoritative generation, after which both Fonix inference and sherpa VAD
+  recover against their references; and
+- both `fonix-then-sherpa` and `sherpa-then-fonix` disposal orders pass,
+  including double close/free, exact created/closed counts, zero pending runs
+  and queued segments, and removal of every temporary profile root.
+
+The validator checks bindings for a tuple-unique launch challenge and one
+UID/PID across package-manager, target, and logcat evidence; the exact harness
+contract and `pubspec.lock`; the release-mapped full sherpa source revision and
+exact hosted provenance of the ABI-specific federated package; every Fonix and sherpa
+model/input/reference fixture; and the final APK's exact ORT, external shim, C
+API, and C++ API ELF graph. It does not independently observe those UID/PID or
+device claims, or authenticate when the challenge was issued.
+
+Run the validator once for each matrix tuple. The paths represented by
+`<tuple>` must refer to evidence from that one launch:
+
+```bash
+python3 tool/ci/validate_android_load_order_receipt.py \
+  --receipt /absolute/path/raw-<tuple>.json \
+  --target-evidence /absolute/path/target-<tuple>.json \
+  --logcat-evidence /absolute/path/logcat-<tuple>.json \
+  --launch-challenge /absolute/path/challenge-<tuple>.bin \
+  --final-apk /absolute/path/app-release.apk \
+  --harness-contract /absolute/path/harness-contract.json \
+  --pubspec-lock /absolute/path/pubspec.lock \
+  --fonix-model /absolute/path/fonix-model.onnx \
+  --fonix-input /absolute/path/fonix-input.bin \
+  --fonix-reference-output /absolute/path/fonix-output.bin \
+  --fonix-cancellation-model /absolute/path/fonix-cancel.onnx \
+  --fonix-cancellation-input /absolute/path/fonix-cancel-input.bin \
+  --sherpa-model /absolute/path/silero-vad.onnx \
+  --sherpa-audio /absolute/path/vad-input.wav \
+  --sherpa-reference /absolute/path/vad-reference.json \
+  --sherpa-revision <full-40-character-commit> \
+  --output /absolute/path/validated-<tuple>.json
 ```
 
-Do not publish placeholder hashes. The manifest belongs to CI evidence and should be regenerated when sherpa changes.
+The current validator deliberately accepts only a regular APK using
+sherpa-owned/process runtime resolution and the `flutter-ffi` C API/C++ API
+topology. It does not validate an AAB, a legacy JNI runtime composition, an
+aligned runtime, QNN, ASR, or TTS. Phase 7 still needs a closed static AAB
+coexistence gate that requires the shim, ORT, selected FFI consumers, complete
+dependency graph, and source-to-final byte bindings. The current
+`sherpa-audit` policy alone is not that gate. No AAB runtime claim exists until
+its delivered split is installed and exercised.
 
-The repository-owned generator is
-[`../tool/ci/android_compatibility_manifest.py`](../tool/ci/android_compatibility_manifest.py).
-It accepts only exact regular AAR/APK/AAB inputs, a full sherpa commit SHA, and
-target-host receipts. It independently inventories the input and final ELF
-graphs, rejects wrapper-owned ORT in external mode, requires one ORT, sherpa
-JNI library, and Fonix shim per declared ABI, and compares every final
-file-backed `PT_LOAD` segment with its selected source. Whole-file hash changes
-caused by removal of non-loaded debug data are recorded, but changes to loaded
-bytes fail closed.
+### Static-to-final binding and matrix aggregation
 
-Generate one compatibility record per final build artifact. A release-minified
-record can be produced along these lines after the application test harness has
-emitted its receipts:
+The schema-2 compatibility generator accepts repeatable source
+AAR/APK/AAB/ZIP inputs or exact extracted native-library directories, plus a
+full sherpa commit SHA. A directory input must be the `jniLibs` root or another
+root whose direct children are ABI directories; a whole pub-cache package
+directory is not a native input. Its path-free identity is a domain-separated
+hash of the closed loadable-library inventory. Package archive/content hashes
+and the consuming `pubspec.lock` remain separate provenance.
+
+The generator independently inventories every source input and the final
+artifact, rejects duplicate logical owners, wrapper-owned ORT in external mode,
+profile mixing, unexplained final native libraries, and unresolved
+dependencies. Every selected source library, including provider companions and
+`libc++_shared.so`, is tied to final architecture, SONAME, dependencies, and
+file-backed `PT_LOAD` bytes. Only Flutter's exact `libapp.so` and
+`libflutter.so` may lack a named source input, and only `libapp.so` may omit
+`DT_SONAME`.
+
+For the current arm64-v8a Release slice, provide exactly four independently
+validated records—both load orders on both page sizes—to one APK compatibility
+record:
 
 ```bash
 python3 tool/ci/android_compatibility_manifest.py \
   --mode sherpa-owned \
   --sherpa-source https://github.com/k2-fsa/sherpa-onnx \
   --sherpa-revision <full-40-character-commit> \
-  --sherpa-artifact /absolute/path/sherpa.aar \
-  --wrapper-artifact /absolute/path/fonix-external.aar \
+  --sherpa-library-profile flutter-ffi \
+  --sherpa-artifact /absolute/path/sherpa-arm64/android/src/main/jniLibs \
+  --wrapper-artifact /absolute/path/fonix-external-native-input \
   --final-artifact /absolute/path/app-release.apk \
   --abi arm64-v8a \
-  --abi x86_64 \
   --ort-version-observed <exact-semver> \
   --ort-api-required 27 \
   --build-type release-minified \
   --snapshot-date YYYY-MM-DD \
-  --load-order-receipt /absolute/path/receipt-1.json \
-  --load-order-receipt /absolute/path/receipt-2.json \
-  --output /absolute/path/compatibility.json
+  --load-order-validation-record /absolute/path/validated-dart-first-4k.json \
+  --load-order-validation-record /absolute/path/validated-sherpa-first-4k.json \
+  --load-order-validation-record /absolute/path/validated-dart-first-16k.json \
+  --load-order-validation-record /absolute/path/validated-sherpa-first-16k.json \
+  --output /absolute/path/compatibility-arm64-release.json
 ```
 
-For application-owned aligned mode, pass `--mode aligned` and add
-`--runtime-artifact /absolute/path/application-runtime.aar`. The sherpa input
-must contain `libsherpa-onnx-jni.so` but no `libonnxruntime.so`; the separate
-runtime artifact must be the sole source owner. The wrapper input likewise
-contains only the Fonix shim. The generator rejects a default sherpa ORT left
-in an aligned input and ties the application-owned runtime's loaded segments to
-the single final ORT.
+Every record must bind the same APK, application, harness, lockfile, sherpa
+identity, fixtures, and runtime. Each launch challenge, target evidence,
+logcat evidence, validation-record hash, and matrix tuple must be distinct.
+Generate a separate four-record matrix for `debug` and another complete matrix
+for each additional ABI. Cross-pairing two records or copying static package
+metadata cannot satisfy the gate.
 
-Only a record emitted by the QNN qualification gate may be attached with
-`--qnn-qualification-record /absolute/path/qnn-qualification.json`, and only in
-aligned mode. The generator binds its APK/build type, ABI, ORT hash/version/API,
-zero-CPU assignment, and both load orders to the compatibility record. Without
-that option, `android.qnnQualification` is `null`; aligned mode alone never
-creates a QNN claim.
-
-Receipts use the closed
-[`load_order_receipt.schema.json`](../templates/android/load_order_receipt.schema.json)
-schema version 1 and bind the final artifact hash, ABI, ORT hash and observed
-version, required API, load order, build type, page size, bounded device
-identity, test-harness hash, fixture hashes, and workload counts. For every
-declared ABI, the generator requires the full Cartesian matrix of Dart-first
-and sherpa-first at both 4 KiB and 16 KiB runtime environments; two
-cross-paired receipts cannot satisfy the gate. Generate a
-separate record for `debug`; a receipt for another build cannot satisfy the
-selected final artifact. This gate deliberately cannot manufacture the missing
-device evidence from static package metadata.
+The generator retains contract-tested `aligned`/legacy-JNI parsing and the
+separate schema-1 QNN qualification attachment, but the current load-order
+validator cannot emit target records for those modes. Android aligned/QNN
+target qualification is deferred. Synthetic/tamper tests and static aligned
+build receipts must stay green, yet they do not support a compatibility or QNN
+claim.
 
 ## 7.12 Test matrix
 
-Minimum coexistence matrix:
+Target coexistence matrix. Complete one ABI/build artifact at a time; the
+first development slice is arm64-v8a Release:
 
 | Dimension | Cases |
 |---|---|
-| Build type | debug, release/minified |
-| ABI | arm64-v8a, x86_64 |
+| Build type | release/minified first; a separate complete debug matrix |
+| ABI | arm64-v8a first; x86_64 only after its own complete matrix |
 | Load order | Dart first, sherpa first |
-| Runtime mode | sherpa-owned shared, aligned custom |
+| Runtime mode | sherpa-owned Flutter FFI shared runtime; aligned custom deferred |
 | ORT compatibility | supported API, intentionally unsupported API |
-| Provider | CPU/XNNPACK baseline; QNN aligned where qualified |
-| Packaging | APK and AAB/split install |
+| Provider | sherpa-owned CPU baseline; QNN aligned qualification deferred |
+| Packaging | exact APK static audit and runtime validation; closed matching-AAB static gate still to implement; delivered-split runtime later |
 | Page size | 4 KB and 16 KB environment |
-| Workload | Dart model run, sherpa ASR/TTS smoke, alternating/repeated runs |
-| Lifecycle | sessions disposed in multiple orders; app activity restart/background cycle |
+| Workload | 2--64 strict Fonix-reference/Silero-VAD cycles, starting with Fonix |
+| Lifecycle | native Fonix cancellation settlement, between-frame VAD cancellation, stale suppression, recovery, both disposal orders, double disposal, zero pending work |
 
 Stress tests should repeatedly create/dispose sessions and alternate sherpa/Dart inference to expose global state, thread, and allocator defects.
 

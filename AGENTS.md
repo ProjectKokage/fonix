@@ -40,8 +40,15 @@ Do not begin with all EPs at once. Work in the following order and keep every st
 6. XNNPACK and CoreML mobile paths, with explicit provider diagnostics.
 7. Android sherpa-owned process mode and final-artifact verification.
 8. Desktop GPU/provider flavors.
-9. Aligned Android custom-build mode and QNN qualification.
+9. Aligned Android custom-build mode and QNN qualification when the exact SDK,
+   hardware, firmware, license, and redistribution inputs exist.
 10. Remaining composite types, I/O binding, custom ops, reduced-operator builds, and release automation.
+
+The current development sequence defers item 9 and all Windows target-host,
+final-application, installer, and clean-machine qualification until their
+required environments exist. Existing Android QNN contract/tamper checks and
+Windows source, cross-build, and loader-security checks remain mandatory and
+must not be promoted into runtime support claims.
 
 ## Change protocol
 
@@ -81,15 +88,26 @@ Do not include model contents, input tensors, paths containing private user data
 
 Before declaring Android compatibility:
 
-1. Inspect the exact sherpa-onnx AAR or locally built artifact selected by the application.
+1. Inspect the exact sherpa-onnx publication/source native inputs selected by
+   the application, including raw federated-package `jniLibs` directories when
+   that is the resolved Flutter layout.
 2. Determine whether it contains shared `libonnxruntime.so` or statically embeds ORT.
 3. Record the per-ABI ORT hashes and ELF metadata.
 4. In `process` mode, prove that the wrapper artifact does not contain `libonnxruntime.so` and that its shim has no `DT_NEEDED` entry for it.
-5. Build the final APK/AAB and prove one ORT shared object per ABI.
-6. Run the same inference after loading Dart first and sherpa first.
+5. Build and statically audit the final APK and AAB, proving one ORT shared
+   object per ABI. Runtime evidence must bind the exact installed APK; an AAB
+   audit is separate until its delivered split is installed and exercised.
+6. Validate separate target receipts after loading Fonix first and sherpa
+   first on both 4 KiB and 16 KiB environments for every claimed ABI/build.
 7. Check `GetVersionString()` and `GetApi(required_version)` at runtime.
-8. Run a sherpa smoke test and a Dart ORT smoke test in the same process.
-9. Repeat for release/R8 and debug builds and on a 16 KB page-size test environment.
+8. Run the closed alternating Fonix inference and sherpa Silero VAD workload in
+   the same process, including native cancellation settlement, between-frame
+   VAD cancellation, stale-result suppression, recovery, both disposal orders,
+   double disposal, and zero pending work.
+9. Pass each raw schema-2 target receipt through the repository validator and
+   give only its schema-1 validation record to the schema-2 compatibility
+   manifest generator. Repeat the full matrix separately for release/R8 and
+   debug builds.
 
 If sherpa statically embeds ORT, the supported resolution is an aligned custom sherpa build that uses a shared external ORT. A dual-runtime exception requires an explicit ADR, separate library identity, memory/performance measurement, load-order testing, and clear unsupported-provider boundaries.
 

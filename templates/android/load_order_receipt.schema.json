@@ -1,82 +1,541 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://fonix.invalid/schemas/android-load-order-receipt-v1.json",
-  "title": "Fonix Android load-order evidence receipt",
+  "$id": "https://fonix.invalid/schemas/android-load-order-receipt-v2.json",
+  "title": "Fonix Android sherpa coexistence load-order receipt",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion",
     "result",
-    "abi",
-    "loadOrder",
-    "buildType",
-    "finalArtifactSha256",
-    "runtimeVersion",
-    "requiredOrtApi",
-    "ortSha256",
-    "pageSizeBytes",
+    "matrix",
+    "build",
     "device",
-    "harnessSha256",
+    "process",
+    "runtime",
+    "sherpa",
     "fixtures",
-    "workload"
+    "initialization",
+    "workload",
+    "lifecycle"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "type": "integer", "const": 2 },
     "result": { "const": "passed" },
-    "abi": {
-      "enum": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
-    },
-    "loadOrder": { "enum": ["dart-first", "sherpa-first"] },
-    "buildType": { "enum": ["debug", "release-minified"] },
-    "finalArtifactSha256": { "$ref": "#/$defs/sha256" },
-    "runtimeVersion": {
+    "matrix": { "$ref": "#/$defs/matrix" },
+    "build": { "$ref": "#/$defs/build" },
+    "device": { "$ref": "#/$defs/device" },
+    "process": { "$ref": "#/$defs/process" },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "sherpa": { "$ref": "#/$defs/sherpa" },
+    "fixtures": { "$ref": "#/$defs/fixtures" },
+    "initialization": { "$ref": "#/$defs/initialization" },
+    "workload": { "$ref": "#/$defs/workload" },
+    "lifecycle": { "$ref": "#/$defs/lifecycle" }
+  },
+  "$defs": {
+    "sha256": {
       "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "semanticVersion": {
+      "type": "string",
+      "maxLength": 64,
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
     },
-    "requiredOrtApi": { "const": 27 },
-    "ortSha256": { "$ref": "#/$defs/sha256" },
-    "pageSizeBytes": { "enum": [4096, 16384] },
+    "base64Bytes": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 22369624,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "boundedCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "positiveCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["abi", "loadOrder", "buildType", "pageSizeBytes"],
+      "properties": {
+        "abi": {
+          "enum": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+        },
+        "loadOrder": { "enum": ["dart-first", "sherpa-first"] },
+        "buildType": { "enum": ["debug", "release-minified"] },
+        "pageSizeBytes": { "type": "integer", "enum": [4096, 16384] }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationId",
+        "finalApkSha256",
+        "harnessContractSha256",
+        "pubspecLockSha256",
+        "targetEvidenceSha256",
+        "logcatEvidenceSha256"
+      ],
+      "properties": {
+        "applicationId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 255,
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+$"
+        },
+        "finalApkSha256": { "$ref": "#/$defs/sha256" },
+        "harnessContractSha256": { "$ref": "#/$defs/sha256" },
+        "pubspecLockSha256": { "$ref": "#/$defs/sha256" },
+        "targetEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "logcatEvidenceSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "device": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "modelToken", "androidApi"],
+      "required": ["kind", "modelToken", "androidApi", "fingerprintSha256"],
       "properties": {
         "kind": { "enum": ["physical", "emulator"] },
         "modelToken": { "$ref": "#/$defs/token" },
-        "androidApi": { "type": "integer", "minimum": 24, "maximum": 100 }
+        "androidApi": {
+          "type": "integer",
+          "minimum": 24,
+          "maximum": 100
+        },
+        "fingerprintSha256": { "$ref": "#/$defs/sha256" }
       }
     },
-    "harnessSha256": { "$ref": "#/$defs/sha256" },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["launchChallengeSha256", "uid", "pid"],
+      "properties": {
+        "launchChallengeSha256": { "$ref": "#/$defs/sha256" },
+        "uid": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["packageManager", "logcatFilter", "receiptLine"],
+          "properties": {
+            "packageManager": { "$ref": "#/$defs/androidUid" },
+            "logcatFilter": { "$ref": "#/$defs/androidUid" },
+            "receiptLine": { "$ref": "#/$defs/androidUid" }
+          }
+        },
+        "pid": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "beforeLaunch",
+            "observedAfterLaunch",
+            "logcatFilter",
+            "receiptLine",
+            "afterReceipt",
+            "afterForceStop"
+          ],
+          "properties": {
+            "beforeLaunch": { "type": "null" },
+            "observedAfterLaunch": { "$ref": "#/$defs/androidPid" },
+            "logcatFilter": { "$ref": "#/$defs/androidPid" },
+            "receiptLine": { "$ref": "#/$defs/androidPid" },
+            "afterReceipt": { "$ref": "#/$defs/androidPid" },
+            "afterForceStop": { "type": "null" }
+          }
+        }
+      }
+    },
+    "androidUid": {
+      "type": "integer",
+      "minimum": 10000,
+      "maximum": 2147483647
+    },
+    "androidPid": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtimeOwner",
+        "runtimeSource",
+        "ortVersion",
+        "requiredOrtApi",
+        "negotiatedOrtApi",
+        "ortSha256",
+        "shimAbi",
+        "shimBuildId"
+      ],
+      "properties": {
+        "runtimeOwner": { "const": "sherpa" },
+        "runtimeSource": { "const": "process" },
+        "ortVersion": { "$ref": "#/$defs/semanticVersion" },
+        "requiredOrtApi": { "type": "integer", "const": 27 },
+        "negotiatedOrtApi": { "type": "integer", "const": 27 },
+        "ortSha256": { "$ref": "#/$defs/sha256" },
+        "shimAbi": { "type": "integer", "const": 1 },
+        "shimBuildId": { "const": "android-owner-sherpa-source-process" }
+      }
+    },
+    "sherpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packageVersion",
+        "nativeVersion",
+        "sourceRevision",
+        "nativeRevision",
+        "profile"
+      ],
+      "properties": {
+        "packageVersion": { "$ref": "#/$defs/semanticVersion" },
+        "nativeVersion": { "$ref": "#/$defs/semanticVersion" },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "nativeRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "profile": { "$ref": "#/$defs/sherpaProfile" }
+      }
+    },
+    "sherpaProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "provider",
+        "sampleRateHz",
+        "windowSamples",
+        "numThreads",
+        "thresholdMillionths",
+        "minimumSpeechMilliseconds",
+        "minimumSilenceMilliseconds",
+        "maximumSpeechMilliseconds",
+        "bufferMilliseconds"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "provider": { "const": "cpu" },
+        "sampleRateHz": { "type": "integer", "const": 16000 },
+        "windowSamples": { "type": "integer", "const": 512 },
+        "numThreads": { "type": "integer", "const": 1 },
+        "thresholdMillionths": { "type": "integer", "const": 500000 },
+        "minimumSpeechMilliseconds": { "type": "integer", "const": 250 },
+        "minimumSilenceMilliseconds": { "type": "integer", "const": 800 },
+        "maximumSpeechMilliseconds": { "type": "integer", "const": 30000 },
+        "bufferMilliseconds": { "type": "integer", "const": 60000 }
+      }
+    },
     "fixtures": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["dartModelSha256", "sherpaFixtureSha256"],
+      "required": [
+        "fonixModelSha256",
+        "fonixInputSha256",
+        "fonixReferenceOutputSha256",
+        "fonixCancellationModelSha256",
+        "fonixCancellationInputSha256",
+        "sherpaModelSha256",
+        "sherpaAudioSha256",
+        "sherpaReferenceSha256"
+      ],
       "properties": {
-        "dartModelSha256": { "$ref": "#/$defs/sha256" },
-        "sherpaFixtureSha256": { "$ref": "#/$defs/sha256" }
+        "fonixModelSha256": { "$ref": "#/$defs/sha256" },
+        "fonixInputSha256": { "$ref": "#/$defs/sha256" },
+        "fonixReferenceOutputSha256": { "$ref": "#/$defs/sha256" },
+        "fonixCancellationModelSha256": { "$ref": "#/$defs/sha256" },
+        "fonixCancellationInputSha256": { "$ref": "#/$defs/sha256" },
+        "sherpaModelSha256": { "$ref": "#/$defs/sha256" },
+        "sherpaAudioSha256": { "$ref": "#/$defs/sha256" },
+        "sherpaReferenceSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "initialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "firstOwnerAliveWhenSecondReady"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["fonix-session-ready", "sherpa-vad-ready"]
+          }
+        },
+        "firstOwnerAliveWhenSecondReady": { "const": true }
       }
     },
     "workload": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["requestedCycles", "completedCycles", "steps"],
+      "properties": {
+        "requestedCycles": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 64
+        },
+        "completedCycles": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 64
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 128,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/fonixStep" },
+              { "$ref": "#/$defs/sherpaStep" }
+            ]
+          }
+        }
+      }
+    },
+    "fonixStep": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
-        "dartInferenceRuns",
-        "sherpaSmokeRuns",
-        "alternatingCycles"
+        "ordinal",
+        "engine",
+        "outputEncoding",
+        "outputBytesBase64",
+        "outputSha256"
       ],
       "properties": {
-        "dartInferenceRuns": { "$ref": "#/$defs/runCount" },
-        "sherpaSmokeRuns": { "$ref": "#/$defs/runCount" },
-        "alternatingCycles": { "$ref": "#/$defs/runCount" }
+        "ordinal": { "$ref": "#/$defs/ordinal" },
+        "engine": { "const": "fonix" },
+        "outputEncoding": { "const": "float32-le" },
+        "outputBytesBase64": { "$ref": "#/$defs/base64Bytes" },
+        "outputSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sherpaStep": {
+      "allOf": [
+        { "$ref": "#/$defs/sherpaObservation" },
+        {
+          "type": "object",
+          "required": ["ordinal", "engine"],
+          "properties": {
+            "ordinal": { "$ref": "#/$defs/ordinal" },
+            "engine": { "const": "sherpa" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ordinal": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 128
+    },
+    "sherpaObservation": {
+      "type": "object",
+      "required": [
+        "sourceSamples",
+        "submittedSamples",
+        "segments",
+        "queueEmptyAfterDrain",
+        "detectedAfterDrain"
+      ],
+      "properties": {
+        "sourceSamples": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 57600000
+        },
+        "submittedSamples": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 57600511
+        },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/vadSegment" }
+        },
+        "queueEmptyAfterDrain": { "const": true },
+        "detectedAfterDrain": { "const": false }
+      }
+    },
+    "vadSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startSample", "sampleCount"],
+      "properties": {
+        "startSample": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 57599999
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 57600000
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fonixCancellation",
+        "sherpaCancellation",
+        "staleCompletion",
+        "recovery",
+        "disposal"
+      ],
+      "properties": {
+        "fonixCancellation": { "$ref": "#/$defs/fonixCancellation" },
+        "sherpaCancellation": { "$ref": "#/$defs/sherpaCancellation" },
+        "staleCompletion": { "$ref": "#/$defs/staleCompletion" },
+        "recovery": { "$ref": "#/$defs/recovery" },
+        "disposal": { "$ref": "#/$defs/disposal" }
+      }
+    },
+    "fonixCancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "requestCount",
+        "nativeRequestAcceptedCount",
+        "settlementCount",
+        "cancelledResultCount",
+        "publishedOutputCount",
+        "outstandingRunsAfterSettlement",
+        "settledBeforeRecovery"
+      ],
+      "properties": {
+        "mode": { "const": "active-native-termination" },
+        "requestCount": { "type": "integer", "const": 1 },
+        "nativeRequestAcceptedCount": { "type": "integer", "const": 1 },
+        "settlementCount": { "type": "integer", "const": 1 },
+        "cancelledResultCount": { "type": "integer", "const": 1 },
+        "publishedOutputCount": { "type": "integer", "const": 0 },
+        "outstandingRunsAfterSettlement": { "type": "integer", "const": 0 },
+        "settledBeforeRecovery": { "const": true }
+      }
+    },
+    "sherpaCancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "requestCount",
+        "framesAcceptedBeforeRequest",
+        "framesAcceptedAfterRequest",
+        "flushCallsAfterRequest",
+        "segmentsPublishedAfterRequest",
+        "detectorRetiredBeforeRecovery"
+      ],
+      "properties": {
+        "mode": { "const": "between-bounded-frames" },
+        "requestCount": { "type": "integer", "const": 1 },
+        "framesAcceptedBeforeRequest": { "$ref": "#/$defs/positiveCount" },
+        "framesAcceptedAfterRequest": { "type": "integer", "const": 0 },
+        "flushCallsAfterRequest": { "type": "integer", "const": 0 },
+        "segmentsPublishedAfterRequest": { "type": "integer", "const": 0 },
+        "detectorRetiredBeforeRecovery": { "const": true }
+      }
+    },
+    "staleCompletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inducedCount",
+        "observedCount",
+        "suppressedCount",
+        "publishedOutputCount",
+        "retiredGeneration",
+        "authoritativeGeneration"
+      ],
+      "properties": {
+        "inducedCount": { "type": "integer", "const": 1 },
+        "observedCount": { "type": "integer", "const": 1 },
+        "suppressedCount": { "type": "integer", "const": 1 },
+        "publishedOutputCount": { "type": "integer", "const": 0 },
+        "retiredGeneration": { "$ref": "#/$defs/positiveCount" },
+        "authoritativeGeneration": { "$ref": "#/$defs/positiveCount" }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fonixOutputEncoding",
+        "fonixOutputBytesBase64",
+        "fonixOutputSha256",
+        "sherpa"
+      ],
+      "properties": {
+        "fonixOutputEncoding": { "const": "float32-le" },
+        "fonixOutputBytesBase64": { "$ref": "#/$defs/base64Bytes" },
+        "fonixOutputSha256": { "$ref": "#/$defs/sha256" },
+        "sherpa": {
+          "allOf": [{ "$ref": "#/$defs/sherpaObservation" }],
+          "unevaluatedProperties": false
+        }
+      }
+    },
+    "disposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordersTested",
+        "fonixSessionsCreated",
+        "fonixSessionsClosed",
+        "sherpaDetectorsCreated",
+        "sherpaDetectorsFreed",
+        "fonixDoubleClose",
+        "sherpaDoubleFree",
+        "pendingFonixRuns",
+        "queuedSherpaSegments",
+        "temporaryRootsCreated",
+        "temporaryRootsRemoved",
+        "temporaryRootsRemaining"
+      ],
+      "properties": {
+        "ordersTested": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["fonix-then-sherpa", "sherpa-then-fonix"]
+          }
+        },
+        "fonixSessionsCreated": { "$ref": "#/$defs/positiveCount" },
+        "fonixSessionsClosed": { "$ref": "#/$defs/positiveCount" },
+        "sherpaDetectorsCreated": { "$ref": "#/$defs/positiveCount" },
+        "sherpaDetectorsFreed": { "$ref": "#/$defs/positiveCount" },
+        "fonixDoubleClose": { "const": "passed" },
+        "sherpaDoubleFree": { "const": "passed" },
+        "pendingFonixRuns": { "type": "integer", "const": 0 },
+        "queuedSherpaSegments": { "type": "integer", "const": 0 },
+        "temporaryRootsCreated": { "$ref": "#/$defs/positiveCount" },
+        "temporaryRootsRemoved": { "$ref": "#/$defs/positiveCount" },
+        "temporaryRootsRemaining": { "type": "integer", "const": 0 }
       }
     }
-  },
-  "$defs": {
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "token": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-    },
-    "runCount": { "type": "integer", "minimum": 1, "maximum": 1000000 }
   }
 }

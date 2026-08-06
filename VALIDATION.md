@@ -132,6 +132,46 @@ sherpa-owned process modes. Zig 0.16.0 cross-built the Linux x64/arm64 glibc
 system-library contract. These are cross-build and static package-layout
 results, not target-device execution claims.
 
+The 2026-08-07 sherpa input audit used Kokage's exact locked federated
+`sherpa_onnx` 1.13.4 Android package directories, not a synthetic JNI AAR. The
+release is mapped to full source revision
+`142807252687d81b40d6315f23470a1512a00de3`. The exact hosted archive
+SHA-256 values accepted by the current receipt validator are:
+
+- `sherpa_onnx`:
+  `889c03cf7a8788795e3a6d35bf9f20b66d1862ea7a73a1b6aaf6e450715c870a`;
+- `sherpa_onnx_android_armeabi`:
+  `9e96729d99567c3f64fc6f4c232ef04b57ae4ef3bf1b21364ee6e461103cb7cf`;
+- `sherpa_onnx_android_arm64`:
+  `0337650bc2357f39b751f1b9ced37770de3b60026effe66473b557346b4e3f97`;
+- `sherpa_onnx_android_x86`:
+  `6eaa462a24bf881c8ee2b3ab5b9fad3d310b714fc9d3ac4b9f650d0a90c9d0ab`;
+- `sherpa_onnx_android_x86_64`:
+  `181aa0f0968adf2cf2dcb369c879ea372653864538b82772877e22748a80254f`.
+
+These are hosted-package provenance values, not native-library inventory
+digests. The exact audited native inputs were:
+
+- arm64-v8a ORT `994848008526a934dfb579ac773b00e5867929234852b061005d45aacaee9533`,
+  C API `cb0fe5f4d26e8f66a5466cfc760caafaf50c60128321e491f538d60857324f56`,
+  and C++ API `f961acd4fc2582ed8bea395c941e8c7b51fd8b41cffb2855779103764d6e7247`;
+- x86_64 ORT `7144a2015ce495677420b287cef908eb3d379e09913b5e715aa48826b2080f2d`,
+  C API `7922e28904bd84f71932d81a3e44753041d7967ad3b2db1a68ec26cba6eee855`,
+  and C++ API `e52ba5fdb4eb297381d51e8cc0e4dc616dd23b9812a285b63128f7284b91a2b6`.
+
+Each ABI independently passed `sherpa-audit` with the explicit `flutter-ffi`
+profile, exact C API/C++ API dependency graph, single ORT/libc++ ownership
+checks, and static 16 KiB alignment. This proves the selected source native
+inventories only. It does not prove which bytes Gradle selects, final-package
+coexistence, Bionic load order, or alternating inference.
+
+The accompanying schema-2 receipt validator and schema-2 compatibility
+generator have synthetic contract/tamper coverage only. They rehash exact
+inputs and enforce closed workload, lifecycle, library, and four-record matrix
+invariants, but public tool hashes do not authenticate the source of target or
+logcat JSON. No trusted sherpa coexistence capture has run, so these tools do
+not add target-execution evidence.
+
 ## macOS application and provider evidence
 
 The final application gate used Xcode 26.6 (17F113) and Flutter revision

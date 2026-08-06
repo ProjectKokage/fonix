@@ -324,11 +324,14 @@ Optional `armeabi-v7a` requires complete dependency support. Do not include obso
 
 ### Library layout
 
-Native libraries appear under ABI-specific paths in AAR/APK/AAB artifacts. The final package must be inspected for:
+Native libraries appear under ABI-specific paths in AAR/APK/AAB archives and
+in federated Flutter package `jniLibs` directories. Inspect the exact resolved
+native inputs as well as the final package for:
 
 - `libonnxruntime.so` ownership and hash;
 - `libfonix_shim.so`;
-- sherpa JNI/C API libraries;
+- the exact closed sherpa consumer profile: either one source-built JNI
+  library or the published Flutter FFI C API/C++ API pair;
 - provider libraries such as QNN backends;
 - `libc++_shared.so` collisions;
 - correct SONAME, `DT_NEEDED`, exported symbols, and ELF alignment.
@@ -394,11 +397,31 @@ AAB split, QNN, or sherpa coexistence.
 
 ### sherpa-owned process mode
 
-The wrapper packages only the shim. It must not contribute `libonnxruntime.so`. The shim dynamically resolves the sherpa/application-owned runtime. See document 7.
+The wrapper packages only the shim. It must not contribute
+`libonnxruntime.so`. The shim dynamically resolves the sherpa-owned runtime.
+The currently selected Flutter publication contributes
+`libsherpa-onnx-c-api.so`, `libsherpa-onnx-cxx-api.so`, and
+`libonnxruntime.so`; it is not the source-build JNI layout. See document 7.
+
+Target evidence uses a three-stage fail-closed path. The harness emits one raw
+schema-2 load-order receipt for an exact APK/ABI/load-order/page-size run;
+`tool/ci/validate_android_load_order_receipt.py` rehashes its APK, evidence,
+fixtures, lockfile, and lifecycle contract and emits a schema-1 validation
+record; `tool/ci/android_compatibility_manifest.py` consumes only those
+validation records. The current runtime validator is limited to a
+sherpa-owned, process-source, Flutter FFI APK. It does not accept an AAB or
+aligned/JNI runtime receipt. This offline path validates the closed evidence
+contract and exact bytes; it cannot authenticate the origin of supplied target
+or logcat JSON. Preserve trusted runner capture provenance separately before
+using a record as target-execution evidence.
 
 ### Aligned mode
 
-The application/native build packages one ORT built with the selected EPs. Both shim and sherpa link/resolve against it. Use this for QNN/custom builds.
+The application/native build packages one ORT built with the selected EPs.
+Both shim and sherpa link/resolve against it. Use this for QNN/custom builds.
+Target-host aligned/QNN qualification is currently deferred; its reproducible
+build, schema, static audit, and tamper checks remain required and must stay
+green.
 
 ### STL and symbol policy
 
@@ -411,6 +434,11 @@ Native dependencies must be built and packaged for Android 15+ 16 KB page-size d
 ### App bundles
 
 Test the generated split APKs or installed bundle, not only the universal intermediate. Verify each delivered ABI has the complete and singular dependency set.
+
+Until that installation path exists for the sherpa composition, implement and
+run the closed AAB static coexistence gate described in the Android plan; the
+current preliminary inventory is insufficient. Bind runtime/load-order claims
+only to the exact installed APK.
 
 ## 5.11 Linux packaging
 
@@ -426,6 +454,12 @@ Test the generated split APKs or installed bundle, not only the universal interm
 A system-runtime mode may be offered for managed deployments but must require explicit application configuration and diagnostics. It is not the default consumer experience.
 
 ## 5.12 Windows packaging
+
+These contracts remain authoritative, but target-host final-application,
+installer, and clean-machine qualification is deferred until a Windows
+development environment exists. Continue to enforce the current PE cross-build,
+shim ABI, secure DLL-search, and source/security checks; none is runtime support
+evidence.
 
 - Package DLLs adjacent to the executable/application package in a flavor-specific directory supported by secure loader configuration.
 - Use absolute paths and safe `LoadLibraryExW` flags.

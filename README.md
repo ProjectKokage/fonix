@@ -137,6 +137,26 @@ generated manifest and `ThirdPartyNotices.txt`. See
 asset-preparation command. Android applications integrating sherpa-onnx must
 follow the one-runtime contract in
 [Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md).
+The audit tooling distinguishes source-built JNI artifacts from the current
+federated Flutter FFI layout (`libsherpa-onnx-c-api.so` plus
+`libsherpa-onnx-cxx-api.so`) and accepts exact raw `jniLibs` directories as
+source inputs. Static profile validation and source-to-final byte binding do
+not replace target execution. The current evidence path takes one raw
+schema-2 receipt from each exact APK run, validates it with
+`tool/ci/validate_android_load_order_receipt.py`, and gives only the emitted
+schema-1 validation records to `tool/ci/android_compatibility_manifest.py`.
+Those offline records establish closed structure and byte/hash consistency;
+they do not authenticate that target/logcat JSON came from `adb` or a real
+installation. A target-support claim additionally requires trusted capture
+provenance from the device runner. Both record layers therefore carry
+`claimStatus: offline-consistency-only`; that status cannot be promoted by
+supplying more self-authored JSON.
+For one ABI and build this requires four independent records: the
+`dart-first` and `sherpa-first` load orders on both 4 KiB and 16 KiB page-size
+environments. The runtime validator currently covers a sherpa-owned Flutter
+FFI APK only. A closed matching-AAB coexistence gate is still to be
+implemented; current `sherpa-audit` output is preliminary inventory, and no AAB
+runtime claim exists until an AAB-derived split is installed and exercised.
 
 ## Committed Flutter reference application
 
@@ -188,6 +208,17 @@ performance, thermal, or provider-qualification evidence. API 24 execution, an
 actual 16 KiB runtime, physical-device behavior, AAB split installation,
 x86_64 execution, QNN, and sherpa coexistence remain unproved. iOS, Linux, and
 the deferred Windows target-host gaps remain explicit release gates.
+
+The next development slice is the exact sherpa-owned Flutter FFI Android
+composition, starting with one arm64-v8a Release APK and its four validated
+load-order/page-size records while implementing and running the closed
+matching-AAB static coexistence gate. After that come the iOS arm64 reference
+app, Linux x86_64 target-host package, and cross-platform
+lifecycle/performance and release stabilization. Android QNN/aligned-runtime
+device qualification and all Windows target-host, final-package, installer,
+and clean-machine work are deferred until their required SDK/hardware or
+Windows environment exists. Their existing static, source, tamper,
+cross-build, and loader-security gates remain required.
 
 ## Documentation
 

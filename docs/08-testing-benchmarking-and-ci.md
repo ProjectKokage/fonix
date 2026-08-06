@@ -162,16 +162,25 @@ evidence.
 
 See document 7 for the full matrix. Automated gates include:
 
-- inspect exact sherpa AAR/source output;
+- inspect the exact selected sherpa publication/source native inputs under an
+  explicit JNI or Flutter FFI profile;
 - reject multiple ORT owners across wrapper/sherpa inputs;
 - reject final APK/AAB with missing or duplicate ORT paths;
 - verify process-mode shim has no `DT_NEEDED` ORT;
-- runtime version/API assertion;
-- Dart-first and sherpa-first load order;
-- alternating Dart/sherpa inference;
+- emit one raw schema-2 receipt per exact APK/ABI/load-order/page-size run,
+  validate it independently into a schema-1 record, and give only those
+  records to the schema-2 compatibility generator;
+- bind runtime version/API, fresh challenge, app UID/PID, harness, lockfile,
+  target/logcat evidence, and all fixtures;
+- prove Dart-first and sherpa-first initialization at both 4 KiB and 16 KiB
+  for every claimed ABI/build;
+- run 2--64 strict Fonix-reference/Silero-VAD alternating cycles and the closed
+  native-cancellation, between-frame VAD cancellation, stale suppression,
+  recovery, disposal-order, double-disposal, and zero-pending-work contract;
 - release/R8 build;
-- final-package `--require-16k-page-alignment` ELF gate plus a 16 KB page-size environment;
-- aligned QNN build on selected hardware;
+- final APK and AAB `--require-16k-page-alignment` static gates, with runtime
+  evidence bound only to the installed APK until an AAB-derived split is
+  installed and exercised;
 - intentionally incompatible runtime produces a controlled error, not a crash.
 
 Standalone checkpoint (2026-08-07): independent application-owned arm64 CPU
@@ -179,8 +188,31 @@ and XNNPACK profile APK/AAB builds passed the package gate, and each audited APK
 ran on an API 35 arm64 emulator with a queried 4096-byte page size. The XNNPACK
 receipt is a functional assignment/parity/fallback checkpoint only. These runs
 validate neither an actual 16 KiB runtime nor a physical device, API 24 runtime,
-x86_64 execution, installed AAB-derived splits, any sherpa AAR/load order/
-alternating workload, XNNPACK performance or thermal behavior, nor coexistence.
+x86_64 execution, installed AAB-derived splits, any sherpa publication/load
+order/alternating workload, XNNPACK performance or thermal behavior, nor
+coexistence.
+
+Coexistence-tooling checkpoint (2026-08-07): the Android native verifier now
+recognizes the exact Flutter FFI C API/C++ API topology in addition to legacy
+JNI, and the schema-2 compatibility generator accepts repeatable raw native
+inputs. It rejects duplicate owners, profile mixing, an unexplained
+`libonnxruntime4j_jni.so`, provider-companion drift, and source/final loaded-
+segment drift. The schema-2 raw target receipt and its validator also have
+strict tamper coverage for APK/library identity, target/logcat/process
+bindings, alternating reference workloads, cancellation settlement, stale
+suppression, recovery, and disposal. The validator emits a schema-1 record,
+and the generator rejects raw receipts, stale-validator records, and an
+incomplete four-record matrix. The exact cached 1.13.4 arm64-v8a and x86_64
+native inputs pass the static profile and 16 KiB checks. No real sherpa APK
+load-order/lifecycle record has been produced, so no coexistence execution is
+inferred from this tooling checkpoint.
+
+The offline validator cannot authenticate the origin of target or logcat JSON.
+Trusted device-runner capture of installation, package-manager/`adb` output,
+raw logs, and the exact installed APK remains part of the open Android
+coexistence slice; public tool hashes are identities, not attestations.
+Current validator and compatibility outputs are mechanically labeled
+`offline-consistency-only`, with target provenance `unverified`.
 
 ## 8.8 Provider qualification
 
@@ -364,9 +396,11 @@ The checked-in pull-request/push workflow currently runs:
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
 
-The Python job includes unit and tamper coverage for the Android auditor and
-reference-gate orchestration. The full Gradle package gate and emulator run are
-currently explicitly provisioned local evidence, not a hosted CI lane; its
+The Python job includes unit and tamper coverage for the Android auditor,
+schema-2 load-order receipt validator, schema-1 validation-record ingestion,
+four-record compatibility aggregation, and reference-gate orchestration. The
+full Gradle package gate and emulator run are currently explicitly provisioned
+local evidence, not a hosted CI lane; its
 Gradle dependency graph also lacks dependency-verification metadata, so it is a
 CI Release-mode package gate rather than a reproducible release build.
 
@@ -390,21 +424,31 @@ qualification evidence. These remain target-evidence requirements before
 promoting the corresponding support rows; a cross-build, source test, or tiny
 emulator fixture must not be reported as a substitute.
 
-### Future nightly/scheduled lanes
+The active target roadmap is Android sherpa-owned Flutter FFI, then iOS arm64,
+Linux x86_64, and stabilization/release work. Android aligned/QNN device work is
+deferred until its exact licensed SDK/hardware tuple exists. All Windows
+target-host, final-application, installer, and clean-machine work is deferred
+until a Windows environment exists. Their present QNN tamper/static gates and
+Windows source/cross-build/loader-security gates remain required.
 
-- Linux arm64 and Windows arm64 where infrastructure permits.
+### Future nightly/scheduled lanes in active scope
+
+- Linux arm64 where infrastructure permits.
 - Physical iOS device CoreML/XNNPACK.
 - Physical Android arm64 and 16 KB configuration.
 - Android API 24 and x86_64 standalone reference runs.
-- QNN device qualification.
 - CUDA/TensorRT GPU runner.
-- DirectML representative adapters.
 - OpenVINO CPU/GPU/NPU runners.
 - MIGraphX AMD GPU runner where that flavor is published.
 - native WebGPU representative D3D12/Vulkan/Metal runners where published.
 - TensorRT RTX plugin and Vitis AI/vendor hardware lanes where published.
 - leak/sanitizer/stress suites.
 - sustained benchmarks and trend analysis.
+
+Deferred lanes are Android QNN device qualification and Windows x64/arm64
+target-host, DirectML, final-package, installer, and clean-machine runs. Keep
+their source/static/security jobs green without scheduling them as the next
+development slice.
 
 ### Release
 

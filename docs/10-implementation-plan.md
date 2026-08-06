@@ -10,10 +10,13 @@ The current development sequence is narrower than the phase inventory below:
    gate, and Android arm64 XNNPACK functional emulator gate; the XNNPACK
    checkpoint is not provider qualification;
 2. integrate the exact selected sherpa-onnx Android artifact under the
-   single-ORT process-owner contract; prove final APK/AAB inventory, Dart-first
-   and sherpa-first loading, runtime/API identity, alternating Fonix+sherpa
-   workloads, lifecycle, and 4 KiB/16 KiB target receipts where environments
-   exist;
+   single-ORT process-owner contract, starting with one arm64-v8a
+   release-minified APK; audit that APK and the matching AAB, then produce four
+   independent raw schema-2 target receipts (both load orders on 4 KiB and
+   16 KiB), validate them into schema-1 records, and aggregate only those
+   records into the schema-2 compatibility manifest; preserve trusted runner
+   provenance for installation and raw `adb`/package-manager/logcat capture,
+   because offline record validation does not authenticate target origin;
 3. produce the iOS arm64 CPU/CoreML reference application; verify final
    simulator packaging/inference first, then physical-device lifecycle,
    assignment, parity, and fallback evidence when hardware/signing are
@@ -25,10 +28,13 @@ The current development sequence is narrower than the phase inventory below:
    cancellation/stale-work suppression, repeated initialization/disposal,
    bounded queues/profiles, public API/shim ABI review, representative model
    corpus, and measured baselines for rows intended to be advertised; and
-6. finish release engineering: hosted target lanes where feasible, artifact
-   reproducibility, final-package audits, SBOM/notices/checksums, security
-   policy, licensing, signing, clean-machine installation, and explicit
-   support-matrix promotion.
+6. finish release engineering for the qualified targets: hosted target lanes
+   where feasible, artifact reproducibility, final-package audits,
+   SBOM/notices/checksums, security policy, licensing, signing, clean-machine
+   installation, and explicit support-matrix promotion. This can close the
+   in-scope lanes, but the five-OS product cannot become globally
+   `Release-ready` or 1.0 while its Tier-1 Windows target-host gate is deferred
+   unless a separate product decision changes that scope.
 
 Android QNN/aligned-ORT device qualification is deferred until the exact SDK,
 hardware, firmware, sherpa, licensing, and redistribution inputs exist. All
@@ -145,17 +151,20 @@ claims.
 - macOS application-local packaging.
 - Android standalone mobile flavor.
 - Linux `$ORIGIN`/dependency layout.
-- Windows secure DLL layout/search.
+- Windows secure DLL layout/search (source/cross-build regression gate only
+  while target-host work is deferred).
 - Final artifact audit scripts and sample apps.
 - Licenses/notices/SBOM scaffold.
 
 ### Acceptance
 
-- Same CPU inference sample runs on iOS, macOS, Android, Linux, Windows.
+- Same CPU inference sample runs on iOS, macOS, Android, and Linux; Windows is
+  required when its deferred target-host lane resumes.
 - Clean-environment tests do not find global ORT.
 - Exports/dependencies/architectures match allowlists.
 - Android 16 KB page-size checks pass.
-- Apple/Windows packaged application load succeeds, not just unit tests.
+- Apple packaged application load succeeds, not just unit tests. Windows
+  packaged loading remains deferred with the Windows target-host lane.
 
 Implementation checkpoint (2026-08-07): a committed macOS arm64 Flutter
 reference app exercises only the public Fonix library through one bounded
@@ -245,19 +254,39 @@ remain evidence gates, not inferred claims.
 ### Work
 
 - Build external/process shim with no ORT link dependency.
-- Integrate exact selected sherpa AAR/revision into sample app.
-- Add AAR/APK/AAB inventory and one-ORT gates.
+- Integrate the exact selected sherpa publication/source native inputs and
+  revision into a dedicated Android Flutter FFI sample app, starting with one
+  arm64-v8a Release artifact.
+- Add exact raw-`jniLibs` inventory plus closed APK/AAB static coexistence
+  gates. The final-package gates must require the shim, ORT, selected Flutter
+  FFI consumers, complete dependency graph, and source-to-final byte bindings;
+  the verifier's preliminary `sherpa-audit` policy is not sufficient alone.
 - Implement Android constrained runtime resolution.
-- Add Dart-first/sherpa-first tests and alternating workload.
-- Add compatibility manifest generation.
+- Emit schema-2 target receipts for Dart-first and sherpa-first on both page
+  sizes. Prove exact alternating Fonix-reference/Silero-VAD cycles, active
+  Fonix native cancellation settlement, honest between-frame VAD cancellation,
+  stale-result suppression, recovery, both disposal orders, double disposal,
+  and zero pending work.
+- Capture installation, package-manager/`adb` observations, and raw logs in a
+  trusted device runner tied to the exact APK; do not promote caller-supplied
+  JSON merely because its hashes are internally consistent.
+- Validate every raw receipt into a schema-1 record, then generate the schema-2
+  compatibility manifest from the four-record matrix.
+- Keep the matching AAB as a separate static audit until its delivered split
+  can be installed and exercised.
 
 ### Acceptance
 
 - Wrapper artifact contains no ORT.
 - Final package has one ORT per ABI.
 - Runtime reports actual version/API.
-- Both load orders and release/R8 pass.
-- 16 KB environment passes.
+- Both load orders pass independently on 4 KiB and 16 KiB environments for one
+  exact release/R8 APK, with four current-validator records and retained
+  trusted-runner capture provenance.
+- Exact Fonix bytes, bounded Silero VAD invariants, cancellation, stale
+  suppression, recovery, and lifecycle settlement pass.
+- The corresponding APK and AAB pass static audit; only an installed and
+  exercised delivered split can add AAB runtime evidence.
 - Incompatible runtime fails cleanly.
 - No `pickFirst` or merge-order workaround exists.
 
@@ -266,11 +295,21 @@ closed `sherpa` or `application` runtime owner, emits respectively a process
 shim or a bundled exact artifact, and embeds schema-3 owner/source policy.
 Locked arm64-v8a and x86_64 shims cross-build at API 24 and pass static 16 KiB,
 dependency, and single-ORT inventory checks. The deterministic compatibility
-record generator binds final package bytes and requires both load orders plus
-4/16 KiB receipts. Separate application-owned standalone CPU and XNNPACK
-profile APK/AAB builds now pass final-package inspection and API 35 arm64/4 KiB
+record generator now distinguishes the legacy JNI and current Flutter FFI
+profiles, accepts repeatable exact `jniLibs`/Native Assets source directories,
+binds every selected native library to final loaded segments, and rejects
+unexplained final native libraries. A strict schema-2 target-receipt validator
+now binds the exact sherpa-owned Flutter FFI APK, evidence process, fixtures,
+alternating workload, and lifecycle, emits schema-1 validation records, and
+requires four current records before schema-2 aggregation. Its implementation
+and tamper tests are tooling evidence only. Separate application-owned
+standalone CPU and XNNPACK profile APK/AAB builds now pass final-package
+inspection and API 35 arm64/4 KiB
 emulator runs, but neither build contains sherpa and no exact product sherpa
-artifact, target load-order/workload receipt, or 16 KiB runtime exists. Phase 7
+composition, target load-order/workload/lifecycle receipt, or 16 KiB runtime
+exists. The exact selected raw publication inputs have only static audit
+evidence. The current runtime validator covers APK plus sherpa-owned Flutter
+FFI only; the closed AAB static coexistence gate remains open. Phase 7
 acceptance therefore remains only partially complete.
 
 ## Phase 8: desktop accelerated flavors
@@ -305,7 +344,11 @@ has a secure target-host CTest contract. No heavy provider artifact is in the
 current lock and no GPU/NPU target assignment, parity, dependency package, or
 benchmark receipt exists.
 
-## Phase 9: aligned Android/QNN
+Windows target-host provider and package qualification in this phase is
+deferred with the rest of the Windows target roadmap. Keep the provider
+adapters, fake-table tests, PE cross-build, and secure-loader contract green.
+
+## Phase 9: aligned Android/QNN (deferred target qualification)
 
 ### Work
 
@@ -332,6 +375,8 @@ The QNN qualification validator binds final APK, backend bytes, model/QDQ,
 assignment, load orders, parity, timing, and context-cache invalidation. These
 contracts pass synthetic tamper tests only; no real QNN SDK, aligned product
 build, physical device, HTP assignment, or redistribution decision exists.
+Do not schedule target qualification until those exact inputs exist; continue
+running the existing contract, static linkage, and tamper gates.
 
 ## Phase 10: 1.0 stabilization
 
@@ -370,7 +415,7 @@ Create independently reviewable issues:
 2. C ABI/status skeleton.
 3. Dart build-hook no-op asset.
 4. POSIX loader.
-5. Windows loader.
+5. Windows loader (source/cross-build complete; target-host deferred).
 6. Apple linked mode.
 7. Runtime registry/version diagnostics.
 8. Environment/session options.
@@ -381,14 +426,14 @@ Create independently reviewable issues:
 13. Async worker protocol.
 14. iOS packaging sample.
 15. Android standalone sample.
-16. Linux/Windows/macOS packaging samples.
+16. Linux/macOS packaging samples; Windows final sample deferred.
 17. Generic provider API and diagnostics.
 18. XNNPACK qualification.
 19. CoreML qualification.
 20. Android sherpa external flavor.
 21. Android final-artifact verifier.
 22. Desktop provider flavors.
-23. QNN aligned build.
+23. QNN aligned build (target qualification deferred).
 24. SBOM/release automation.
 
 Each issue must name acceptance tests and generated evidence.

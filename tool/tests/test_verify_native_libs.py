@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import warnings
 from pathlib import Path
 import zipfile
@@ -35,9 +36,15 @@ def synthetic_elf(
     alignment: int = 16 * 1024,
     soname: str | None = "libsynthetic.so",
     needed: tuple[str, ...] = (),
+    defined_symbols: tuple[str, ...] = (),
+    undefined_symbols: tuple[str, ...] = (),
+    hash_style: str = "sysv",
+    terminate_gnu_hash: bool = True,
     terminate_dynamic: bool = True,
     string_table_address: int | None = None,
 ) -> bytes:
+    if hash_style not in {"sysv", "gnu"}:
+        raise ValueError(f"unsupported synthetic ELF hash style: {hash_style}")
     elf_class, machine = ELF_IDENTITIES[abi]
     header_size = 52 if elf_class == 1 else 64
     program_header_size = 32 if elf_class == 1 else 56
@@ -55,17 +62,90 @@ def synthetic_elf(
 
     soname_offset = None if soname is None else add_string(soname)
     needed_offsets = [add_string(value) for value in needed]
+    symbol_specs = [(add_string(value), 1) for value in defined_symbols]
+    symbol_specs.extend((add_string(value), 0) for value in undefined_symbols)
+    symbol_entry_size = 16 if elf_class == 1 else 24
+    symbol_table = bytearray(symbol_entry_size * (1 + len(symbol_specs)))
+    for index, (name_offset, section_index) in enumerate(symbol_specs, start=1):
+        if elf_class == 1:
+            struct.pack_into(
+                "<IIIBBH",
+                symbol_table,
+                index * symbol_entry_size,
+                name_offset,
+                0,
+                0,
+                0x12,
+                0,
+                section_index,
+            )
+        else:
+            struct.pack_into(
+                "<IBBHQQ",
+                symbol_table,
+                index * symbol_entry_size,
+                name_offset,
+                0x12,
+                0,
+                section_index,
+                0,
+                0,
+            )
+
+    symbol_offset = (string_offset + len(string_table) + 0xFF) & ~0xFF
+    hash_offset = (symbol_offset + len(symbol_table) + 0xFF) & ~0xFF
+    hash_table = bytearray()
+    if symbol_specs and hash_style == "sysv":
+        symbol_count = 1 + len(symbol_specs)
+        hash_table.extend(struct.pack("<II", 1, symbol_count))
+        hash_table.extend(struct.pack("<I", 1))
+        hash_table.extend(bytes(4 * symbol_count))
+    elif symbol_specs:
+        symbol_count = 1 + len(symbol_specs)
+        word_size = 4 if elf_class == 1 else 8
+        hash_table.extend(struct.pack("<IIII", 1, 1, 1, 0))
+        hash_table.extend(bytes(word_size))
+        hash_table.extend(struct.pack("<I", 1))
+        for index in range(symbol_count - 1):
+            hash_table.extend(
+                struct.pack(
+                    "<I",
+                    1
+                    if terminate_gnu_hash and index == symbol_count - 2
+                    else 0,
+                )
+            )
+
     dynamic_entries = [
-        (5, string_table_address or base_virtual_address + string_offset),
+        (
+            5,
+            string_table_address
+            if string_table_address is not None
+            else base_virtual_address + string_offset,
+        ),
         (10, len(string_table)),
     ]
+    if symbol_specs:
+        dynamic_entries.extend(
+            (
+                (6, base_virtual_address + symbol_offset),
+                (11, symbol_entry_size),
+                (
+                    4 if hash_style == "sysv" else 0x6FFFFEF5,
+                    base_virtual_address + hash_offset,
+                ),
+            )
+        )
     if soname_offset is not None:
         dynamic_entries.append((14, soname_offset))
     dynamic_entries.extend((1, offset) for offset in needed_offsets)
     dynamic_entries.append((0 if terminate_dynamic else 1, 0))
     dynamic_entry_size = 8 if elf_class == 1 else 16
     dynamic_size = len(dynamic_entries) * dynamic_entry_size
-    payload = bytearray(string_offset + len(string_table))
+    payload_size = string_offset + len(string_table)
+    if symbol_specs:
+        payload_size = hash_offset + len(hash_table)
+    payload = bytearray(payload_size)
     payload[:7] = b"\x7fELF" + bytes((elf_class, 1, 1))
 
     if elf_class == 1:
@@ -169,6 +249,9 @@ def synthetic_elf(
             value,
         )
     payload[string_offset : string_offset + len(string_table)] = string_table
+    if symbol_specs:
+        payload[symbol_offset : symbol_offset + len(symbol_table)] = symbol_table
+        payload[hash_offset : hash_offset + len(hash_table)] = hash_table
     return bytes(payload)
 
 
@@ -180,6 +263,18 @@ ORT_DEPENDENCIES = (
     "libc.so",
 )
 SHIM_DEPENDENCIES = ("libdl.so", "libc.so")
+SHERPA_C_API_DEPENDENCIES = (
+    "libandroid.so",
+    "liblog.so",
+    "libonnxruntime.so",
+    "libm.so",
+    "libdl.so",
+    "libc.so",
+)
+SHERPA_CXX_API_DEPENDENCIES = (
+    "libsherpa-onnx-c-api.so",
+    *SHERPA_C_API_DEPENDENCIES,
+)
 
 
 class VerifyNativeLibrariesTest(unittest.TestCase):
@@ -260,6 +355,34 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
             arguments.extend(("--require-abi", abi))
         return arguments
 
+    def sherpa_flutter_ffi_entries(
+        self,
+        abi: str,
+        *,
+        c_api_soname: str = "libsherpa-onnx-c-api.so",
+        c_api_needed: tuple[str, ...] = SHERPA_C_API_DEPENDENCIES,
+        cxx_api_soname: str = "libsherpa-onnx-cxx-api.so",
+        cxx_api_needed: tuple[str, ...] = SHERPA_CXX_API_DEPENDENCIES,
+    ) -> list[tuple[str, bytes]]:
+        return [
+            (
+                f"jni/{abi}/libsherpa-onnx-c-api.so",
+                synthetic_elf(
+                    abi,
+                    soname=c_api_soname,
+                    needed=c_api_needed,
+                ),
+            ),
+            (
+                f"jni/{abi}/libsherpa-onnx-cxx-api.so",
+                synthetic_elf(
+                    abi,
+                    soname=cxx_api_soname,
+                    needed=cxx_api_needed,
+                ),
+            ),
+        ]
+
     def test_valid_apk_library_passes(self) -> None:
         artifact = self.make_archive(
             "app.apk",
@@ -310,6 +433,233 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
                         for segment in metadata["loadSegments"]
                     )
                 )
+
+    def test_detects_defined_ort_api_with_sysv_and_gnu_hashes(self) -> None:
+        for abi, hash_style in (
+            ("armeabi-v7a", "sysv"),
+            ("arm64-v8a", "gnu"),
+        ):
+            with self.subTest(abi=abi, hash_style=hash_style):
+                contents = synthetic_elf(
+                    abi,
+                    defined_symbols=("OrtGetApiBase",),
+                    hash_style=hash_style,
+                )
+
+                metadata, error = VERIFY_MODULE.inspect_elf(
+                    io.BytesIO(contents),
+                    len(contents),
+                    abi,
+                )
+
+                self.assertIsNone(error)
+                assert metadata is not None
+                self.assertTrue(metadata["definesOrtApi"])
+
+    def test_dynamic_symbol_hash_tables_fail_closed_at_bounds(self) -> None:
+        unterminated_gnu = synthetic_elf(
+            "arm64-v8a",
+            defined_symbols=("OrtGetApiBase",),
+            hash_style="gnu",
+            terminate_gnu_hash=False,
+        )
+        metadata, error = VERIFY_MODULE.inspect_elf(
+            io.BytesIO(unterminated_gnu),
+            len(unterminated_gnu),
+            "arm64-v8a",
+        )
+        self.assertIsNone(metadata)
+        self.assertIn("chain is unterminated or out of bounds", error)
+
+        oversized_sysv = bytearray(
+            synthetic_elf(
+                "arm64-v8a",
+                defined_symbols=("OrtGetApiBase",),
+                hash_style="sysv",
+            )
+        )
+        hash_header = struct.pack("<II", 1, 2)
+        hash_offset = oversized_sysv.rfind(hash_header)
+        self.assertGreaterEqual(hash_offset, 0)
+        struct.pack_into(
+            "<I",
+            oversized_sysv,
+            hash_offset + 4,
+            VERIFY_MODULE.MAX_ELF_DYNAMIC_SYMBOLS + 1,
+        )
+        metadata, error = VERIFY_MODULE.inspect_elf(
+            io.BytesIO(oversized_sysv),
+            len(oversized_sysv),
+            "arm64-v8a",
+        )
+        self.assertIsNone(metadata)
+        self.assertIn("DT_HASH symbol count is outside the bound", error)
+
+    def test_undefined_ort_api_consumer_is_not_a_runtime_candidate(self) -> None:
+        artifact = self.make_archive(
+            "undefined-consumer.apk",
+            [
+                (
+                    "lib/arm64-v8a/libonnxruntime.so",
+                    synthetic_elf("arm64-v8a"),
+                ),
+                (
+                    "lib/arm64-v8a/libconsumer.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libconsumer.so",
+                        undefined_symbols=("OrtGetApiBase",),
+                        hash_style="gnu",
+                    ),
+                ),
+            ],
+        )
+
+        report = VERIFY_MODULE.inspect_zip(artifact)
+        result = self.run_verifier(*self.final_arguments(artifact))
+
+        consumer = next(
+            entry for entry in report["libraries"] if entry["name"] == "libconsumer.so"
+        )
+        self.assertFalse(consumer["elf"]["definesOrtApi"])
+        self.assertEqual(
+            report["ort_candidates"],
+            ["lib/arm64-v8a/libonnxruntime.so"],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_final_gate_rejects_renamed_second_ort_runtime(self) -> None:
+        artifact = self.make_archive(
+            "renamed-second-runtime.apk",
+            [
+                (
+                    "lib/arm64-v8a/libonnxruntime.so",
+                    synthetic_elf("arm64-v8a"),
+                ),
+                (
+                    "lib/arm64-v8a/libsecond_runtime.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libsecond_runtime.so",
+                        defined_symbols=("OrtGetApiBase",),
+                        hash_style="gnu",
+                    ),
+                ),
+            ],
+        )
+
+        report = VERIFY_MODULE.inspect_zip(artifact)
+        result = self.run_verifier(*self.final_arguments(artifact))
+
+        self.assertEqual(
+            report["ort_candidates"],
+            [
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/arm64-v8a/libsecond_runtime.so",
+            ],
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "expected exactly one valid ORT runtime candidate for arm64-v8a, "
+            "found 2",
+            result.stderr,
+        )
+
+    def test_final_gate_rejects_only_renamed_ort_runtime(self) -> None:
+        artifact = self.make_archive(
+            "renamed-only-runtime.apk",
+            [
+                (
+                    "lib/arm64-v8a/librenamed_runtime.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="librenamed_runtime.so",
+                        defined_symbols=("OrtGetApiBase",),
+                    ),
+                )
+            ],
+        )
+
+        result = self.run_verifier(*self.final_arguments(artifact))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "expected exactly one valid libonnxruntime.so for arm64-v8a, found 0",
+            result.stderr,
+        )
+
+    def test_multiple_owner_gate_counts_renamed_ort_runtime(self) -> None:
+        canonical = self.make_archive(
+            "canonical-runtime.aar",
+            [
+                (
+                    "jni/arm64-v8a/libonnxruntime.so",
+                    synthetic_elf("arm64-v8a"),
+                )
+            ],
+        )
+        renamed = self.make_archive(
+            "renamed-runtime.aar",
+            [
+                (
+                    "jni/arm64-v8a/librenamed_runtime.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="librenamed_runtime.so",
+                        defined_symbols=("OrtGetApiBase",),
+                    ),
+                )
+            ],
+        )
+
+        result = self.run_verifier(
+            "--artifact",
+            str(canonical),
+            "--artifact",
+            str(renamed),
+            "--reject-multiple-ort-owners",
+            "--quiet",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "multiple input artifacts own libonnxruntime.so for arm64-v8a",
+            result.stderr,
+        )
+
+    def test_multiple_owner_gate_rejects_renamed_ort_in_same_artifact(self) -> None:
+        artifact = self.make_archive(
+            "two-runtimes.aar",
+            [
+                (
+                    "jni/arm64-v8a/libonnxruntime.so",
+                    synthetic_elf("arm64-v8a"),
+                ),
+                (
+                    "jni/arm64-v8a/librenamed-runtime.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="librenamed-runtime.so",
+                        defined_symbols=("OrtGetApiBase",),
+                    ),
+                ),
+            ],
+        )
+
+        result = self.run_verifier(
+            "--artifact",
+            str(artifact),
+            "--reject-multiple-ort-owners",
+            "--quiet",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "multiple ORT runtime candidates for arm64-v8a",
+            result.stderr,
+        )
+        self.assertIn("libonnxruntime.so", result.stderr)
+        self.assertIn("librenamed-runtime.so", result.stderr)
 
     def test_4k_alignment_fails_and_16k_passes_for_final_64_bit_abis(self) -> None:
         for abi in ("arm64-v8a", "x86_64"):
@@ -663,6 +1013,8 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
             str(sherpa),
             "--policy",
             "sherpa-audit",
+            "--sherpa-library-profile",
+            "jni",
             "--quiet",
         )
         self.assertEqual(sherpa_result.returncode, 0, sherpa_result.stderr)
@@ -694,6 +1046,263 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
         elf = payload["reports"][0]["libraries"][0]["elf"]
         self.assertEqual(elf["soname"], "intentionally-different.so")
         self.assertEqual(elf["needed"], ["libnotpackaged.so"])
+
+    def test_sherpa_flutter_ffi_profile_accepts_real_topology_across_inputs(
+        self,
+    ) -> None:
+        wrapper = self.make_archive(
+            "wrapper.aar",
+            [
+                (
+                    "jni/arm64-v8a/libfonix_shim.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libfonix_shim.so",
+                        needed=SHIM_DEPENDENCIES,
+                    ),
+                )
+            ],
+        )
+        runtime_and_c_api = self.make_archive(
+            "sherpa-android-arm64.aar",
+            [
+                (
+                    "jni/arm64-v8a/libonnxruntime.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libonnxruntime.so",
+                        needed=ORT_DEPENDENCIES,
+                    ),
+                ),
+                self.sherpa_flutter_ffi_entries("arm64-v8a")[0],
+            ],
+        )
+        cxx_api = self.make_archive(
+            "sherpa-cxx-api.aar",
+            [self.sherpa_flutter_ffi_entries("arm64-v8a")[1]],
+        )
+
+        result = self.run_verifier(
+            "--artifact",
+            str(wrapper),
+            "--artifact",
+            str(runtime_and_c_api),
+            "--artifact",
+            str(cxx_api),
+            "--policy",
+            "sherpa-audit",
+            "--sherpa-library-profile",
+            "flutter-ffi",
+            "--require-abi",
+            "arm64-v8a",
+            "--reject-multiple-ort-owners",
+            "--quiet",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_sherpa_flutter_ffi_validates_required_dependencies(self) -> None:
+        cases = (
+            (
+                "c-api-ort",
+                tuple(
+                    name
+                    for name in SHERPA_C_API_DEPENDENCIES
+                    if name != "libonnxruntime.so"
+                ),
+                SHERPA_CXX_API_DEPENDENCIES,
+                "libsherpa-onnx-c-api.so",
+                "libonnxruntime.so",
+            ),
+            (
+                "cxx-c-api",
+                SHERPA_C_API_DEPENDENCIES,
+                tuple(
+                    name
+                    for name in SHERPA_CXX_API_DEPENDENCIES
+                    if name != "libsherpa-onnx-c-api.so"
+                ),
+                "libsherpa-onnx-cxx-api.so",
+                "libsherpa-onnx-c-api.so",
+            ),
+            (
+                "cxx-ort",
+                SHERPA_C_API_DEPENDENCIES,
+                tuple(
+                    name
+                    for name in SHERPA_CXX_API_DEPENDENCIES
+                    if name != "libonnxruntime.so"
+                ),
+                "libsherpa-onnx-cxx-api.so",
+                "libonnxruntime.so",
+            ),
+        )
+        for name, c_api_needed, cxx_api_needed, library, dependency in cases:
+            with self.subTest(name=name):
+                artifact = self.make_archive(
+                    f"missing-{name}.aar",
+                    self.sherpa_flutter_ffi_entries(
+                        "arm64-v8a",
+                        c_api_needed=c_api_needed,
+                        cxx_api_needed=cxx_api_needed,
+                    ),
+                )
+
+                result = self.run_verifier(
+                    "--artifact",
+                    str(artifact),
+                    "--policy",
+                    "sherpa-audit",
+                    "--sherpa-library-profile",
+                    "flutter-ffi",
+                    "--require-abi",
+                    "arm64-v8a",
+                    "--quiet",
+                )
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(library, result.stderr)
+                self.assertIn(
+                    f"missing required DT_NEEDED entries: {dependency}",
+                    result.stderr,
+                )
+
+    def test_sherpa_audit_does_not_silently_ignore_flutter_ffi_sonames(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "c-api",
+                {"c_api_soname": "libwrong.so"},
+                "libsherpa-onnx-c-api.so",
+            ),
+            (
+                "cxx-api",
+                {"cxx_api_soname": "libwrong.so"},
+                "libsherpa-onnx-cxx-api.so",
+            ),
+        )
+        for name, overrides, expected_soname in cases:
+            with self.subTest(name=name):
+                artifact = self.make_archive(
+                    f"wrong-{name}-soname.aar",
+                    self.sherpa_flutter_ffi_entries(
+                        "arm64-v8a",
+                        **overrides,
+                    ),
+                )
+
+                result = self.run_verifier(
+                    "--artifact",
+                    str(artifact),
+                    "--policy",
+                    "sherpa-audit",
+                    "--quiet",
+                )
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("has SONAME 'libwrong.so'", result.stderr)
+                self.assertIn(f"expected {expected_soname!r}", result.stderr)
+
+    def test_sherpa_flutter_ffi_profile_requires_both_libraries(self) -> None:
+        artifact = self.make_archive(
+            "c-api-only.aar",
+            [self.sherpa_flutter_ffi_entries("arm64-v8a")[0]],
+        )
+
+        result = self.run_verifier(
+            "--artifact",
+            str(artifact),
+            "--policy",
+            "sherpa-audit",
+            "--sherpa-library-profile",
+            "flutter-ffi",
+            "--require-abi",
+            "arm64-v8a",
+            "--quiet",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "Flutter FFI profile expects exactly one "
+            "libsherpa-onnx-cxx-api.so for arm64-v8a, found 0",
+            result.stderr,
+        )
+
+    def test_sherpa_profiles_reject_mixed_consumer_topologies(self) -> None:
+        artifact = self.make_archive(
+            "mixed-sherpa.aar",
+            [
+                *self.sherpa_flutter_ffi_entries("arm64-v8a"),
+                (
+                    "jni/arm64-v8a/libsherpa-onnx-jni.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libsherpa-onnx-jni.so",
+                        needed=("libonnxruntime.so", "libc.so"),
+                    ),
+                ),
+            ],
+        )
+
+        expectations = (
+            ("auto", "mixed JNI and Flutter FFI"),
+            ("jni", "JNI profile rejects libsherpa-onnx-c-api.so"),
+            (
+                "flutter-ffi",
+                "Flutter FFI profile rejects libsherpa-onnx-jni.so",
+            ),
+        )
+        for profile, expected_error in expectations:
+            with self.subTest(profile=profile):
+                result = self.run_verifier(
+                    "--artifact",
+                    str(artifact),
+                    "--policy",
+                    "sherpa-audit",
+                    "--sherpa-library-profile",
+                    profile,
+                    "--require-abi",
+                    "arm64-v8a",
+                    "--quiet",
+                )
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected_error, result.stderr)
+
+    def test_sherpa_jni_profile_requires_jni_consumer(self) -> None:
+        artifact = self.make_archive(
+            "wrapper-only.aar",
+            [
+                (
+                    "jni/arm64-v8a/libfonix_shim.so",
+                    synthetic_elf(
+                        "arm64-v8a",
+                        soname="libfonix_shim.so",
+                        needed=SHIM_DEPENDENCIES,
+                    ),
+                )
+            ],
+        )
+
+        result = self.run_verifier(
+            "--artifact",
+            str(artifact),
+            "--policy",
+            "sherpa-audit",
+            "--sherpa-library-profile",
+            "jni",
+            "--require-abi",
+            "arm64-v8a",
+            "--quiet",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "JNI profile expects exactly one libsherpa-onnx-jni.so "
+            "for arm64-v8a, found 0",
+            result.stderr,
+        )
 
     def test_final_gate_requires_explicit_16k_alignment_switch(self) -> None:
         artifact = self.make_archive(
@@ -940,6 +1549,56 @@ class VerifyNativeLibrariesTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("non-canonical archive paths: lib", result.stderr)
+
+    def test_directory_inspection_rejects_digest_parse_path_swap(self) -> None:
+        artifact = self.root / "native-input"
+        library_directory = artifact / "jni" / "arm64-v8a"
+        library_directory.mkdir(parents=True)
+        library = library_directory / "libsample.so"
+        original_contents = synthetic_elf(
+            "arm64-v8a",
+            soname="libsample.so",
+        )
+        replacement_contents = synthetic_elf(
+            "arm64-v8a",
+            soname="libsample.so",
+            defined_symbols=("OrtGetApiBase",),
+        )
+        library.write_bytes(original_contents)
+        original_path = self.root / "original-libsample.so"
+        original_sha256_stream = VERIFY_MODULE.sha256_stream
+        swapped = False
+
+        def hash_then_swap(stream: io.BufferedIOBase) -> str:
+            nonlocal swapped
+            digest = original_sha256_stream(stream)
+            if not swapped:
+                library.replace(original_path)
+                library.write_bytes(replacement_contents)
+                swapped = True
+            return digest
+
+        try:
+            with mock.patch.object(
+                VERIFY_MODULE,
+                "sha256_stream",
+                side_effect=hash_then_swap,
+            ):
+                report = VERIFY_MODULE.inspect_directory(artifact)
+        finally:
+            if original_path.exists():
+                if library.exists():
+                    library.unlink()
+                original_path.replace(library)
+
+        self.assertTrue(swapped)
+        self.assertEqual(report["libraries"], [])
+        self.assertEqual(len(report["invalid_libraries"]), 1)
+        self.assertEqual(report["invalid_libraries"][0]["sha256"], "")
+        self.assertIn(
+            "native library changed while being inspected",
+            report["invalid_libraries"][0]["error"],
+        )
 
 
 if __name__ == "__main__":

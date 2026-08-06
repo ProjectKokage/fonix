@@ -4,8 +4,9 @@
 Only loadable native-library locations count. Every counted ``.so`` must be a
 structurally valid ELF shared object whose class and machine match its Android
 ABI. The script inventories hashes, load-segment alignment, SONAME, and
-DT_NEEDED metadata and enforces explicit ownership/final-package policies
-without extracting untrusted archives.
+DT_NEEDED metadata, detects defined ``OrtGetApiBase`` dynamic symbols, and
+enforces explicit ownership/final-package policies without extracting
+untrusted archives.
 """
 
 from __future__ import annotations
@@ -16,8 +17,10 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import struct
 import sys
+import tempfile
 from typing import BinaryIO, Iterable
 import zipfile
 
@@ -25,6 +28,8 @@ import zipfile
 ORT_NAME = "libonnxruntime.so"
 SHIM_NAME = "libfonix_shim.so"
 SHERPA_JNI_NAME = "libsherpa-onnx-jni.so"
+SHERPA_C_API_NAME = "libsherpa-onnx-c-api.so"
+SHERPA_CXX_API_NAME = "libsherpa-onnx-cxx-api.so"
 LIBCXX_NAME = "libc++_shared.so"
 LIBRARY_NAME_RE = re.compile(r"^lib[A-Za-z0-9_.+-]+\.so$")
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -34,6 +39,10 @@ MAX_ELF_DYNAMIC_TABLE_BYTES = 1024 * 1024
 MAX_ELF_DYNAMIC_ENTRIES = 4_096
 MAX_ELF_STRING_TABLE_BYTES = 1024 * 1024
 MAX_ELF_DYNAMIC_STRING_BYTES = 4_096
+MAX_ELF_DYNAMIC_SYMBOLS = 1_000_000
+MAX_ELF_SYMBOL_TABLE_BYTES = 64 * 1024 * 1024
+MAX_ELF_HASH_TABLE_BYTES = 16 * 1024 * 1024
+MAX_ELF_GNU_HASH_CHAIN_STEPS = 2_000_000
 MAX_NATIVE_LIBRARY_BYTES = 512 * 1024 * 1024
 MAX_TOTAL_NATIVE_LIBRARY_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ZIP_COMPRESSION_RATIO = 200
@@ -65,6 +74,7 @@ ANDROID_SYSTEM_LIBRARIES = frozenset(
 )
 
 POLICY_MODES = ("generic", "sherpa-audit", "fonix-standalone-final")
+SHERPA_LIBRARY_PROFILES = ("auto", "jni", "flutter-ffi")
 FLUTTER_AOT_NAME = "libapp.so"
 
 # These are deliberately closed expectations for the exact standalone Fonix
@@ -81,9 +91,15 @@ PT_LOAD = 1
 PT_DYNAMIC = 2
 DT_NULL = 0
 DT_NEEDED = 1
+DT_HASH = 4
 DT_STRTAB = 5
+DT_SYMTAB = 6
 DT_STRSZ = 10
+DT_SYMENT = 11
 DT_SONAME = 14
+DT_GNU_HASH = 0x6FFFFEF5
+SHN_UNDEF = 0
+ORT_API_SYMBOL = b"OrtGetApiBase"
 
 # ABI -> (ELF class, e_machine)
 ANDROID_ABIS: dict[str, tuple[int, int]] = {
@@ -294,6 +310,28 @@ def _virtual_address_to_file_offset(
     return candidates[0]
 
 
+def _virtual_address_file_range(
+    virtual_address: int,
+    load_segments: list[dict],
+) -> tuple[int, int]:
+    candidates: list[tuple[int, int]] = []
+    for segment in load_segments:
+        start = segment["virtualAddress"]
+        file_size = segment["fileSize"]
+        if virtual_address < start:
+            continue
+        delta = virtual_address - start
+        if delta >= file_size:
+            continue
+        candidates.append((segment["offset"] + delta, file_size - delta))
+    if len(candidates) != 1:
+        raise _ElfFormatError(
+            "ELF virtual address does not map uniquely into one file-backed "
+            "PT_LOAD segment"
+        )
+    return candidates[0]
+
+
 def _dynamic_string(string_table: bytes, offset: int, field: str) -> str:
     if offset < 0 or offset >= len(string_table):
         raise _ElfFormatError(f"ELF {field} string offset is out of bounds")
@@ -311,18 +349,201 @@ def _dynamic_string(string_table: bytes, offset: int, field: str) -> str:
     return value
 
 
+def _parse_sysv_hash_symbol_count(
+    stream: BinaryIO,
+    file_size: int,
+    hash_table_address: int,
+    load_segments: list[dict],
+) -> int:
+    header_offset = _virtual_address_to_file_offset(
+        hash_table_address,
+        8,
+        load_segments,
+    )
+    bucket_count, symbol_count = struct.unpack(
+        "<II",
+        _read_at(stream, file_size, header_offset, 8),
+    )
+    if bucket_count < 1 or bucket_count > MAX_ELF_DYNAMIC_SYMBOLS:
+        raise _ElfFormatError("ELF DT_HASH bucket count is outside the bound")
+    if symbol_count < 1 or symbol_count > MAX_ELF_DYNAMIC_SYMBOLS:
+        raise _ElfFormatError("ELF DT_HASH symbol count is outside the bound")
+    table_size = 8 + 4 * (bucket_count + symbol_count)
+    if table_size > MAX_ELF_HASH_TABLE_BYTES:
+        raise _ElfFormatError("ELF DT_HASH table exceeds the size bound")
+    _virtual_address_to_file_offset(
+        hash_table_address,
+        table_size,
+        load_segments,
+    )
+    return symbol_count
+
+
+def _parse_gnu_hash_symbol_count(
+    stream: BinaryIO,
+    file_size: int,
+    *,
+    elf_class: int,
+    hash_table_address: int,
+    load_segments: list[dict],
+) -> int:
+    header_offset = _virtual_address_to_file_offset(
+        hash_table_address,
+        16,
+        load_segments,
+    )
+    bucket_count, symbol_offset, bloom_size, _bloom_shift = struct.unpack(
+        "<IIII",
+        _read_at(stream, file_size, header_offset, 16),
+    )
+    if bucket_count < 1 or bucket_count > MAX_ELF_DYNAMIC_SYMBOLS:
+        raise _ElfFormatError("ELF DT_GNU_HASH bucket count is outside the bound")
+    if symbol_offset < 1 or symbol_offset > MAX_ELF_DYNAMIC_SYMBOLS:
+        raise _ElfFormatError("ELF DT_GNU_HASH symbol offset is outside the bound")
+    if bloom_size < 1 or bloom_size > MAX_ELF_DYNAMIC_SYMBOLS:
+        raise _ElfFormatError("ELF DT_GNU_HASH bloom size is outside the bound")
+
+    word_size = 4 if elf_class == 1 else 8
+    bucket_offset = 16 + bloom_size * word_size
+    prefix_size = bucket_offset + bucket_count * 4
+    if prefix_size > MAX_ELF_HASH_TABLE_BYTES:
+        raise _ElfFormatError("ELF DT_GNU_HASH table prefix exceeds the size bound")
+    prefix_file_offset = _virtual_address_to_file_offset(
+        hash_table_address,
+        prefix_size,
+        load_segments,
+    )
+    prefix = _read_at(stream, file_size, prefix_file_offset, prefix_size)
+    buckets = struct.unpack_from(f"<{bucket_count}I", prefix, bucket_offset)
+    nonzero_buckets = [value for value in buckets if value != 0]
+    if not nonzero_buckets:
+        return symbol_offset
+    if any(value < symbol_offset for value in nonzero_buckets):
+        raise _ElfFormatError(
+            "ELF DT_GNU_HASH bucket precedes the hashed symbol offset"
+        )
+
+    chain_address = hash_table_address + prefix_size
+    chain_file_offset, available_bytes = _virtual_address_file_range(
+        chain_address,
+        load_segments,
+    )
+    maximum_words = min(
+        available_bytes // 4,
+        MAX_ELF_DYNAMIC_SYMBOLS - symbol_offset + 1,
+        MAX_ELF_HASH_TABLE_BYTES // 4,
+    )
+    if maximum_words < 1:
+        raise _ElfFormatError("ELF DT_GNU_HASH chain table is truncated")
+    chain_table = _read_at(
+        stream,
+        file_size,
+        chain_file_offset,
+        maximum_words * 4,
+    )
+
+    maximum_symbol = symbol_offset - 1
+    traversal_steps = 0
+    for bucket in nonzero_buckets:
+        chain_index = bucket - symbol_offset
+        while True:
+            traversal_steps += 1
+            if traversal_steps > MAX_ELF_GNU_HASH_CHAIN_STEPS:
+                raise _ElfFormatError(
+                    "ELF DT_GNU_HASH chain traversal exceeds the bound"
+                )
+            if chain_index >= maximum_words:
+                raise _ElfFormatError(
+                    "ELF DT_GNU_HASH chain is unterminated or out of bounds"
+                )
+            symbol_index = symbol_offset + chain_index
+            maximum_symbol = max(maximum_symbol, symbol_index)
+            chain_value = struct.unpack_from(
+                "<I",
+                chain_table,
+                chain_index * 4,
+            )[0]
+            if chain_value & 1:
+                break
+            chain_index += 1
+
+    symbol_count = maximum_symbol + 1
+    if symbol_count > MAX_ELF_DYNAMIC_SYMBOLS:
+        raise _ElfFormatError("ELF DT_GNU_HASH symbol count exceeds the bound")
+    return symbol_count
+
+
+def _defines_dynamic_symbol(
+    stream: BinaryIO,
+    file_size: int,
+    *,
+    elf_class: int,
+    symbol_table_address: int,
+    symbol_entry_size: int,
+    symbol_count: int,
+    string_table: bytes,
+    load_segments: list[dict],
+    target: bytes,
+) -> bool:
+    expected_entry_size = 16 if elf_class == 1 else 24
+    if symbol_entry_size != expected_entry_size:
+        raise _ElfFormatError(
+            f"ELF DT_SYMENT is {symbol_entry_size}, expected {expected_entry_size}"
+        )
+    table_size = symbol_entry_size * symbol_count
+    if table_size <= 0 or table_size > MAX_ELF_SYMBOL_TABLE_BYTES:
+        raise _ElfFormatError("ELF dynamic symbol table size is outside the bound")
+    table_offset = _virtual_address_to_file_offset(
+        symbol_table_address,
+        table_size,
+        load_segments,
+    )
+    table = _read_at(stream, file_size, table_offset, table_size)
+
+    target_with_terminator = target + b"\0"
+    defines_target = False
+    for index in range(symbol_count):
+        offset = index * symbol_entry_size
+        if elf_class == 1:
+            name_offset = struct.unpack_from("<I", table, offset)[0]
+            section_index = struct.unpack_from("<H", table, offset + 14)[0]
+        else:
+            name_offset = struct.unpack_from("<I", table, offset)[0]
+            section_index = struct.unpack_from("<H", table, offset + 6)[0]
+        if name_offset >= len(string_table):
+            raise _ElfFormatError(
+                f"ELF dynamic symbol {index} name offset is out of bounds"
+            )
+        name_end = string_table.find(
+            b"\0",
+            name_offset,
+            min(len(string_table), name_offset + MAX_ELF_DYNAMIC_STRING_BYTES + 1),
+        )
+        if name_end < 0:
+            raise _ElfFormatError(
+                f"ELF dynamic symbol {index} name is not NUL-terminated within "
+                "the size bound"
+            )
+        if (
+            string_table.startswith(target_with_terminator, name_offset)
+            and section_index != SHN_UNDEF
+        ):
+            defines_target = True
+    return defines_target
+
+
 def _parse_dynamic_metadata(
     stream: BinaryIO,
     file_size: int,
     *,
     elf_class: int,
     program_headers: list[dict],
-) -> tuple[str | None, list[str]]:
+) -> tuple[str | None, list[str], bool]:
     dynamic_segments = [
         segment for segment in program_headers if segment["type"] == PT_DYNAMIC
     ]
     if not dynamic_segments:
-        return None, []
+        return None, [], False
     if len(dynamic_segments) != 1:
         raise _ElfFormatError("ELF must not contain multiple PT_DYNAMIC segments")
     dynamic = dynamic_segments[0]
@@ -351,6 +572,10 @@ def _parse_dynamic_metadata(
 
     string_table_address: int | None = None
     string_table_size: int | None = None
+    symbol_table_address: int | None = None
+    symbol_entry_size: int | None = None
+    sysv_hash_address: int | None = None
+    gnu_hash_address: int | None = None
     soname_offset: int | None = None
     needed_offsets: list[int] = []
     found_null = False
@@ -370,6 +595,22 @@ def _parse_dynamic_metadata(
             if string_table_size is not None:
                 raise _ElfFormatError("ELF PT_DYNAMIC duplicates DT_STRSZ")
             string_table_size = value
+        elif tag == DT_SYMTAB:
+            if symbol_table_address is not None:
+                raise _ElfFormatError("ELF PT_DYNAMIC duplicates DT_SYMTAB")
+            symbol_table_address = value
+        elif tag == DT_SYMENT:
+            if symbol_entry_size is not None:
+                raise _ElfFormatError("ELF PT_DYNAMIC duplicates DT_SYMENT")
+            symbol_entry_size = value
+        elif tag == DT_HASH:
+            if sysv_hash_address is not None:
+                raise _ElfFormatError("ELF PT_DYNAMIC duplicates DT_HASH")
+            sysv_hash_address = value
+        elif tag == DT_GNU_HASH:
+            if gnu_hash_address is not None:
+                raise _ElfFormatError("ELF PT_DYNAMIC duplicates DT_GNU_HASH")
+            gnu_hash_address = value
         elif tag == DT_SONAME:
             if soname_offset is not None:
                 raise _ElfFormatError("ELF PT_DYNAMIC duplicates DT_SONAME")
@@ -379,9 +620,54 @@ def _parse_dynamic_metadata(
     if not found_null:
         raise _ElfFormatError("ELF PT_DYNAMIC table has no DT_NULL terminator")
 
-    has_string_references = soname_offset is not None or bool(needed_offsets)
+    symbol_metadata = (
+        symbol_table_address,
+        symbol_entry_size,
+        sysv_hash_address,
+        gnu_hash_address,
+    )
+    has_symbol_metadata = any(value is not None for value in symbol_metadata)
+    if has_symbol_metadata and (
+        symbol_table_address is None
+        or symbol_entry_size is None
+        or (sysv_hash_address is None and gnu_hash_address is None)
+    ):
+        raise _ElfFormatError(
+            "ELF dynamic symbols require DT_SYMTAB, DT_SYMENT, and a "
+            "DT_HASH or DT_GNU_HASH table"
+        )
+
+    symbol_counts: list[int] = []
+    if sysv_hash_address is not None:
+        symbol_counts.append(
+            _parse_sysv_hash_symbol_count(
+                stream,
+                file_size,
+                sysv_hash_address,
+                load_segments,
+            )
+        )
+    if gnu_hash_address is not None:
+        symbol_counts.append(
+            _parse_gnu_hash_symbol_count(
+                stream,
+                file_size,
+                elf_class=elf_class,
+                hash_table_address=gnu_hash_address,
+                load_segments=load_segments,
+            )
+        )
+    if len(set(symbol_counts)) > 1:
+        raise _ElfFormatError(
+            "ELF DT_HASH and DT_GNU_HASH disagree on the dynamic symbol count"
+        )
+    symbol_count = symbol_counts[0] if symbol_counts else 0
+
+    has_string_references = (
+        soname_offset is not None or bool(needed_offsets) or symbol_count > 0
+    )
     if not has_string_references:
-        return None, []
+        return None, [], False
     if string_table_address is None or string_table_size is None:
         raise _ElfFormatError(
             "ELF dynamic strings require both DT_STRTAB and DT_STRSZ"
@@ -411,7 +697,22 @@ def _parse_dynamic_metadata(
     ]
     if len(needed) != len(set(needed)):
         raise _ElfFormatError("ELF PT_DYNAMIC duplicates a DT_NEEDED entry")
-    return soname, needed
+    defines_ort_api = False
+    if symbol_count:
+        assert symbol_table_address is not None
+        assert symbol_entry_size is not None
+        defines_ort_api = _defines_dynamic_symbol(
+            stream,
+            file_size,
+            elf_class=elf_class,
+            symbol_table_address=symbol_table_address,
+            symbol_entry_size=symbol_entry_size,
+            symbol_count=symbol_count,
+            string_table=string_table,
+            load_segments=load_segments,
+            target=ORT_API_SYMBOL,
+        )
+    return soname, needed, defines_ort_api
 
 
 def inspect_elf(
@@ -520,7 +821,7 @@ def inspect_elf(
                     f"ELF PT_LOAD segment {segment['index']} has incongruent "
                     "file offset and virtual address"
                 )
-        soname, needed = _parse_dynamic_metadata(
+        soname, needed, defines_ort_api = _parse_dynamic_metadata(
             stream,
             file_size,
             elf_class=elf_class,
@@ -571,6 +872,7 @@ def inspect_elf(
             "pageSize16KiBCompatible": compatible_16k,
             "soname": soname,
             "needed": needed,
+            "definesOrtApi": defines_ort_api,
         },
         None,
     )
@@ -700,6 +1002,8 @@ def inspect_zip(path: Path) -> dict:
             if elf_error is None:
                 entry["elf"] = elf_metadata
                 entries.append(entry)
+                if elf_metadata["definesOrtApi"]:
+                    ort_candidates.append(canonical)
             else:
                 invalid_libraries.append({**entry, "error": elf_error})
 
@@ -713,6 +1017,95 @@ def inspect_zip(path: Path) -> dict:
         "invalid_libraries": sorted(invalid_libraries, key=sort_key),
         "libraries": sorted(entries, key=sort_key),
     }
+
+
+def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _snapshot_directory_elf(
+    file_path: Path,
+    abi: str,
+    expected_metadata: os.stat_result,
+) -> tuple[str, dict | None, str | None]:
+    expected_identity = _stable_file_identity(expected_metadata)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(file_path, flags)
+    try:
+        source = os.fdopen(descriptor, "rb", closefd=True)
+        descriptor = -1
+        with source, tempfile.TemporaryFile(mode="w+b") as snapshot:
+            opened_metadata = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened_metadata.st_mode):
+                raise _ElfFormatError("native library must be a regular file")
+            if _stable_file_identity(opened_metadata) != expected_identity:
+                raise _ElfFormatError(
+                    "native library changed while being opened for inspection"
+                )
+
+            copied_bytes = 0
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                copied_bytes += len(chunk)
+                if copied_bytes > expected_metadata.st_size:
+                    raise _ElfFormatError(
+                        "native library changed while being snapshotted"
+                    )
+                snapshot.write(chunk)
+            if copied_bytes != expected_metadata.st_size:
+                raise _ElfFormatError(
+                    "native library changed while being snapshotted"
+                )
+
+            after_copy_metadata = os.fstat(source.fileno())
+            after_copy_path_metadata = os.lstat(file_path)
+            if (
+                _stable_file_identity(after_copy_metadata) != expected_identity
+                or _stable_file_identity(after_copy_path_metadata)
+                != expected_identity
+            ):
+                raise _ElfFormatError(
+                    "native library changed while being snapshotted"
+                )
+
+            snapshot.seek(0)
+            digest = sha256_stream(snapshot)
+            snapshot.seek(0)
+            elf_metadata, elf_error = inspect_elf(
+                snapshot,
+                expected_metadata.st_size,
+                abi,
+            )
+
+            after_inspection_metadata = os.fstat(source.fileno())
+            after_inspection_path_metadata = os.lstat(file_path)
+            if (
+                _stable_file_identity(after_inspection_metadata) != expected_identity
+                or _stable_file_identity(after_inspection_path_metadata)
+                != expected_identity
+            ):
+                raise _ElfFormatError(
+                    "native library changed while being inspected"
+                )
+            return digest, elf_metadata, elf_error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def inspect_directory(path: Path) -> dict:
@@ -745,7 +1138,23 @@ def inspect_directory(path: Path) -> dict:
         if classified is None:
             continue
         abi, name = classified
-        if file_path.is_symlink():
+        try:
+            path_metadata = os.lstat(file_path)
+        except OSError as error:
+            invalid_libraries.append(
+                {
+                    **_library_entry(
+                        path=relative,
+                        abi=abi,
+                        name=name,
+                        size=0,
+                        digest="",
+                    ),
+                    "error": f"could not stat native library: {error}",
+                }
+            )
+            continue
+        if stat.S_ISLNK(path_metadata.st_mode):
             invalid_libraries.append(
                 {
                     **_library_entry(
@@ -760,7 +1169,7 @@ def inspect_directory(path: Path) -> dict:
             )
             continue
 
-        size = file_path.stat().st_size
+        size = path_metadata.st_size
         entry = _library_entry(
             path=relative,
             abi=abi,
@@ -784,14 +1193,26 @@ def inspect_directory(path: Path) -> dict:
             )
             continue
         total_native_bytes += size
-        with file_path.open("rb") as stream:
-            digest = sha256_stream(stream)
-        with file_path.open("rb") as stream:
-            elf_metadata, elf_error = inspect_elf(stream, size, abi)
+        try:
+            digest, elf_metadata, elf_error = _snapshot_directory_elf(
+                file_path,
+                abi,
+                path_metadata,
+            )
+        except (OSError, _ElfFormatError) as error:
+            invalid_libraries.append(
+                {
+                    **entry,
+                    "error": f"could not securely inspect native library: {error}",
+                }
+            )
+            continue
         entry["sha256"] = digest
         if elf_error is None:
             entry["elf"] = elf_metadata
             entries.append(entry)
+            if elf_metadata["definesOrtApi"]:
+                ort_candidates.append(relative)
         else:
             invalid_libraries.append({**entry, "error": elf_error})
 
@@ -820,7 +1241,11 @@ def inspect(path: Path) -> dict:
 
 
 def ort_entries(report: dict) -> list[dict]:
-    return [entry for entry in report["libraries"] if entry["name"] == ORT_NAME]
+    return [
+        entry
+        for entry in report["libraries"]
+        if entry["name"] == ORT_NAME or entry["elf"]["definesOrtApi"]
+    ]
 
 
 def owner_matches(artifact: str, patterns: Iterable[str]) -> bool:
@@ -976,6 +1401,29 @@ def _validate_standalone_fonix(report: dict, required_abis: list[str]) -> list[s
     return errors
 
 
+def _validate_sherpa_consumer(
+    report: dict,
+    entry: dict,
+    *,
+    required_dependencies: frozenset[str],
+) -> list[str]:
+    errors: list[str] = []
+    expected_name = entry["name"]
+    if entry["elf"]["soname"] != expected_name:
+        errors.append(
+            f"{report['artifact']}: {entry['path']} has SONAME "
+            f"{entry['elf']['soname']!r}; expected {expected_name!r}"
+        )
+    missing = sorted(required_dependencies - set(_needed(entry)))
+    if missing:
+        errors.append(
+            f"{report['artifact']}: sherpa shared-runtime library "
+            f"{entry['path']} is missing required DT_NEEDED entries: "
+            + ", ".join(missing)
+        )
+    return errors
+
+
 def _validate_sherpa_audit(report: dict) -> list[str]:
     errors: list[str] = []
     for entry in _entries_named(report, SHIM_NAME):
@@ -989,17 +1437,125 @@ def _validate_sherpa_audit(report: dict) -> list[str]:
                 f"{report['artifact']}: sherpa-audit external shim "
                 f"{entry['path']} must not DT_NEEDED {ORT_NAME}"
             )
-    for entry in _entries_named(report, SHERPA_JNI_NAME):
-        if entry["elf"]["soname"] != SHERPA_JNI_NAME:
-            errors.append(
-                f"{report['artifact']}: {entry['path']} has SONAME "
-                f"{entry['elf']['soname']!r}; expected {SHERPA_JNI_NAME!r}"
+    sherpa_dependencies = {
+        SHERPA_JNI_NAME: frozenset({ORT_NAME}),
+        SHERPA_C_API_NAME: frozenset({ORT_NAME}),
+        SHERPA_CXX_API_NAME: frozenset({SHERPA_C_API_NAME, ORT_NAME}),
+    }
+    for name, required_dependencies in sherpa_dependencies.items():
+        for entry in _entries_named(report, name):
+            errors.extend(
+                _validate_sherpa_consumer(
+                    report,
+                    entry,
+                    required_dependencies=required_dependencies,
+                )
             )
-        if ORT_NAME not in _needed(entry):
-            errors.append(
-                f"{report['artifact']}: sherpa shared-runtime library "
-                f"{entry['path']} must DT_NEEDED {ORT_NAME}"
+    return errors
+
+
+def _validate_sherpa_library_profile(
+    reports: list[dict],
+    required_abis: list[str],
+    selected_profile: str,
+) -> list[str]:
+    consumer_names = frozenset(
+        {SHERPA_JNI_NAME, SHERPA_C_API_NAME, SHERPA_CXX_API_NAME}
+    )
+    entries_by_abi: dict[str, dict[str, list[tuple[str, dict]]]] = {}
+    all_library_abis: set[str] = set()
+    for report in reports:
+        for entry in report["libraries"]:
+            abi = entry["abi"]
+            all_library_abis.add(abi)
+            if entry["name"] not in consumer_names:
+                continue
+            entries_by_abi.setdefault(abi, {}).setdefault(entry["name"], []).append(
+                (report["artifact"], entry)
             )
+
+    if selected_profile == "auto" and not entries_by_abi:
+        # Preserve inventory-only sherpa audits of wrapper/provider inputs.
+        # Once any sherpa consumer is observed, auto still infers and enforces
+        # one complete, unmixed topology for every selected ABI.
+        return []
+
+    if required_abis:
+        profile_abis = sorted(set(required_abis))
+    elif selected_profile == "auto":
+        profile_abis = sorted(entries_by_abi)
+    else:
+        # An explicit profile is a closed audit even if no sherpa library was
+        # observed. Infer the ABI set from the other named inputs so a missing
+        # consumer cannot silently pass.
+        profile_abis = sorted(all_library_abis)
+
+    if not profile_abis:
+        return [
+            "sherpa-audit found no ABI on which to validate a sherpa consumer "
+            f"for library profile {selected_profile!r}"
+        ]
+
+    errors: list[str] = []
+    for abi in profile_abis:
+        by_name = entries_by_abi.get(abi, {})
+        jni_count = len(by_name.get(SHERPA_JNI_NAME, []))
+        c_api_count = len(by_name.get(SHERPA_C_API_NAME, []))
+        cxx_api_count = len(by_name.get(SHERPA_CXX_API_NAME, []))
+
+        effective_profile = selected_profile
+        if selected_profile == "auto":
+            has_jni = jni_count > 0
+            has_flutter_ffi = c_api_count > 0 or cxx_api_count > 0
+            if has_jni and has_flutter_ffi:
+                errors.append(
+                    f"sherpa-audit found mixed JNI and Flutter FFI sherpa "
+                    f"library profiles for {abi}"
+                )
+                continue
+            if has_jni:
+                effective_profile = "jni"
+            elif has_flutter_ffi:
+                effective_profile = "flutter-ffi"
+            else:
+                errors.append(
+                    f"sherpa-audit could not determine a sherpa library "
+                    f"profile for required ABI {abi}"
+                )
+                continue
+
+        if effective_profile == "jni":
+            if jni_count != 1:
+                errors.append(
+                    f"sherpa-audit JNI profile expects exactly one "
+                    f"{SHERPA_JNI_NAME} for {abi}, found {jni_count}"
+                )
+            for forbidden_name, count in (
+                (SHERPA_C_API_NAME, c_api_count),
+                (SHERPA_CXX_API_NAME, cxx_api_count),
+            ):
+                if count:
+                    errors.append(
+                        f"sherpa-audit JNI profile rejects {forbidden_name} "
+                        f"for {abi}; found {count}"
+                    )
+        elif effective_profile == "flutter-ffi":
+            for required_name, count in (
+                (SHERPA_C_API_NAME, c_api_count),
+                (SHERPA_CXX_API_NAME, cxx_api_count),
+            ):
+                if count != 1:
+                    errors.append(
+                        f"sherpa-audit Flutter FFI profile expects exactly one "
+                        f"{required_name} for {abi}, found {count}"
+                    )
+            if jni_count:
+                errors.append(
+                    f"sherpa-audit Flutter FFI profile rejects "
+                    f"{SHERPA_JNI_NAME} for {abi}; found {jni_count}"
+                )
+        else:  # pragma: no cover - argparse constrains the CLI value.
+            raise ValueError(f"unknown sherpa library profile: {effective_profile}")
     return errors
 
 
@@ -1009,12 +1565,27 @@ def _multiple_owner_errors(
 ) -> list[str]:
     owners_by_abi: dict[str, list[tuple[str, dict]]] = {}
     for report in reports:
-        for entry in _entries_named(report, library_name):
+        entries = (
+            ort_entries(report)
+            if library_name == ORT_NAME
+            else _entries_named(report, library_name)
+        )
+        for entry in entries:
             owners_by_abi.setdefault(entry["abi"], []).append(
                 (report["artifact"], entry)
             )
     errors: list[str] = []
     for abi, owners in sorted(owners_by_abi.items()):
+        if library_name == ORT_NAME:
+            entries_by_artifact: dict[str, list[dict]] = {}
+            for artifact, entry in owners:
+                entries_by_artifact.setdefault(artifact, []).append(entry)
+            for artifact, entries in sorted(entries_by_artifact.items()):
+                if len(entries) > 1:
+                    errors.append(
+                        f"{artifact}: multiple ORT runtime candidates for {abi}: "
+                        + ", ".join(sorted(entry["path"] for entry in entries))
+                    )
         distinct_artifacts = sorted({artifact for artifact, _ in owners})
         if len(distinct_artifacts) > 1:
             errors.append(
@@ -1028,6 +1599,12 @@ def validate(reports: list[dict], args: argparse.Namespace) -> list[str]:
     errors: list[str] = []
 
     final_policy = args.policy == "fonix-standalone-final"
+    sherpa_library_profile = getattr(args, "sherpa_library_profile", "auto")
+    if args.policy != "sherpa-audit" and sherpa_library_profile != "auto":
+        errors.append(
+            "--sherpa-library-profile is only valid with "
+            "--policy sherpa-audit"
+        )
     final_gate = args.require_final_single_ort or final_policy
     if final_gate and not args.require_16k_page_alignment:
         errors.append(
@@ -1064,6 +1641,9 @@ def validate(reports: list[dict], args: argparse.Namespace) -> list[str]:
             by_abi: dict[str, list[dict]] = {}
             for entry in ort_entries(report):
                 by_abi.setdefault(entry["abi"], []).append(entry)
+            canonical_by_abi: dict[str, list[dict]] = {}
+            for entry in _entries_named(report, ORT_NAME):
+                canonical_by_abi.setdefault(entry["abi"], []).append(entry)
             present_abis = {entry["abi"] for entry in report["libraries"]}
             required_abis = sorted(
                 set(args.require_abi) | present_abis
@@ -1077,8 +1657,14 @@ def validate(reports: list[dict], args: argparse.Namespace) -> list[str]:
                 count = len(by_abi.get(abi, []))
                 if count != 1:
                     errors.append(
+                        f"{report['artifact']}: expected exactly one valid ORT "
+                        f"runtime candidate for {abi}, found {count}"
+                    )
+                canonical_count = len(canonical_by_abi.get(abi, []))
+                if canonical_count != 1:
+                    errors.append(
                         f"{report['artifact']}: expected exactly one valid "
-                        f"{ORT_NAME} for {abi}, found {count}"
+                        f"{ORT_NAME} for {abi}, found {canonical_count}"
                     )
 
         if args.require_16k_page_alignment:
@@ -1088,6 +1674,15 @@ def validate(reports: list[dict], args: argparse.Namespace) -> list[str]:
             errors.extend(_validate_standalone_fonix(report, args.require_abi))
         elif args.policy == "sherpa-audit":
             errors.extend(_validate_sherpa_audit(report))
+
+    if args.policy == "sherpa-audit":
+        errors.extend(
+            _validate_sherpa_library_profile(
+                reports,
+                args.require_abi,
+                sherpa_library_profile,
+            )
+        )
 
     if args.reject_multiple_ort_owners:
         errors.extend(_multiple_owner_errors(reports, ORT_NAME))
@@ -1127,7 +1722,11 @@ def print_human(reports: list[dict]) -> None:
             print("  No valid native libraries found.")
             continue
         for entry in report["libraries"]:
-            owner = " [ORT]" if entry["name"] == ORT_NAME else ""
+            owner = (
+                " [ORT]"
+                if entry["name"] == ORT_NAME or entry["elf"]["definesOrtApi"]
+                else ""
+            )
             elf = entry["elf"]
             alignments = ",".join(
                 str(segment["alignment"]) for segment in elf["loadSegments"]
@@ -1159,6 +1758,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "Validation policy: generic inventory, sherpa coexistence audit, "
             "or the closed standalone Fonix final-package contract."
+        ),
+    )
+    parser.add_argument(
+        "--sherpa-library-profile",
+        choices=SHERPA_LIBRARY_PROFILES,
+        default="auto",
+        help=(
+            "Expected sherpa native consumer topology for sherpa-audit: infer "
+            "JNI versus Flutter FFI per ABI, or require one exact profile."
         ),
     )
     parser.add_argument(
@@ -1225,6 +1833,7 @@ def main(argv: list[str]) -> int:
     payload = {
         "schema": 4,
         "policy": args.policy,
+        "sherpaLibraryProfile": args.sherpa_library_profile,
         "require16KiBPageAlignment": args.require_16k_page_alignment,
         "reports": reports,
         "errors": errors,
