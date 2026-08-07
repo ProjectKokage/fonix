@@ -2512,6 +2512,9 @@ void DORT_CALL dort_session_options_release(dort_session_options_t* options) {
 
 static void dort_free_names(char** names, size_t count) {
   size_t index = 0u;
+  if (names == NULL) {
+    return;
+  }
   for (index = 0u; index < count; ++index) {
     free(names[index]);
   }
@@ -3640,14 +3643,15 @@ static dort_status_t* dort_initialize_session_metadata(dort_session_t* session) 
   dort_json_builder_t legacy_builder;
   dort_status_t* status = NULL;
   OrtStatus* ort_status = NULL;
+  size_t input_count = 0u;
+  size_t output_count = 0u;
   size_t nodes = 0u;
   int all_tensors = 1;
   memset(&type_builder, 0, sizeof(type_builder));
   memset(&legacy_builder, 0, sizeof(legacy_builder));
-  ort_status = api->SessionGetInputCount(session->session, &session->input_count);
+  ort_status = api->SessionGetInputCount(session->session, &input_count);
   if (ort_status == NULL) {
-    ort_status = api->SessionGetOutputCount(
-        session->session, &session->output_count);
+    ort_status = api->SessionGetOutputCount(session->session, &output_count);
   }
   if (ort_status != NULL) {
     return dort_status_from_ort(
@@ -3656,8 +3660,7 @@ static dort_status_t* dort_initialize_session_metadata(dort_session_t* session) 
         DORT_ERROR_MODEL_INVALID,
         "session_metadata");
   }
-  if (session->input_count > DORT_MAX_IO_COUNT ||
-      session->output_count > DORT_MAX_IO_COUNT) {
+  if (input_count > DORT_MAX_IO_COUNT || output_count > DORT_MAX_IO_COUNT) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM,
         DORT_ERROR_LIMIT_EXCEEDED,
@@ -3665,6 +3668,8 @@ static dort_status_t* dort_initialize_session_metadata(dort_session_t* session) 
         "session_metadata",
         "The model input or output count exceeds the ABI limit.");
   }
+  session->input_count = input_count;
+  session->output_count = output_count;
   if (session->input_count > 0u) {
     session->input_names =
         (char**)calloc(session->input_count, sizeof(*session->input_names));

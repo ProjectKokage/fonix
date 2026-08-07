@@ -52,6 +52,7 @@ static uint32_t run_timed_out = 0u;
 static uint32_t unset_count = 0u;
 static uint32_t unset_while_active = 0u;
 static uint32_t profile_extra_file = 0u;
+static uint32_t profile_invalid_utf8 = 0u;
 
 static OrtStatus* ORT_API_CALL
 fake_create_run_options(OrtRunOptions** out_options) NO_EXCEPTION {
@@ -93,7 +94,14 @@ fake_disable_run_profiling(OrtRunOptions* options) NO_EXCEPTION {
   if (output == NULL) {
     return (OrtStatus*)malloc(1u);
   }
-  if (fwrite("[]", 1u, 2u, output) != 2u) {
+  if (profile_invalid_utf8 != 0u) {
+    static const uint8_t invalid_utf8[] = {0xc3u, 0x28u};
+    if (fwrite(invalid_utf8, 1u, sizeof(invalid_utf8), output) !=
+        sizeof(invalid_utf8)) {
+      (void)fclose(output);
+      return (OrtStatus*)malloc(1u);
+    }
+  } else if (fwrite("[]", 1u, 2u, output) != 2u) {
     (void)fclose(output);
     return (OrtStatus*)malloc(1u);
   }
@@ -348,54 +356,6 @@ dort_status_t* dort_value_wrap_optional_output(dort_runtime_t* runtime,
   return dort_value_wrap_owned(runtime, ort_value, out_value);
 }
 
-int dort_bounded_utf8_length(const char* value, size_t maximum, int allow_empty,
-                             size_t* out_length) {
-  size_t length = 0u;
-  if (value == NULL || out_length == NULL) {
-    return DORT_ERROR_INVALID_ARGUMENT;
-  }
-  length = strlen(value);
-  if (length > maximum || (length == 0u && allow_empty == 0)) {
-    return DORT_ERROR_INVALID_ARGUMENT;
-  }
-  *out_length = length;
-  return DORT_ERROR_NONE;
-}
-
-char* dort_copy_c_string(const char* value, size_t length) {
-  char* copy = NULL;
-  if (value == NULL || length == SIZE_MAX) {
-    return NULL;
-  }
-  copy = (char*)malloc(length + 1u);
-  if (copy == NULL) {
-    return NULL;
-  }
-  memcpy(copy, value, length);
-  copy[length] = '\0';
-  return copy;
-}
-
-dort_status_t* dort_string_copy(const char* value, dort_string_t* out_string) {
-  size_t length = 0u;
-  if (value == NULL || out_string == NULL) {
-    return dort_status_create(DORT_ERROR_DOMAIN_SHIM,
-                              DORT_ERROR_INVALID_ARGUMENT, 0, "string_copy",
-                              "Invalid test string output.");
-  }
-  length = strlen(value);
-  memset(out_string, 0, sizeof(*out_string));
-  out_string->struct_size = (uint32_t)sizeof(*out_string);
-  out_string->private_owner = dort_copy_c_string(value, length);
-  out_string->data = (const uint8_t*)out_string->private_owner;
-  out_string->length = length;
-  return out_string->private_owner == NULL
-             ? dort_status_create(
-                   DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED,
-                   0, "string_copy", "Could not copy the test string.")
-             : NULL;
-}
-
 static void* execute_run(void* opaque_context) {
   run_thread_context_t* context = (run_thread_context_t*)opaque_context;
   const char* output_names[] = {"Y"};
@@ -473,6 +433,21 @@ int main(void) {
             profile_json.private_owner == NULL,
         "a repeated profile finish published stale bytes");
   dort_status_release(status);
+
+  profile_invalid_utf8 = 1u;
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status == NULL, "could not start invalid-UTF-8 profiling");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL, "invalid-UTF-8 profile bytes were accepted");
+  CHECK(dort_status_code(status) == DORT_ERROR_INVALID_UTF8,
+        "invalid-UTF-8 profile returned an unexpected status");
+  CHECK(profile_json.struct_size == (uint32_t)sizeof(profile_json) &&
+            profile_json.data == NULL && profile_json.length == 0u &&
+            profile_json.private_owner == NULL,
+        "invalid-UTF-8 profile published partial output");
+  dort_status_release(status);
+  profile_invalid_utf8 = 0u;
 
   profile_extra_file = 1u;
   status = dort_run_options_profiling_start(options, profile_root);

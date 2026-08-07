@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:fonix/fonix.dart';
@@ -466,6 +467,84 @@ void main() {
         );
       },
     );
+
+    test('oversized maps fail before their entries are read', () {
+      final topLevel = _AdversarialMap(
+        reportedLength: _diagnosticsJson().length + 1,
+        entries: () => throw StateError('top-level entries were read'),
+      );
+      expect(() => OrtDiagnostics.fromJson(topLevel), throwsFormatException);
+      expect(topLevel.entryReads, 0);
+
+      final limits = OrtResourceLimits(maxProviderOptions: 2);
+      final options = _AdversarialMap(
+        reportedLength: limits.maxProviderOptions + 1,
+        entries: () => throw StateError('provider options were read'),
+      );
+      final nested = _diagnosticsJson();
+      _providerJson(nested)['options'] = options;
+      expect(
+        () => OrtDiagnostics.fromJson(nested, limits: limits),
+        throwsFormatException,
+      );
+      expect(options.entryReads, 0);
+    });
+
+    test('dishonest map iteration is stopped at the configured bound', () {
+      final limits = OrtResourceLimits(maxProviderOptions: 2);
+      final options = _AdversarialMap(
+        reportedLength: 0,
+        entries: () sync* {
+          var index = 0;
+          while (true) {
+            yield MapEntry<Object?, Object?>('option${index++}', 'value');
+          }
+        },
+      );
+      final source = _diagnosticsJson();
+      _providerJson(source)['options'] = options;
+
+      expect(
+        () => OrtDiagnostics.fromJson(source, limits: limits),
+        throwsFormatException,
+      );
+      expect(options.entryReads, limits.maxProviderOptions + 1);
+    });
+
+    test('provider diagnostic options enforce the provider text contract', () {
+      OrtDiagnostics decodeOption(String key, String value) {
+        final source = _diagnosticsJson();
+        _providerJson(source)['options'] = <String, String>{key: value};
+        return OrtDiagnostics.fromJson(source);
+      }
+
+      expect(
+        decodeOption('empty_value', '').providers.single.options,
+        <String, String>{'empty_value': ''},
+      );
+
+      expect(
+        () => decodeOption(List<String>.filled(65, 'é').join(), 'value'),
+        throwsFormatException,
+      );
+      expect(
+        () => decodeOption('key', List<String>.filled(2049, 'é').join()),
+        throwsFormatException,
+      );
+      for (final character in const <String>['\u0000', '\n', '\r']) {
+        expect(
+          () => decodeOption('bad${character}key', 'value'),
+          throwsFormatException,
+          reason: 'option keys must reject ${character.codeUnitAt(0)}',
+        );
+        expect(
+          () => decodeOption('key', 'bad${character}value'),
+          throwsFormatException,
+          reason: 'option values must reject ${character.codeUnitAt(0)}',
+        );
+      }
+      expect(() => decodeOption('', 'value'), throwsFormatException);
+    });
   });
 
   group('native value boundary guards', () {
@@ -543,3 +622,54 @@ Map<String, Object?> _diagnosticsJson() => <String, Object?>{
     },
   ],
 };
+
+Map<String, Object?> _providerJson(Map<String, Object?> diagnostics) =>
+    (diagnostics['providers']! as List<Object?>).single as Map<String, Object?>;
+
+final class _AdversarialMap extends MapBase<Object?, Object?> {
+  _AdversarialMap({
+    required this.reportedLength,
+    required Iterable<MapEntry<Object?, Object?>> Function() entries,
+  }) : _entries = entries;
+
+  final int reportedLength;
+  final Iterable<MapEntry<Object?, Object?>> Function() _entries;
+  int entryReads = 0;
+
+  @override
+  int get length => reportedLength;
+
+  @override
+  Iterable<MapEntry<Object?, Object?>> get entries sync* {
+    for (final entry in _entries()) {
+      entryReads += 1;
+      yield entry;
+    }
+  }
+
+  @override
+  Iterable<Object?> get keys => entries.map((entry) => entry.key);
+
+  @override
+  Object? operator [](Object? key) {
+    for (final entry in entries) {
+      if (entry.key == key) return entry.value;
+    }
+    return null;
+  }
+
+  @override
+  void operator []=(Object? key, Object? value) {
+    throw UnsupportedError('Adversarial test map is immutable.');
+  }
+
+  @override
+  void clear() {
+    throw UnsupportedError('Adversarial test map is immutable.');
+  }
+
+  @override
+  Object? remove(Object? key) {
+    throw UnsupportedError('Adversarial test map is immutable.');
+  }
+}

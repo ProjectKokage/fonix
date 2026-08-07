@@ -33,6 +33,7 @@ dort_status_t* DORT_CALL dort_runtime_available_providers_json(
         "The output provider-discovery string is null.");
   }
   memset(out_json, 0, sizeof(*out_json));
+  out_json->struct_size = (uint32_t)sizeof(*out_json);
   if (!dort_runtime_is_valid(runtime)) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM,
@@ -224,6 +225,7 @@ cleanup:
   }
   if (status != NULL) {
     dort_string_release(out_json);
+    out_json->struct_size = (uint32_t)sizeof(*out_json);
   }
   return status;
 }

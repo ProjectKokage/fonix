@@ -146,7 +146,11 @@ final class OrtDiagnostics {
     Map<Object?, Object?> source, {
     OrtResourceLimits limits = OrtResourceLimits.defaults,
   }) {
-    final json = _stringKeyed(source, 'diagnostics');
+    final json = _stringKeyed(
+      source,
+      'diagnostics',
+      maximumEntries: _diagnosticKeys.length,
+    );
     _exactKeys(json, _diagnosticKeys, 'diagnostics');
     final schemaVersion = _integer(json, 'schemaVersion');
     if (schemaVersion != 1) {
@@ -298,7 +302,11 @@ OrtProviderDiagnostics _provider(
   OrtResourceLimits limits,
   int index,
 ) {
-  final json = _stringKeyed(source, 'providers[$index]');
+  final json = _stringKeyed(
+    source,
+    'providers[$index]',
+    maximumEntries: _providerKeys.length,
+  );
   _exactKeys(json, _providerKeys, 'providers[$index]');
   final rawOptions = json['options'];
   if (rawOptions is! Map) {
@@ -307,19 +315,21 @@ OrtProviderDiagnostics _provider(
   final optionMap = _stringKeyed(
     rawOptions.cast<Object?, Object?>(),
     'providers[$index].options',
+    maximumEntries: limits.maxProviderOptions,
   );
-  if (optionMap.length > limits.maxProviderOptions) {
-    throw FormatException('providers[$index] contains too many options.');
-  }
   final options = <String, String>{};
   for (final entry in optionMap.entries) {
-    if (entry.key.isEmpty || entry.key.length > 128 || entry.value is! String) {
+    if (entry.value is! String) {
       throw FormatException('providers[$index] has an invalid option.');
     }
     final value = entry.value! as String;
-    if (value.length > 4096) {
-      throw FormatException('providers[$index] has an oversized option.');
-    }
+    _providerOptionText(entry.key, 'providers[$index] option key', 128);
+    _providerOptionText(
+      value,
+      'providers[$index] option value',
+      4096,
+      allowEmpty: true,
+    );
     options[entry.key] = value;
   }
   return OrtProviderDiagnostics(
@@ -348,7 +358,11 @@ OrtProviderDiagnostics _provider(
 }
 
 OrtSessionDiagnostics _session(Map<Object?, Object?> source) {
-  final json = _stringKeyed(source, 'session');
+  final json = _stringKeyed(
+    source,
+    'session',
+    maximumEntries: _sessionKeys.length,
+  );
   _exactKeys(json, _sessionKeys, 'session');
   return OrtSessionDiagnostics(
     executionMode: _text(json, 'executionMode', 32),
@@ -360,15 +374,43 @@ OrtSessionDiagnostics _session(Map<Object?, Object?> source) {
   );
 }
 
-Map<String, Object?> _stringKeyed(Map<Object?, Object?> source, String field) {
+Map<String, Object?> _stringKeyed(
+  Map<Object?, Object?> source,
+  String field, {
+  required int maximumEntries,
+}) {
+  if (source.length > maximumEntries) {
+    throw FormatException('$field contains too many entries.');
+  }
   final result = <String, Object?>{};
+  var count = 0;
   for (final entry in source.entries) {
+    if (count == maximumEntries) {
+      throw FormatException('$field contains too many entries.');
+    }
+    count += 1;
     if (entry.key is! String) {
       throw FormatException('$field contains a non-string key.');
     }
     result[entry.key! as String] = entry.value;
   }
   return result;
+}
+
+void _providerOptionText(
+  String value,
+  String field,
+  int maximumBytes, {
+  bool allowEmpty = false,
+}) {
+  if ((!allowEmpty && value.isEmpty) ||
+      value.length > maximumBytes ||
+      utf8.encode(value).length > maximumBytes ||
+      value.contains('\u0000') ||
+      value.contains('\n') ||
+      value.contains('\r')) {
+    throw FormatException('$field must be bounded UTF-8 text.');
+  }
 }
 
 void _exactKeys(Map<String, Object?> json, Set<String> keys, String field) {

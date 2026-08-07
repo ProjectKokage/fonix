@@ -223,6 +223,23 @@ static int test_provider_discovery_failure(
   dort_runtime_t* runtime = NULL;
   dort_string_t discovery;
   dort_status_t* status = NULL;
+
+  memset(&discovery, 0xff, sizeof(discovery));
+  status = dort_runtime_available_providers_json(NULL, &discovery);
+  CHECK(
+      discovery.struct_size == (uint32_t)sizeof(discovery) &&
+          discovery.data == NULL && discovery.length == 0u &&
+          discovery.private_owner == NULL,
+      "invalid-runtime provider discovery did not clear its output");
+  CHECK(
+      expect_error(
+          status,
+          DORT_ERROR_DOMAIN_SHIM,
+          DORT_ERROR_INVALID_ARGUMENT,
+          "runtime_available_providers_json",
+          "invalid") == 0,
+      "invalid-runtime provider-discovery assertion failed");
+
   config.library_path_utf8 = bad_path;
   config.allowed_root_utf8 = allowed_root;
   status = dort_runtime_open(&config, &runtime);
@@ -231,7 +248,9 @@ static int test_provider_discovery_failure(
   memset(&discovery, 0xff, sizeof(discovery));
   status = dort_runtime_available_providers_json(runtime, &discovery);
   CHECK(
-      discovery.data == NULL && discovery.private_owner == NULL,
+      discovery.struct_size == (uint32_t)sizeof(discovery) &&
+          discovery.data == NULL && discovery.length == 0u &&
+          discovery.private_owner == NULL,
       "provider-discovery failure did not clear its output");
   CHECK(
       expect_error(

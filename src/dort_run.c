@@ -1321,6 +1321,18 @@ dort_profile_read_and_remove(const char* directory,
     goto profile_read_cleanup;
   }
   bytes[expected_length] = '\0';
+  {
+    size_t utf8_length = 0u;
+    if (dort_bounded_utf8_length(bytes, DORT_MAX_PROVIDER_PROFILE_BYTES, 0,
+                                 &utf8_length) != DORT_ERROR_NONE ||
+        utf8_length != expected_length) {
+      status = dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_INVALID_UTF8, 0,
+          "run_options_profiling_finish",
+          "The run profile is not closed non-empty UTF-8 JSON bytes.");
+      goto profile_read_cleanup;
+    }
+  }
   memset(out_profile_json, 0, sizeof(*out_profile_json));
   out_profile_json->struct_size = (uint32_t)sizeof(*out_profile_json);
   out_profile_json->data = (const uint8_t*)bytes;

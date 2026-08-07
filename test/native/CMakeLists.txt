@@ -208,6 +208,7 @@ add_test(
 add_executable(
   fonix_cancel_during_run_tests
   cancel_during_run_tests.c
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_run.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_status.c"
 )
@@ -216,6 +217,12 @@ target_include_directories(
   PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../../src"
     "${ONNXRUNTIME_INCLUDE_DIR}"
+)
+target_compile_definitions(
+  fonix_cancel_during_run_tests PRIVATE
+  FONIX_RUNTIME_PROFILE_EXTERNAL=1
+  FONIX_RUNTIME_PROFILE="external"
+  FONIX_SHIM_BUILD_ID="native-tests"
 )
 target_link_libraries(fonix_cancel_during_run_tests PRIVATE Threads::Threads)
 fonix_strict_target(fonix_cancel_during_run_tests)

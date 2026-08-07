@@ -4,6 +4,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum {
+  FAKE_SESSION_NULL_METADATA = 0,
+  FAKE_SESSION_OUTPUT_COUNT_ERROR = 1,
+  FAKE_SESSION_OVERSIZED_INPUT_COUNT = 2,
+  FAKE_SESSION_OVERSIZED_OUTPUT_COUNT = 3,
+};
+
+typedef struct fake_session {
+  uint8_t scenario;
+} fake_session_t;
+
 static OrtStatus* ORT_API_CALL fake_create_env(
     OrtLoggingLevel severity,
     const char* log_id,
@@ -145,11 +156,14 @@ static OrtStatus* ORT_API_CALL fake_create_session_from_array(
     size_t model_length,
     const OrtSessionOptions* options,
     OrtSession** out) NO_EXCEPTION {
+  fake_session_t* session = NULL;
   (void)environment;
-  (void)model_data;
-  (void)model_length;
   (void)options;
-  *out = (OrtSession*)malloc(1u);
+  session = (fake_session_t*)calloc(1u, sizeof(*session));
+  if (session != NULL && model_data != NULL && model_length > 0u) {
+    session->scenario = ((const uint8_t*)model_data)[0];
+  }
+  *out = (OrtSession*)session;
   return NULL;
 }
 
@@ -160,16 +174,19 @@ static void ORT_API_CALL fake_release_session(OrtSession* session) NO_EXCEPTION 
 static OrtStatus* ORT_API_CALL fake_input_count(
     const OrtSession* session,
     size_t* out) NO_EXCEPTION {
-  (void)session;
-  *out = 1u;
+  const fake_session_t* fake = (const fake_session_t*)session;
+  *out = fake->scenario == FAKE_SESSION_OVERSIZED_INPUT_COUNT ? 257u : 1u;
   return NULL;
 }
 
 static OrtStatus* ORT_API_CALL fake_output_count(
     const OrtSession* session,
     size_t* out) NO_EXCEPTION {
-  (void)session;
-  *out = 0u;
+  const fake_session_t* fake = (const fake_session_t*)session;
+  *out = fake->scenario == FAKE_SESSION_OVERSIZED_OUTPUT_COUNT ? 257u : 0u;
+  if (fake->scenario == FAKE_SESSION_OUTPUT_COUNT_ERROR) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
   return NULL;
 }
 

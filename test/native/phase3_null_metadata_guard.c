@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
   dort_status_t* status = NULL;
   dort_runtime_config_t native_runtime_config;
   dort_session_config_t native_session_config = session_config();
-  const uint8_t model_data[1] = {0u};
+  uint8_t model_data[1] = {0u};
   const float tensor_data[1] = {1.0f};
   int64_t tensor_shape[1] = {1};
   float copied_data[1] = {0.0f};
@@ -114,6 +114,43 @@ int main(int argc, char** argv) {
       status == NULL && options != NULL,
       "could not create fake session options");
 
+  model_data[0] = 1u;
+  session = (dort_session_t*)(uintptr_t)1u;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(session == NULL, "output-count failure returned a session");
+  CHECK(status != NULL, "output-count failure returned success");
+  CHECK(
+      dort_status_code(status) == DORT_ERROR_MODEL_INVALID,
+      "output-count failure returned the wrong error code");
+  dort_status_release(status);
+  status = NULL;
+
+  model_data[0] = 2u;
+  session = (dort_session_t*)(uintptr_t)1u;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(session == NULL, "oversized input count returned a session");
+  CHECK(status != NULL, "oversized input count returned success");
+  CHECK(
+      dort_status_code(status) == DORT_ERROR_LIMIT_EXCEEDED,
+      "oversized input count returned the wrong error code");
+  dort_status_release(status);
+  status = NULL;
+
+  model_data[0] = 3u;
+  session = (dort_session_t*)(uintptr_t)1u;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(session == NULL, "oversized output count returned a session");
+  CHECK(status != NULL, "oversized output count returned success");
+  CHECK(
+      dort_status_code(status) == DORT_ERROR_LIMIT_EXCEEDED,
+      "oversized output count returned the wrong error code");
+  dort_status_release(status);
+  status = NULL;
+
+  model_data[0] = 0u;
   status = dort_session_create_from_bytes(
       runtime, options, model_data, sizeof(model_data), &session);
   CHECK(session == NULL, "invalid null model metadata returned a session");
