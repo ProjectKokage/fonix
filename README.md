@@ -229,14 +229,14 @@ exact CPU parity, fallback report/rejection, recovery, and deterministic
 cleanup. This is a functional emulator checkpoint, not physical-device,
 performance, thermal, or provider-qualification evidence. API 24 execution, an
 actual 16 KiB runtime, physical-device behavior, AAB split installation,
-x86_64 execution, and QNN remain unproved. Sherpa coexistence now has the exact
-4 KiB Release pair below, but not the required 16 KiB pair or complete
-compatibility manifest. iOS, Linux, and the deferred Windows target-host gaps
-remain explicit release gates.
+x86_64 execution, and QNN remain unproved. Sherpa coexistence has the
+historical exact-artifact 4 KiB runs below, but they cannot promote support
+because their source provenance was defective. iOS, Linux, and the deferred
+Windows target-host gaps remain explicit release gates.
 
-The current sherpa-owned arm64-v8a checkpoint was built from source commit
-`0e4effef837352685ab5ac39cd28e017973fca70`; that tree's
-`MANIFEST.sha256` file has SHA-256
+The historical sherpa-owned arm64-v8a checkpoint was built while the checkout
+reported commit `0e4effef837352685ab5ac39cd28e017973fca70`; its
+`MANIFEST.sha256` file had SHA-256
 `e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
 The static gate produced a 45,070,602-byte R8 Release APK with SHA-256
 `93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`
@@ -270,10 +270,17 @@ This is an exact 4 KiB emulator checkpoint, not API 24, 16 KiB, physical-device,
 AAB-derived-install, performance, distribution, or general Android support
 evidence.
 
-The next development slice is both load orders on a real 16 KiB Android
-environment, followed by four-record compatibility aggregation. After that
-come the iOS arm64 reference app, Linux x86_64 target-host package, and
-cross-platform lifecycle/performance and release stabilization. Android
+These exact APK/static/target results remain factual, but only as historical
+exact-artifact evidence. Commit `0e4effe` omitted required handwritten
+`lib/src/build/native_versions_lock.dart`, and its manifest included generated
+ignored state. No source-final, commit-bound, support-promotion, or
+reproducibility claim may be derived from this checkpoint.
+
+The next development slice is to rebuild from a corrected committed tree and
+rerun `dart-first` and `sherpa-first` on both 4 KiB and 16 KiB environments,
+then aggregate those four fresh records. After that come the iOS arm64
+reference app, Linux x86_64 target-host package, and cross-platform
+lifecycle/performance and release stabilization. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

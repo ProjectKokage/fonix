@@ -6,7 +6,10 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -270,6 +273,83 @@ class _EvidenceFixture:
 
 
 class SourceChecksumManifestTests(unittest.TestCase):
+    def test_git_archive_admits_only_the_handwritten_nested_build_source(
+        self,
+    ) -> None:
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git is required to exercise archive semantics")
+        repository_root = CI_DIRECTORY.parents[1]
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            repository = temporary_root / "repository"
+            repository.mkdir()
+            (repository / ".gitignore").write_bytes(
+                (repository_root / ".gitignore").read_bytes()
+            )
+            tracked_sources = {
+                "lib/src/build/native_versions_lock.dart": b"handwritten\n",
+                "templates/android/sherpa_reference_app/lib/main.dart": (
+                    b"void main() {}\n"
+                ),
+            }
+            generated_state = {
+                "lib/src/build/generated.dart": b"generated\n",
+                "lib/src/build/cache/output.bin": b"generated\n",
+                "templates/android/sherpa_reference_app/build/app-release.apk": (
+                    b"generated\n"
+                ),
+                "templates/android/sherpa_reference_app/.dart_tool/package_config.json": (
+                    b"generated\n"
+                ),
+            }
+            for relative, contents in {**tracked_sources, **generated_state}.items():
+                path = repository.joinpath(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(contents)
+            subprocess.run(
+                [git, "init", "--quiet"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                [git, "add", "--all"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            tracked = subprocess.run(
+                [git, "ls-files", "-z"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            ).stdout.decode("utf-8").split("\0")
+            self.assertEqual(
+                {path for path in tracked if path},
+                {".gitignore", *tracked_sources},
+            )
+            tree = subprocess.run(
+                [git, "write-tree"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            archive = temporary_root / "source.tar"
+            subprocess.run(
+                [git, "archive", "--format=tar", f"--output={archive}", tree],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            with tarfile.open(archive, "r:") as stream:
+                archived = {member.name for member in stream.getmembers()}
+            for relative in tracked_sources:
+                self.assertIn(relative, archived)
+            for relative in generated_state:
+                self.assertNotIn(relative, archived)
+
     def test_generation_is_sorted_deterministic_and_checkable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
@@ -423,6 +503,106 @@ class SourceChecksumManifestTests(unittest.TestCase):
                 paths,
                 tuple(sorted(f"example/{relative}" for relative in included)),
             )
+
+    def test_sherpa_template_generated_state_matches_a_clean_source_tree(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            core_source = repository / "lib/src/build/native_versions_lock.dart"
+            core_source.parent.mkdir(parents=True)
+            core_source.write_bytes(b"handwritten native lock parser\n")
+            template = repository / "templates/android/sherpa_reference_app"
+            committed_sources = {
+                "lib/main.dart": b"void main() {}\n",
+                ".dart_tool-copy/package_config.json": b"committed lookalike\n",
+                "build-copy/result.txt": b"committed lookalike\n",
+                "android/.gradle-copy/state": b"committed lookalike\n",
+                "android/reference.iml.backup": b"committed lookalike\n",
+            }
+            for relative, contents in committed_sources.items():
+                path = template.joinpath(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(contents)
+
+            clean_manifest = source_checksum_manifest.build_manifest(repository)
+
+            generated_directories = (
+                ".dart_tool",
+                ".idea",
+                ".sherpa-static-evidence",
+                "android/.gradle",
+                "android/.kotlin",
+                "android/app/.cxx",
+                "android/captures",
+                "build",
+            )
+            for relative in generated_directories:
+                path = template.joinpath(*relative.split("/")) / "generated.bin"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"generated\n")
+            generated_files = (
+                ".flutter-plugins-dependencies",
+                "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+                "android/local.properties",
+                "android/reference.iml",
+            )
+            for relative in generated_files:
+                path = template.joinpath(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"generated\n")
+
+            worktree_manifest = source_checksum_manifest.build_manifest(repository)
+
+            self.assertEqual(worktree_manifest, clean_manifest)
+            source_paths = {
+                path
+                for path, _ in source_checksum_manifest.parse_manifest(
+                    worktree_manifest
+                )
+            }
+            self.assertIn("lib/src/build/native_versions_lock.dart", source_paths)
+            self.assertEqual(
+                source_paths,
+                {
+                    "lib/src/build/native_versions_lock.dart",
+                    *(
+                        f"templates/android/sherpa_reference_app/{relative}"
+                        for relative in committed_sources
+                    ),
+                },
+            )
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not portable on Windows")
+    def test_links_at_ignored_sherpa_template_paths_are_rejected(self) -> None:
+        ignored_paths = (
+            (".dart_tool", True),
+            ("build", True),
+            (".flutter-plugins-dependencies", False),
+            ("android/local.properties", False),
+        )
+        for relative, target_is_directory in ignored_paths:
+            with (
+                self.subTest(relative=relative),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                repository = Path(temporary)
+                template = repository / "templates/android/sherpa_reference_app"
+                template.mkdir(parents=True)
+                target = repository / "target"
+                if target_is_directory:
+                    target.mkdir()
+                else:
+                    target.write_bytes(b"generated\n")
+                link = template.joinpath(*relative.split("/"))
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(target, target_is_directory=target_is_directory)
+
+                with self.assertRaisesRegex(
+                    source_checksum_manifest.SourceManifestError,
+                    "symbolic link|regular file, not a link",
+                ):
+                    source_checksum_manifest.source_paths(repository)
 
     @unittest.skipIf(os.name == "nt", "symlink creation is not portable on Windows")
     def test_links_at_ignored_example_paths_are_rejected(self) -> None:
@@ -696,6 +876,10 @@ class ReleaseEvidenceWorkflowTests(unittest.TestCase):
         self.assertIn("Offline deterministic release-evidence verification", section)
         self.assertIn("test_release_evidence.py", section)
         self.assertIn("source_checksum_manifest.py check", section)
+        self.assertIn("Verify the committed source archive manifest", section)
+        self.assertIn("git archive --format=tar --output=\"$archive\" HEAD", section)
+        self.assertIn('--repository "$archive_root"', section)
+        self.assertIn('--manifest "$archive_root/MANIFEST.sha256"', section)
         self.assertNotIn("curl ", section)
         self.assertNotIn("wget ", section)
         self.assertNotIn("pub get", section)

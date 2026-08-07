@@ -209,11 +209,14 @@ native inputs pass the static profile and 16 KiB checks. No real sherpa APK
 load-order/lifecycle record exists outside the exact 4 KiB pair below, so no
 complete coexistence matrix is inferred from the tooling checkpoint.
 
-Source commit `0e4effef837352685ab5ac39cd28e017973fca70` contains the
-real bounded adapters, authoritative lifecycle sink, deterministic fixtures,
-strict asset loading, and trusted one-tuple runner. Its `MANIFEST.sha256` file
-has SHA-256
+The historical checkpoint ran while the checkout reported commit
+`0e4effef837352685ab5ac39cd28e017973fca70`; its `MANIFEST.sha256` file had
+SHA-256
 `e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
+while the manifest included generated ignored state. The exact APK/static/4 KiB
+results below remain historical exact-artifact evidence, but establish no
+source-final, commit-bound, reproducibility, or support-promotion claim.
 The runtime-provisioned macOS arm64 gate statically audited all eight assets
 and the single-ORT graph in a 45,070,602-byte arm64-v8a R8 Release APK
 (`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`)
@@ -460,9 +463,10 @@ requirements before promoting the corresponding support rows; a cross-build,
 source test, static package audit, or tiny emulator fixture must not be
 reported as a substitute.
 
-The active target roadmap is both sherpa load orders on an actual 16 KiB
-environment, followed by four-record aggregation. After that come iOS arm64,
-Linux x86_64, and stabilization/release work. Android aligned/QNN device work
+The active target roadmap starts with a corrected committed-tree rebuild and
+fresh sherpa `dart-first` and `sherpa-first` runs on both 4 KiB and 16 KiB,
+followed by four-record aggregation. After that come iOS arm64, Linux x86_64,
+and stabilization/release work. Android aligned/QNN device work
 is deferred until its exact licensed SDK/hardware tuple exists. All Windows
 target-host, provider, final-app/package, installer, and clean-machine work is
 deferred until a Windows environment exists. Their portable/static/source,

@@ -6,16 +6,15 @@ The coding agent should implement vertical slices that produce runnable packaged
 
 The current development sequence is narrower than the phase inventory below:
 
-The completed macOS arm64 CPU, Android arm64 CPU, Android arm64 XNNPACK
-functional emulator, and Android sherpa exact Release static plus two-load-
-order 4 KiB gates are standing regressions and must stay green. The XNNPACK
-checkpoint is not provider qualification, and the sherpa checkpoint is limited
-to its exact API 35 arm64/4096-byte emulator tuple.
+The completed macOS arm64 CPU, Android arm64 CPU, and Android arm64 XNNPACK
+functional emulator gates are standing regressions and must stay green. The
+prior Android sherpa static and two-load-order 4 KiB results are historical
+exact-artifact evidence only and cannot promote support.
 
-1. run the same exact Android sherpa APK through `dart-first` and
-   `sherpa-first` on an actual 16 KiB environment, retain trusted-runner
-   provenance, validate those two raw schema-2 receipts into schema-1 records,
-   and aggregate all four 4 KiB/16 KiB records into the schema-2 compatibility
+1. rebuild the Android sherpa APK from a corrected committed tree, run
+   `dart-first` and `sherpa-first` on both 4 KiB and 16 KiB environments,
+   retain trusted-runner provenance, validate all four raw schema-2 receipts,
+   and aggregate the four fresh records into the schema-2 compatibility
    manifest; offline record validation does not authenticate target origin;
 2. produce the iOS arm64 CPU/CoreML reference application; verify final
    simulator packaging/inference first, then physical-device lifecycle,
@@ -304,10 +303,14 @@ binds the exact sherpa-owned Flutter FFI APK, evidence process, fixtures,
 alternating workload, and lifecycle, emits schema-1 validation records, and
 requires four current records before schema-2 aggregation.
 
-Source commit `0e4effef837352685ab5ac39cd28e017973fca70` contains the real
-bounded Fonix/Silero-VAD adapters, lifecycle sink, deterministic assets, and
-trusted runner; its `MANIFEST.sha256` file has SHA-256
+The historical checkpoint ran while the checkout reported commit
+`0e4effef837352685ab5ac39cd28e017973fca70`; its `MANIFEST.sha256` file had
+SHA-256
 `e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
+while the manifest included generated ignored state. The exact APK/static/4 KiB
+results below remain historical exact-artifact evidence, but establish no
+source-final, commit-bound, reproducibility, or support-promotion claim.
 The macOS arm64 gate produced a 45,070,602-byte arm64-v8a R8 Release APK
 (`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`)
 and 26,045,592-byte base-only AAB
@@ -333,8 +336,8 @@ and
 `414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
 `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
 Capture provenance is `trusted-adb-capture`; schema-1 validation remains
-`offline-consistency-only`. Phase 7 is still partial: both real 16 KiB load
-orders and four-record aggregation are next. API 24, physical-device,
+`offline-consistency-only`. Phase 7 is still partial: a corrected rebuild and
+fresh 4 KiB/16 KiB four-record matrix are next. API 24, physical-device,
 AAB-derived-install, performance, and distribution evidence remain open.
 
 ## Phase 8: desktop accelerated flavors

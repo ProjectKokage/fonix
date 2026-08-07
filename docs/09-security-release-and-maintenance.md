@@ -272,6 +272,9 @@ Generation rejects unknown top-level entries, links, unsafe paths, special
 files, and configured size/count overflows. Verification requires the exact
 sorted manifest bytes and the exact current closed source file set; it is not a
 best-effort check of only the paths already listed.
+CI repeats verification from a freshly extracted `git archive HEAD`, so ignored
+worktree state and source files that were never committed cannot satisfy the
+release-evidence gate.
 
 For one lock-selected native artifact, generate audit metadata and an SPDX 2.3
 JSON SBOM from the resolver's staged directory:

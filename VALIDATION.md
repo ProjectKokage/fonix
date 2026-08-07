@@ -14,7 +14,7 @@ remains in this snapshot. The macOS gate applications and independently
 audited Android arm64-v8a Release APKs load and execute their exact packaged
 CPU paths. A separate Android profile build also passes the closed XNNPACK
 functional assignment/parity/fallback/recovery path on the named API 35
-arm64/4096-byte emulator. The source-final sherpa-owned APK also passed trusted
+arm64/4096-byte emulator. A historical sherpa-owned APK also passed trusted
 `dart-first` and `sherpa-first` captures on that exact emulator tuple, with
 runtime negotiation, two alternating cycles, cancellation, stale suppression,
 recovery, both disposal orders, and cleanup bound to the installed APK.
@@ -63,7 +63,7 @@ the active documentation:
   and a trusted UID/PID-bound one-tuple target runner. Its runtime-provisioned
   staged gate binds the complete hosted dependency trees, generated plugin
   graph, all eight qualification assets, raw native inputs, and one exact R8
-  Release APK/base-only-AAB static pair. Its source-final APK has separate
+  Release APK/base-only-AAB static pair. That exact APK has separate
   trusted 4 KiB captures for both load orders; the corresponding validator
   records remain explicitly offline-consistency-only.
 
@@ -101,8 +101,8 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Sherpa-owned Android arm64 source-final package and 4 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures then passed on the exact API 35 arm64-v8a/4096-byte emulator, with verified uninstall after each run |
-| Closed source checksum manifest | Regenerated from and verified against this final tree |
+| Historical sherpa-owned Android arm64 package and 4 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures then passed on the exact API 35 arm64-v8a/4096-byte emulator, with verified uninstall after each run; source provenance was defective |
+| Closed source checksum manifest | Prior result invalidated; corrected committed-tree regeneration is required |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
 real-runtime, fake-runtime, exact-archive, cross-build, and CoreML cases were
@@ -302,11 +302,15 @@ sherpa-coexistence, QNN, or XNNPACK provider-qualification evidence.
 
 ## Android sherpa 4 KiB target evidence
 
-The bounded qualification path landed in `635e97d`, and the source-final build
-and target captures are bound to implementation commit
-`0e4effef837352685ab5ac39cd28e017973fca70`. The source tree's
+The bounded qualification path landed in `635e97d`. The historical build ran
+while the checkout reported implementation commit
+`0e4effef837352685ab5ac39cd28e017973fca70`. Its
 `MANIFEST.sha256` file had SHA-256
 `e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
+while the manifest included generated ignored state. The exact APK/static/4 KiB
+results below remain historical exact-artifact evidence, but establish no
+source-final, commit-bound, reproducibility, or support-promotion claim.
 The runtime-provisioned gate copied the scaffold outside the checkout,
 resolved the exact lock offline, verified all five hosted sherpa package trees
 and generated four-plugin Android graph, passed 50 staged Flutter tests plus
@@ -352,9 +356,10 @@ remains `offline-consistency-only`. This evidence is limited to the exact
 API 35 emulator, arm64-v8a, Release APK, and 4 KiB environment. It does not
 prove API 24 execution, an actual 16 KiB runtime, a physical device, an
 AAB-derived installed split, performance, signing, distribution, or another
-tuple. The next evidence slice is both load orders on a real 16 KiB Android
-environment, followed by iOS arm64 and Linux x86_64 target-host work. Android
-QNN and Windows target-host work remain deferred.
+tuple. The next evidence slice is a corrected committed-tree rebuild and fresh
+`dart-first` and `sherpa-first` runs on both 4 KiB and 16 KiB, followed by
+four-record aggregation. Android QNN and Windows target-host work remain
+deferred.
 
 ## Required CI coverage
 
@@ -370,7 +375,7 @@ clean external copy after the independent bundle audit.
 
 Android auditor/orchestration/target-runner tamper tests run in the Python CI
 collection. The standalone Android Gradle package gates and CPU/XNNPACK
-emulator receipts, plus the sherpa source-final static gate and both 4 KiB
+emulator receipts, plus the historical sherpa static gate and both 4 KiB
 trusted target captures, were run locally with explicitly provisioned
 revision-pinned, byte-pinned, and version-gated inputs described above. They
 are not yet hosted CI lanes or reproducible release builds, and Gradle

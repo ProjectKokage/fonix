@@ -74,6 +74,14 @@ IGNORED_SOURCE_DIRECTORIES = frozenset(
         "example/android/captures",
         "example/build",
         "example/macos/Flutter/ephemeral",
+        "templates/android/sherpa_reference_app/.dart_tool",
+        "templates/android/sherpa_reference_app/.idea",
+        "templates/android/sherpa_reference_app/.sherpa-static-evidence",
+        "templates/android/sherpa_reference_app/android/.gradle",
+        "templates/android/sherpa_reference_app/android/.kotlin",
+        "templates/android/sherpa_reference_app/android/app/.cxx",
+        "templates/android/sherpa_reference_app/android/captures",
+        "templates/android/sherpa_reference_app/build",
     }
 )
 IGNORED_SOURCE_FILES = frozenset(
@@ -81,9 +89,15 @@ IGNORED_SOURCE_FILES = frozenset(
         "example/.flutter-plugins-dependencies",
         "example/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
         "example/android/local.properties",
+        "templates/android/sherpa_reference_app/.flutter-plugins-dependencies",
+        "templates/android/sherpa_reference_app/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+        "templates/android/sherpa_reference_app/android/local.properties",
     }
 )
 IGNORED_EXAMPLE_IDE_FILE_SUFFIXES = (".iml", ".ipr", ".iws")
+SHERPA_REFERENCE_TEMPLATE_ANDROID_PREFIX = (
+    "templates/android/sherpa_reference_app/android/"
+)
 MANIFEST_NAME = "MANIFEST.sha256"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _MANIFEST_LINE = re.compile(r"^([0-9a-f]{64})  \./(.+)$")
@@ -99,6 +113,9 @@ def _is_ignored_source_file(relative: str) -> bool:
         and PurePosixPath(relative).name.endswith(
             IGNORED_EXAMPLE_IDE_FILE_SUFFIXES
         )
+    ) or (
+        relative.startswith(SHERPA_REFERENCE_TEMPLATE_ANDROID_PREFIX)
+        and PurePosixPath(relative).suffix == ".iml"
     )
 
 

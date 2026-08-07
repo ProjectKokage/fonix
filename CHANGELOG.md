@@ -46,14 +46,18 @@
   with Flutter revision
   `bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. The exact
   R8 Release APK/AAB pair and all eight qualification assets were audited.
-- Rebuilt the source-final sherpa-owned Release package from implementation
-  commit `0e4effef837352685ab5ac39cd28e017973fca70`, then passed trusted
+- Built a sherpa-owned Release package while the checkout reported
+  implementation commit `0e4effef837352685ab5ac39cd28e017973fca70`, then passed trusted
   `dart-first` and `sherpa-first` captures with the exact
   `93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`
   APK on an API 35 arm64-v8a/4 KiB emulator. Both two-cycle workload and full
   cancellation/stale/recovery/disposal contracts passed, and the package was
   uninstalled with verified absence after each run. Validator records remain
-  `offline-consistency-only`.
+  `offline-consistency-only`. This is retained as historical exact-artifact
+  evidence only: that commit omitted required handwritten
+  `lib/src/build/native_versions_lock.dart`, while its source manifest included
+  generated ignored state. It therefore establishes no source-final,
+  commit-bound, reproducibility, or support-promotion claim.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
   assignment/parity on macOS arm64. The Android XNNPACK result is limited to an
   API 35 arm64/4 KiB emulator functional checkpoint; API 24/16 KiB/physical-

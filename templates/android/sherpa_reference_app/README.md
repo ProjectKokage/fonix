@@ -7,11 +7,14 @@ single ONNX Runtime packaged by sherpa-onnx.
 
 ## Current evidence status
 
-This checkpoint includes the real bounded qualification path, an exact
-source-final arm64-v8a R8 Release APK/base-only-AAB static package audit, and
-trusted `dart-first` and `sherpa-first` captures on an API 35 arm64-v8a/4 KiB
-emulator. The source-final build and captures bind implementation commit
-`0e4effef837352685ab5ac39cd28e017973fca70`.
+This historical checkpoint includes an exact arm64-v8a R8 Release
+APK/base-only-AAB static package audit and trusted `dart-first` and
+`sherpa-first` captures on an API 35 arm64-v8a/4 KiB emulator. It is exact-
+artifact evidence only. The checkout reported implementation commit
+`0e4effef837352685ab5ac39cd28e017973fca70`, but that commit omitted required
+handwritten `lib/src/build/native_versions_lock.dart`, while its source
+manifest included generated ignored state. The checkpoint therefore supports
+no source-final, commit-bound, reproducibility, or support-promotion claim.
 
 The passing gate ran on macOS arm64 with Flutter revision
 `bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It bound the
@@ -473,9 +476,10 @@ installed by that invocation. It has succeeded for both load orders on the
 exact 4 KiB tuple recorded above; that evidence does not transfer to 16 KiB or
 another target.
 
-The next target steps are both `dart-first` and `sherpa-first` on a real
-16 KiB Android environment. The repository roadmap then moves to iOS arm64 and
-Linux x86_64 target-host work. Android aligned-build/QNN target qualification
+The next target step is a corrected committed-tree rebuild followed by fresh
+`dart-first` and `sherpa-first` runs on both 4 KiB and 16 KiB Android
+environments and four-record aggregation. The roadmap then moves to iOS arm64
+and Linux x86_64 target-host work. Android aligned-build/QNN target qualification
 and all Windows target-host, provider/DirectML, final-application/package,
 installer, and clean-machine qualification remain deferred; existing static,
 source, cross-build, and security checks remain mandatory.

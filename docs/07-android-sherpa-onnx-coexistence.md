@@ -594,12 +594,14 @@ not supersede the four-record APK runtime matrix. The preliminary
 `sherpa-audit` policy alone is not this gate, and no AAB runtime claim exists
 until a delivered split is installed and exercised.
 
-Runtime-provisioned 4 KiB target checkpoint (2026-08-07): source commit
-`0e4effef837352685ab5ac39cd28e017973fca70` contains the real bounded Fonix
-process-runtime and sherpa Silero VAD adapters, authoritative lifecycle sink,
-deterministic fixtures, strict asset gate, and trusted one-tuple runner. Its
-`MANIFEST.sha256` file has SHA-256
+Historical runtime-provisioned 4 KiB target checkpoint (2026-08-07): the
+checkout reported commit `0e4effef837352685ab5ac39cd28e017973fca70`, and its
+`MANIFEST.sha256` file had SHA-256
 `e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
+while the manifest included generated ignored state. The exact APK/static/4 KiB
+results below remain historical exact-artifact evidence, but establish no
+source-final, commit-bound, reproducibility, or support-promotion claim.
 On macOS arm64, the locked gate provisioned all eight exact qualification
 assets and audited the single-ORT graph in a 45,070,602-byte arm64-v8a R8
 Release APK with SHA-256
@@ -708,7 +710,7 @@ first development slice is arm64-v8a Release:
 | Runtime mode | sherpa-owned Flutter FFI shared runtime; aligned custom deferred |
 | ORT compatibility | supported API, intentionally unsupported API |
 | Provider | sherpa-owned CPU baseline; QNN aligned qualification deferred |
-| Packaging | exact APK runtime validation plus the matching APK/base-only-AAB static gate; both 4 KiB load orders passed against one exact audited Release APK, while both real 16 KiB load orders and four-record aggregation remain open; delivered-split runtime later |
+| Packaging | historical exact-artifact APK/static/4 KiB results only; rebuild from the corrected committed tree, rerun both load orders on 4 KiB and 16 KiB, and aggregate four fresh records; delivered-split runtime later |
 | Page size | 4 KB and 16 KB environment |
 | Workload | 2--64 strict Fonix-reference/Silero-VAD cycles, starting with Fonix |
 | Lifecycle | native Fonix cancellation settlement, between-frame VAD cancellation, stale suppression, recovery, both disposal orders, double disposal, zero pending work |

@@ -110,6 +110,18 @@ jobs:
         run: >-
           python -B tool/ci/source_checksum_manifest.py check
           --repository . --manifest MANIFEST.sha256
+      - name: Verify the committed source archive manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/fonix-source.tar"
+          archive_root="$RUNNER_TEMP/fonix-source"
+          mkdir "$archive_root"
+          git archive --format=tar --output="$archive" HEAD
+          tar -xf "$archive" -C "$archive_root"
+          python -B "$archive_root/tool/ci/source_checksum_manifest.py" check \
+            --repository "$archive_root" \
+            --manifest "$archive_root/MANIFEST.sha256"
 
   phase3-fixture-bytes:
     name: Phase-3 deterministic fixture bytes (${{ matrix.host }})

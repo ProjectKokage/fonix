@@ -6,6 +6,9 @@ coverage/
 
 # Native and audit-tool build products.
 build/
+!/lib/src/build/
+/lib/src/build/*
+!/lib/src/build/native_versions_lock.dart
 cmake-build-*/
 __pycache__/
 *.py[cod]
