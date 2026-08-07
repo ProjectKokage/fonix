@@ -2096,6 +2096,10 @@ List<String> _validateWorkerOutputNames({
   required List<String>? supplied,
   required List<String> knownNames,
 }) {
+  if (supplied != null &&
+      (supplied.isEmpty || supplied.length > knownNames.length)) {
+    throw ArgumentError('At least one known worker output is required.');
+  }
   final List<String> selected = supplied == null
       ? List<String>.of(knownNames)
       : List<String>.of(supplied);

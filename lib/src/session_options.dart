@@ -41,6 +41,14 @@ final class OrtSessionOptions {
       throw RangeError.range(logVerbosity, 0, 4, 'logVerbosity');
     }
     _text(sessionLogId, 'sessionLogId', 128);
+    if (providers.length > limits.maxProviders) {
+      throw RangeError.range(
+        providers.length,
+        0,
+        limits.maxProviders,
+        'providers.length',
+      );
+    }
     if (enableProfiling != (profilePathPrefix != null)) {
       throw ArgumentError(
         'enableProfiling and profilePathPrefix must be supplied together.',
@@ -102,14 +110,6 @@ final class OrtSessionOptions {
           );
         }
       }
-    }
-    if (providers.length > limits.maxProviders) {
-      throw RangeError.range(
-        providers.length,
-        0,
-        limits.maxProviders,
-        'providers.length',
-      );
     }
     final effectiveProviders = providers.isEmpty
         ? <OrtExecutionProvider>[OrtExecutionProvider.cpu()]

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -17,6 +18,29 @@ OrtIsolateTensor _tensor(List<double> values) =>
       values: Float32List.fromList(values),
       shape: <int>[values.length],
     );
+
+final class _UnreadableList<T> extends ListBase<T> {
+  _UnreadableList(this._length);
+
+  final int _length;
+  int elementReads = 0;
+
+  @override
+  int get length => _length;
+
+  @override
+  set length(int value) => throw UnsupportedError('immutable test list');
+
+  @override
+  T operator [](int index) {
+    elementReads += 1;
+    throw StateError('oversized list elements must not be read');
+  }
+
+  @override
+  void operator []=(int index, T value) =>
+      throw UnsupportedError('immutable test list');
+}
 
 void main() {
   group('worker option protocol', () {
@@ -260,6 +284,42 @@ void main() {
       );
       await active.result;
       await worker.close();
+    });
+
+    test('rejects excess outputs before reading caller elements', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting();
+      final OrtSessionPool pool = createOrtSessionPoolForTesting(
+        <OrtIsolateSession>[worker],
+      );
+      final _UnreadableList<String> outputs = _UnreadableList<String>(2);
+      try {
+        expect(
+          () => worker.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[1]),
+            },
+            outputNames: outputs,
+          ),
+          throwsArgumentError,
+        );
+        expect(outputs.elementReads, 0);
+        expect(worker.outstandingRuns, 0);
+
+        expect(
+          () => pool.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[2]),
+            },
+            outputNames: outputs,
+          ),
+          throwsArgumentError,
+        );
+        expect(outputs.elementReads, 0);
+        expect(pool.outstandingRuns, 0);
+      } finally {
+        await pool.close();
+      }
     });
 
     test('bounds aggregate outstanding input bytes', () async {

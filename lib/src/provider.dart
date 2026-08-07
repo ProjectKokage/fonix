@@ -404,6 +404,11 @@ final class OrtExecutionProvider {
     bool disableDynamicShapes = false,
     OrtProviderRequirement requirement = OrtProviderRequirement.preferred,
   }) {
+    if (devices.length > OrtOpenVinoDevice.values.length) {
+      throw ArgumentError(
+        'OpenVINO device selection exceeds the closed device domain.',
+      );
+    }
     final List<OrtOpenVinoDevice> copiedDevices = List<OrtOpenVinoDevice>.of(
       devices,
     );

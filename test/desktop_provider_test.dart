@@ -1,7 +1,31 @@
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:fonix/fonix.dart';
 import 'package:test/test.dart';
+
+final class _UnreadableList<T> extends ListBase<T> {
+  _UnreadableList(this._length);
+
+  final int _length;
+  int elementReads = 0;
+
+  @override
+  int get length => _length;
+
+  @override
+  set length(int value) => throw UnsupportedError('immutable test list');
+
+  @override
+  T operator [](int index) {
+    elementReads += 1;
+    throw StateError('oversized list elements must not be read');
+  }
+
+  @override
+  void operator []=(int index, T value) =>
+      throw UnsupportedError('immutable test list');
+}
 
 void main() {
   group('desktop provider options', () {
@@ -198,6 +222,13 @@ void main() {
         ),
         throwsArgumentError,
       );
+      final _UnreadableList<OrtOpenVinoDevice> excessDevices =
+          _UnreadableList<OrtOpenVinoDevice>(4);
+      expect(
+        () => OrtExecutionProvider.openVino(devices: excessDevices),
+        throwsArgumentError,
+      );
+      expect(excessDevices.elementReads, 0);
 
       expect(
         OrtExecutionProvider.oneDnn(useArena: false).options,
@@ -223,6 +254,15 @@ void main() {
           'migraphx_arena_extend_strategy': 'kSameAsRequested',
         },
       );
+    });
+
+    test('rejects excess providers before reading caller elements', () {
+      final _UnreadableList<OrtExecutionProvider> providers =
+          _UnreadableList<OrtExecutionProvider>(
+            OrtResourceLimits.defaults.maxProviders + 1,
+          );
+      expect(() => OrtSessionOptions(providers: providers), throwsRangeError);
+      expect(providers.elementReads, 0);
     });
   });
 
