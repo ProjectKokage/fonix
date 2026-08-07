@@ -297,6 +297,101 @@ compiler-opts:
 
 
 class NativeRunnerTest(unittest.TestCase):
+    def test_posix_commands_and_inventory_use_shared_process_bounds(self) -> None:
+        cwd = Path("/tmp/fonix-native-bound-test")
+        environment = {"LC_ALL": "C"}
+        command = ["tool", "argument"]
+        with (
+            mock.patch.object(run_native_tests.os, "name", "posix"),
+            mock.patch.object(run_native_tests, "_emit_output"),
+            mock.patch.object(
+                run_native_tests,
+                "run_bounded",
+                return_value=run_native_tests.CommandOutput(stdout="ok\n", stderr=""),
+            ) as bounded,
+        ):
+            run_native_tests._run(
+                command,
+                operation="native bound test",
+                cwd=cwd,
+                environment=environment,
+                timeout_seconds=17,
+            )
+        bounded.assert_called_once_with(
+            command,
+            operation="native bound test",
+            cwd=cwd,
+            environment=environment,
+            timeout_seconds=17,
+            maximum_stdout_bytes=run_native_tests.MAX_COMMAND_OUTPUT_BYTES,
+            maximum_stderr_bytes=run_native_tests.MAX_COMMAND_OUTPUT_BYTES,
+        )
+
+        inventory = json.dumps({"tests": [{"name": "only"}]})
+        with (
+            mock.patch.object(run_native_tests.os, "name", "posix"),
+            mock.patch.object(
+                run_native_tests,
+                "run_bounded",
+                return_value=run_native_tests.CommandOutput(
+                    stdout=inventory,
+                    stderr="",
+                ),
+            ) as bounded_inventory,
+        ):
+            self.assertEqual(
+                run_native_tests._inventory(
+                    "ctest",
+                    Path("build"),
+                    cwd=cwd,
+                    environment=environment,
+                ),
+                frozenset({"only"}),
+            )
+        self.assertEqual(
+            bounded_inventory.call_args.kwargs["timeout_seconds"],
+            run_native_tests.INVENTORY_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(
+            bounded_inventory.call_args.kwargs["maximum_stdout_bytes"],
+            run_native_tests.MAX_INVENTORY_OUTPUT_BYTES,
+        )
+
+    def test_native_ctest_command_has_per_test_and_suite_deadlines(self) -> None:
+        command = run_native_tests._ctest_run_command("ctest", Path("build"))
+        timeout_index = command.index("--timeout")
+        self.assertEqual(
+            command[timeout_index + 1],
+            str(run_native_tests.CTEST_TEST_TIMEOUT_SECONDS),
+        )
+        self.assertGreater(run_native_tests.CTEST_SUITE_TIMEOUT_SECONDS, 0)
+        self.assertGreater(
+            run_native_tests.CTEST_SUITE_TIMEOUT_SECONDS,
+            run_native_tests.CTEST_TEST_TIMEOUT_SECONDS,
+        )
+
+    def test_deferred_windows_lane_keeps_a_direct_child_deadline(self) -> None:
+        command = ["tool.exe", "argument"]
+        with (
+            mock.patch.object(run_native_tests.os, "name", "nt"),
+            mock.patch.object(run_native_tests, "run_bounded") as bounded,
+            mock.patch.object(run_native_tests.subprocess, "run") as direct,
+        ):
+            direct.return_value.returncode = 0
+            run_native_tests._run(
+                command,
+                operation="Windows source contract",
+                cwd=Path("C:/fonix"),
+                environment={"LC_ALL": "C"},
+                timeout_seconds=23,
+            )
+        bounded.assert_not_called()
+        self.assertEqual(direct.call_args.kwargs["timeout"], 23)
+        self.assertIs(
+            direct.call_args.kwargs["stdin"],
+            run_native_tests.subprocess.DEVNULL,
+        )
+
     def test_ctest_inventory_is_non_empty_and_complete(self) -> None:
         source = json.dumps(
             {
@@ -349,6 +444,54 @@ class NativeRunnerTest(unittest.TestCase):
 
 
 class Phase3FixtureRunnerTest(unittest.TestCase):
+    def test_posix_fixture_commands_use_shared_process_bounds(self) -> None:
+        cwd = Path("/tmp/fonix-phase3-bound-test")
+        command = ["tool", "argument"]
+        with (
+            mock.patch.object(run_phase3_fixture_tests.os, "name", "posix"),
+            mock.patch.object(run_phase3_fixture_tests, "_emit_output"),
+            mock.patch.object(
+                run_phase3_fixture_tests,
+                "run_bounded",
+                return_value=run_phase3_fixture_tests.CommandOutput(
+                    stdout="ok\n",
+                    stderr="",
+                ),
+            ) as bounded,
+        ):
+            run_phase3_fixture_tests._run(
+                command,
+                operation="fixture bound test",
+                cwd=cwd,
+                timeout_seconds=19,
+            )
+        bounded.assert_called_once_with(
+            command,
+            operation="fixture bound test",
+            cwd=cwd,
+            timeout_seconds=19,
+            maximum_stdout_bytes=(
+                run_phase3_fixture_tests.MAX_COMMAND_OUTPUT_BYTES
+            ),
+            maximum_stderr_bytes=(
+                run_phase3_fixture_tests.MAX_COMMAND_OUTPUT_BYTES
+            ),
+        )
+
+    def test_phase3_ctest_command_has_per_test_and_suite_deadlines(self) -> None:
+        command = run_phase3_fixture_tests._ctest_run_command(
+            "ctest", Path("build")
+        )
+        timeout_index = command.index("--timeout")
+        self.assertEqual(
+            command[timeout_index + 1],
+            str(run_phase3_fixture_tests.CTEST_TEST_TIMEOUT_SECONDS),
+        )
+        self.assertGreater(
+            run_phase3_fixture_tests.CTEST_SUITE_TIMEOUT_SECONDS,
+            run_phase3_fixture_tests.CTEST_TEST_TIMEOUT_SECONDS,
+        )
+
     def test_committed_fixture_bytes_match_the_generator(self) -> None:
         run_phase3_fixture_tests.run_byte_check(REPOSITORY)
 

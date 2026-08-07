@@ -18,9 +18,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
-import subprocess
 import sys
-import threading
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Sequence
 import zlib
@@ -588,6 +586,19 @@ def _load_module(name: str, path: Path) -> Any:
     return module
 
 
+_BOUNDED_PROCESS_HELPER: Any | None = None
+
+
+def _bounded_process_helper() -> Any:
+    global _BOUNDED_PROCESS_HELPER
+    if _BOUNDED_PROCESS_HELPER is None:
+        _BOUNDED_PROCESS_HELPER = _load_module(
+            "_fonix_linux_bounded_process",
+            Path(__file__).resolve().parent / "bounded_process.py",
+        )
+    return _BOUNDED_PROCESS_HELPER
+
+
 def _validate_resolver_manifest(repository: Path, staging: Path) -> dict[str, Any]:
     helper = _load_module(
         "_fonix_linux_desktop_audit", repository / "tool/ci/audit_desktop_bundle.py"
@@ -947,62 +958,24 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return False
 
 
-def _decode_utf8(data: bytes, label: str) -> str:
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise LinuxApplicationAuditError(f"{label} output is not UTF-8") from error
-
-
 def _execute_bounded(command: Sequence[str]) -> str:
+    helper = _bounded_process_helper()
     try:
-        process = subprocess.Popen(
+        result = helper.run_bounded(
             command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "LANG": "C"},
+            operation="readelf",
+            environment={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "LANG": "C"},
+            timeout_seconds=READELF_TIMEOUT_SECONDS,
+            maximum_stdout_bytes=MAX_READELF_BYTES,
+            maximum_stderr_bytes=MAX_READELF_BYTES,
         )
-    except OSError as error:
-        raise LinuxApplicationAuditError("could not execute readelf") from error
-    assert process.stdout is not None and process.stderr is not None
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    overflow: list[str] = []
-    lock = threading.Lock()
-
-    def drain(name: str, stream: Any) -> None:
-        while chunk := stream.read(8192):
-            with lock:
-                remaining = MAX_READELF_BYTES - len(buffers[name])
-                buffers[name].extend(chunk[: max(0, remaining)])
-                if len(chunk) > remaining and not overflow:
-                    overflow.append(name)
-                    process.kill()
-        stream.close()
-
-    threads = [
-        threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
-        threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
-    ]
-    for thread in threads:
-        thread.start()
-    try:
-        return_code = process.wait(timeout=READELF_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired as error:
-        process.kill()
-        process.wait()
-        raise LinuxApplicationAuditError("readelf timed out") from error
-    for thread in threads:
-        thread.join(timeout=5)
-    if any(thread.is_alive() for thread in threads) or overflow:
-        raise LinuxApplicationAuditError("readelf output exceeded its bound")
-    stdout = _decode_utf8(bytes(buffers["stdout"]), "readelf")
-    stderr = _decode_utf8(bytes(buffers["stderr"]), "readelf stderr")
-    if return_code != 0:
-        raise LinuxApplicationAuditError(f"readelf failed with exit code {return_code}: {stderr[:512]}")
-    if stderr:
+    except helper.BoundedProcessError as error:
+        raise LinuxApplicationAuditError(
+            f"bounded readelf execution failed: {error}"
+        ) from error
+    if result.stderr:
         raise LinuxApplicationAuditError("readelf emitted unexpected stderr")
-    return stdout
+    return result.stdout
 
 
 def _run_readelf(readelf: Path, binary: Path) -> str:

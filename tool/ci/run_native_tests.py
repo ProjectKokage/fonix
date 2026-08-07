@@ -14,8 +14,17 @@ import subprocess
 import sys
 from typing import Mapping, Sequence
 
+from bounded_process import BoundedProcessError, CommandOutput, run_bounded
+
 
 BUILD_CONFIGURATION = "RelWithDebInfo"
+CONFIGURE_TIMEOUT_SECONDS = 5 * 60
+BUILD_TIMEOUT_SECONDS = 20 * 60
+INVENTORY_TIMEOUT_SECONDS = 2 * 60
+CTEST_SUITE_TIMEOUT_SECONDS = 30 * 60
+CTEST_TEST_TIMEOUT_SECONDS = 5 * 60
+MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_INVENTORY_OUTPUT_BYTES = 4 * 1024 * 1024
 REQUIRED_TESTS: Mapping[str, frozenset[str]] = {
     "posix": frozenset(
         {
@@ -101,13 +110,77 @@ def validate_discovered_tests(
         )
 
 
-def _run(command: Sequence[str], *, cwd: Path, environment: Mapping[str, str]) -> None:
+def _ctest_run_command(ctest: str, build_directory: Path) -> list[str]:
+    return [
+        ctest,
+        "--test-dir",
+        str(build_directory),
+        "--build-config",
+        BUILD_CONFIGURATION,
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        str(CTEST_TEST_TIMEOUT_SECONDS),
+    ]
+
+
+def _emit_output(output: CommandOutput) -> None:
+    if output.stdout:
+        print(output.stdout, end="" if output.stdout.endswith("\n") else "\n")
+    if output.stderr:
+        print(
+            output.stderr,
+            end="" if output.stderr.endswith("\n") else "\n",
+            file=sys.stderr,
+        )
+
+
+def _run(
+    command: Sequence[str],
+    *,
+    operation: str,
+    cwd: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: int,
+) -> None:
     print("+ " + " ".join(command), flush=True)
+    if os.name == "posix":
+        try:
+            output = run_bounded(
+                command,
+                operation=operation,
+                cwd=cwd,
+                environment=environment,
+                timeout_seconds=timeout_seconds,
+                maximum_stdout_bytes=MAX_COMMAND_OUTPUT_BYTES,
+                maximum_stderr_bytes=MAX_COMMAND_OUTPUT_BYTES,
+            )
+        except BoundedProcessError as error:
+            raise NativeTestError(str(error)) from error
+        _emit_output(output)
+        return
+
+    # Windows target-host hardening is deferred. Keep the required source and
+    # loader-security lane working with a direct-child deadline, but do not
+    # claim inherited-subprocess ownership until a Windows job-object
+    # implementation is exercised on a Windows host.
     try:
-        subprocess.run(command, cwd=cwd, env=environment, check=True)
+        subprocess.run(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            check=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise NativeTestError(
+            f"{operation} exceeded its {timeout_seconds}-second direct-child "
+            "deadline on the deferred Windows lane"
+        ) from error
     except subprocess.CalledProcessError as error:
         raise NativeTestError(
-            f"native command failed with exit code {error.returncode}: {command[0]}"
+            f"{operation} failed with exit code {error.returncode}: {command[0]}"
         ) from error
 
 
@@ -127,6 +200,23 @@ def _inventory(
         "--show-only=json-v1",
     ]
     print("+ " + " ".join(command), flush=True)
+    if os.name == "posix":
+        try:
+            result = run_bounded(
+                command,
+                operation="native CTest inventory",
+                cwd=cwd,
+                environment=environment,
+                timeout_seconds=INVENTORY_TIMEOUT_SECONDS,
+                maximum_stdout_bytes=MAX_INVENTORY_OUTPUT_BYTES,
+                maximum_stderr_bytes=MAX_INVENTORY_OUTPUT_BYTES,
+            )
+        except BoundedProcessError as error:
+            raise NativeTestError(str(error)) from error
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        return parse_ctest_inventory(result.stdout)
+
     try:
         result = subprocess.run(
             command,
@@ -134,15 +224,36 @@ def _inventory(
             env=environment,
             check=True,
             capture_output=True,
-            text=True,
+            timeout=INVENTORY_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as error:
+        raise NativeTestError(
+            "native CTest inventory exceeded its direct-child deadline on "
+            "the deferred Windows lane"
+        ) from error
     except subprocess.CalledProcessError as error:
         if error.stdout:
-            print(error.stdout, file=sys.stderr)
+            diagnostic = error.stdout[:4096].decode("utf-8", errors="replace")
+            print(diagnostic, file=sys.stderr)
         if error.stderr:
-            print(error.stderr, file=sys.stderr)
+            diagnostic = error.stderr[:4096].decode("utf-8", errors="replace")
+            print(diagnostic, file=sys.stderr)
         raise NativeTestError("could not enumerate configured CTests") from error
-    return parse_ctest_inventory(result.stdout)
+    if (
+        len(result.stdout) > MAX_INVENTORY_OUTPUT_BYTES
+        or len(result.stderr) > MAX_INVENTORY_OUTPUT_BYTES
+    ):
+        raise NativeTestError(
+            "native CTest inventory output exceeds its deferred Windows bound"
+        )
+    try:
+        stdout = result.stdout.decode("utf-8")
+        stderr = result.stderr.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise NativeTestError("native CTest inventory output is not UTF-8") from error
+    if stderr:
+        print(stderr, file=sys.stderr, end="")
+    return parse_ctest_inventory(stdout)
 
 
 def _regular_build_directory(path: Path) -> None:
@@ -271,7 +382,13 @@ def run_native_tests(
                 f"-DFONIX_REAL_MODEL_ROOT={resolved_model.parent}",
             ]
         )
-    _run(configure_command, cwd=repository, environment=environment)
+    _run(
+        configure_command,
+        operation="native CMake configure",
+        cwd=repository,
+        environment=environment,
+        timeout_seconds=CONFIGURE_TIMEOUT_SECONDS,
+    )
     _run(
         [
             cmake,
@@ -281,8 +398,10 @@ def run_native_tests(
             BUILD_CONFIGURATION,
             "--parallel",
         ],
+        operation="native CMake build",
         cwd=repository,
         environment=environment,
+        timeout_seconds=BUILD_TIMEOUT_SECONDS,
     )
 
     discovered = _inventory(
@@ -295,17 +414,11 @@ def run_native_tests(
         suite, discovered, require_real_ort=real_ort is not None
     )
     _run(
-        [
-            ctest,
-            "--test-dir",
-            str(build_directory),
-            "--build-config",
-            BUILD_CONFIGURATION,
-            "--output-on-failure",
-            "--no-tests=error",
-        ],
+        _ctest_run_command(ctest, build_directory),
+        operation="native CTest suite",
         cwd=repository,
         environment=environment,
+        timeout_seconds=CTEST_SUITE_TIMEOUT_SECONDS,
     )
 
     shim = _find_built_shim(build_directory, host_system)

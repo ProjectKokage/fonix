@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import stat
@@ -12,9 +13,19 @@ import subprocess
 import sys
 from typing import Sequence
 
+from bounded_process import BoundedProcessError, CommandOutput, run_bounded
+
 
 BUILD_CONFIGURATION = "RelWithDebInfo"
 PINNED_ORT_VERSION = "1.27.1"
+BYTE_CHECK_TIMEOUT_SECONDS = 2 * 60
+CONFIGURE_TIMEOUT_SECONDS = 5 * 60
+BUILD_TIMEOUT_SECONDS = 20 * 60
+INVENTORY_TIMEOUT_SECONDS = 2 * 60
+CTEST_SUITE_TIMEOUT_SECONDS = 30 * 60
+CTEST_TEST_TIMEOUT_SECONDS = 5 * 60
+MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_INVENTORY_OUTPUT_BYTES = 4 * 1024 * 1024
 REQUIRED_REAL_RUNTIME_TESTS = frozenset(
     {
         "phase3_fixture_bytes",
@@ -70,13 +81,72 @@ def validate_expected_ort_version(version: str) -> None:
         )
 
 
-def _run(command: Sequence[str], *, cwd: Path) -> None:
+def _ctest_run_command(ctest: str, build_directory: Path) -> list[str]:
+    return [
+        ctest,
+        "--test-dir",
+        str(build_directory),
+        "--build-config",
+        BUILD_CONFIGURATION,
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        str(CTEST_TEST_TIMEOUT_SECONDS),
+    ]
+
+
+def _emit_output(output: CommandOutput) -> None:
+    if output.stdout:
+        print(output.stdout, end="" if output.stdout.endswith("\n") else "\n")
+    if output.stderr:
+        print(
+            output.stderr,
+            end="" if output.stderr.endswith("\n") else "\n",
+            file=sys.stderr,
+        )
+
+
+def _run(
+    command: Sequence[str],
+    *,
+    operation: str,
+    cwd: Path,
+    timeout_seconds: int,
+) -> None:
     print("+ " + " ".join(command), flush=True)
+    if os.name == "posix":
+        try:
+            output = run_bounded(
+                command,
+                operation=operation,
+                cwd=cwd,
+                timeout_seconds=timeout_seconds,
+                maximum_stdout_bytes=MAX_COMMAND_OUTPUT_BYTES,
+                maximum_stderr_bytes=MAX_COMMAND_OUTPUT_BYTES,
+            )
+        except BoundedProcessError as error:
+            raise Phase3FixtureError(str(error)) from error
+        _emit_output(output)
+        return
+
+    # Keep the cross-platform deterministic byte check available on Windows,
+    # whose inherited-subprocess boundary remains deferred and unclaimed.
     try:
-        subprocess.run(command, cwd=cwd, check=True)
+        subprocess.run(
+            command,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            check=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise Phase3FixtureError(
+            f"{operation} exceeded its {timeout_seconds}-second direct-child "
+            "deadline on the deferred Windows lane"
+        ) from error
     except subprocess.CalledProcessError as error:
         raise Phase3FixtureError(
-            f"fixture command failed with exit code {error.returncode}: {command[0]}"
+            f"{operation} failed with exit code {error.returncode}: {command[0]}"
         ) from error
 
 
@@ -90,23 +160,62 @@ def _inventory(ctest: str, build_directory: Path, *, cwd: Path) -> frozenset[str
         "--show-only=json-v1",
     ]
     print("+ " + " ".join(command), flush=True)
+    if os.name == "posix":
+        try:
+            result = run_bounded(
+                command,
+                operation="Phase-3 CTest inventory",
+                cwd=cwd,
+                timeout_seconds=INVENTORY_TIMEOUT_SECONDS,
+                maximum_stdout_bytes=MAX_INVENTORY_OUTPUT_BYTES,
+                maximum_stderr_bytes=MAX_INVENTORY_OUTPUT_BYTES,
+            )
+        except BoundedProcessError as error:
+            raise Phase3FixtureError(str(error)) from error
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        return parse_ctest_inventory(result.stdout)
+
     try:
         result = subprocess.run(
             command,
             cwd=cwd,
             check=True,
             capture_output=True,
-            text=True,
+            timeout=INVENTORY_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as error:
+        raise Phase3FixtureError(
+            "Phase-3 CTest inventory exceeded its direct-child deadline on "
+            "the deferred Windows lane"
+        ) from error
     except subprocess.CalledProcessError as error:
         if error.stdout:
-            print(error.stdout, file=sys.stderr)
+            diagnostic = error.stdout[:4096].decode("utf-8", errors="replace")
+            print(diagnostic, file=sys.stderr)
         if error.stderr:
-            print(error.stderr, file=sys.stderr)
+            diagnostic = error.stderr[:4096].decode("utf-8", errors="replace")
+            print(diagnostic, file=sys.stderr)
         raise Phase3FixtureError(
             "could not enumerate the standalone Phase-3 CTests"
         ) from error
-    return parse_ctest_inventory(result.stdout)
+    if (
+        len(result.stdout) > MAX_INVENTORY_OUTPUT_BYTES
+        or len(result.stderr) > MAX_INVENTORY_OUTPUT_BYTES
+    ):
+        raise Phase3FixtureError(
+            "Phase-3 CTest inventory output exceeds its deferred Windows bound"
+        )
+    try:
+        stdout = result.stdout.decode("utf-8")
+        stderr = result.stderr.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise Phase3FixtureError(
+            "Phase-3 CTest inventory output is not UTF-8"
+        ) from error
+    if stderr:
+        print(stderr, file=sys.stderr, end="")
+    return parse_ctest_inventory(stdout)
 
 
 def _regular_build_directory(path: Path) -> Path:
@@ -134,7 +243,12 @@ def run_byte_check(repository: Path) -> None:
         repository / "test/fixtures/generate_phase3_fixtures.py",
         "Phase-3 fixture generator",
     )
-    _run([sys.executable, "-B", str(generator), "--check"], cwd=repository)
+    _run(
+        [sys.executable, "-B", str(generator), "--check"],
+        operation="Phase-3 fixture byte check",
+        cwd=repository,
+        timeout_seconds=BYTE_CHECK_TIMEOUT_SECONDS,
+    )
 
 
 def run_real_runtime_harness(
@@ -169,7 +283,9 @@ def run_real_runtime_harness(
             f"-DFONIX_REAL_ORT_LIBRARY={resolved_ort}",
             f"-DFONIX_EXPECTED_ORT_VERSION={expected_ort_version}",
         ],
+        operation="Phase-3 CMake configure",
         cwd=repository,
+        timeout_seconds=CONFIGURE_TIMEOUT_SECONDS,
     )
     _run(
         [
@@ -180,7 +296,9 @@ def run_real_runtime_harness(
             BUILD_CONFIGURATION,
             "--parallel",
         ],
+        operation="Phase-3 CMake build",
         cwd=repository,
+        timeout_seconds=BUILD_TIMEOUT_SECONDS,
     )
 
     discovered = _inventory(
@@ -190,16 +308,10 @@ def run_real_runtime_harness(
     )
     validate_real_runtime_tests(discovered)
     _run(
-        [
-            ctest,
-            "--test-dir",
-            str(resolved_build_directory),
-            "--build-config",
-            BUILD_CONFIGURATION,
-            "--output-on-failure",
-            "--no-tests=error",
-        ],
+        _ctest_run_command(ctest, resolved_build_directory),
+        operation="Phase-3 CTest suite",
         cwd=repository,
+        timeout_seconds=CTEST_SUITE_TIMEOUT_SECONDS,
     )
     print(
         f"Ran {len(discovered)} non-empty standalone Phase-3 CTests "

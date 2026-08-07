@@ -47,6 +47,19 @@ deferral creates a support claim. These are scheduling deferrals, not a support
 policy change: Windows x64 remains Tier-1 and its target-host lane must resume
 before a global `Release-ready` or 1.0 claim.
 
+Implementation checkpoint (2026-08-07): the trusted POSIX native-test,
+standalone Phase-3, and Linux-auditor `readelf` command paths now share online
+stdout/stderr caps, incremental strict UTF-8 validation, monotonic deadlines,
+and bounded TERM/KILL/direct-child-reap cleanup for their spawned process
+groups. Native and Phase-3 CTest execution has a 300-second per-test timeout
+inside a separate 1,800-second suite deadline. Residual inherited group members
+or output pipes after direct-child exit fail the operation. This is a
+process-group contract for trusted tools, not a sandbox or arbitrary descendant
+containment; deliberate `setsid`/`setpgid` escape remains outside it. Windows
+uses direct-child deadlines only, and Job Object ownership and descendant-tree
+cleanup remain deferred and unclaimed. This named integration slice does not
+establish repository-wide subprocess hardening or alter platform support.
+
 ## Phase 0: repository and contracts
 
 ### Work

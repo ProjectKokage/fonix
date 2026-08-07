@@ -487,6 +487,37 @@ The checked-in pull-request/push workflow currently runs:
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
 
+The POSIX paths in `tool/ci/run_native_tests.py` and
+`tool/ci/run_phase3_fixture_tests.py`, together with GNU `readelf` execution in
+the Linux final-application auditor, use the shared
+`tool/ci/bounded_process.py` boundary. It is designed for trusted CI commands:
+stdin is `/dev/null`; each command starts a new POSIX session and process
+group; stdout and stderr are independently capped and incrementally validated
+as strict UTF-8; and a monotonic wall deadline is followed by bounded
+process-group TERM, KILL, and direct-child reap steps. A direct child that exits
+while an ordinary inherited group member or output pipe remains is rejected.
+The boundary owns only the spawned process group inherited by ordinary tool
+subprocesses. It is not a sandbox, and deliberate `setsid` or `setpgid` escape
+is outside its contract.
+
+The native and Phase-3 configure, build, and inventory deadlines are five,
+twenty, and two minutes respectively; the Phase-3 byte check is also limited to
+two minutes. General command output is limited to 16 MiB per stream and CTest
+inventory output to 4 MiB per stream. CTest receives `--timeout 300` for each
+test and has a separate 1,800-second outer suite deadline. Linux-auditor
+`readelf` calls use the same POSIX helper with a 30-second deadline and 8 MiB
+per stream, and successful invocations still reject stderr. Focused helper
+tests cover independent stream overflow, invalid and split UTF-8, timeout,
+TERM-ignoring residual group members, nonzero exit, launch failure, cleanup,
+and the explicit non-POSIX contract.
+
+On Windows, the native and Phase-3 runners retain direct-child deadlines; only
+captured CTest inventory receives post-completion byte and UTF-8 checks. They
+do not claim descendant-tree cleanup. Windows Job Object ownership remains
+deferred until it is implemented and exercised on a Windows host. These three
+integrations are not a claim of repository-wide subprocess hardening; other
+runner and audit commands remain separate review or migration work.
+
 The Python job includes unit and tamper coverage for the Apple auditor, iOS
 source-epoch/final-application gate, Android auditor, schema-2 load-order
 receipt validator, schema-1 validation-record ingestion, four-record

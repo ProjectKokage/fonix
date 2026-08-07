@@ -19,9 +19,23 @@ implemented but has no exact target-host PASS. Local stabilization now uses an
 ordered protocol-v4 worker retirement handshake after malformed replies and
 worker-authored terminal failures, and includes `Isolate.spawn` inside the
 startup deadline. Sessions and pools now
-reserve aggregate input bytes across active and queued work. The remaining
-known resource bound is hard subprocess/CTest time and output control in native
-CI orchestration.
+reserve aggregate input bytes across active and queued work. Native and
+standalone Phase-3 orchestration on POSIX, plus GNU `readelf` execution in the
+Linux final-application auditor, now share a bounded trusted-command boundary.
+It applies independent stdout/stderr byte caps, incremental strict UTF-8
+validation, monotonic deadlines, bounded process-group TERM/KILL, and
+direct-child reap cleanup. A successful direct-child exit is rejected while
+the new POSIX process group inherited by ordinary tool subprocesses or an
+inherited output pipe remains. This is not a sandbox: deliberate
+`setsid`/`setpgid` escape is outside the contract. Native and Phase-3 CTest
+calls have an exact 300-second per-test timeout inside a 1,800-second suite
+deadline.
+
+Windows retains a direct-child timeout fallback and post-completion CTest
+inventory bounds; Job Object ownership and descendant-tree cleanup remain
+deferred and unclaimed. This closes only those native, Phase-3, and Linux
+auditor integrations. It is not universal subprocess hardening; other CI
+scripts remain separate review or migration work.
 
 The macOS gate applications and independently audited Android arm64-v8a
 Release APKs load and execute their exact packaged CPU paths. A separate
@@ -62,6 +76,12 @@ the active documentation:
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
   release-evidence checks;
+- a shared bounded-command helper for the trusted POSIX native, standalone
+  Phase-3, and Linux-auditor command paths, with online per-stream caps, strict
+  UTF-8, monotonic deadlines, process-group TERM/KILL, direct-child reap
+  cleanup, and residual-group/output-pipe rejection; deliberate process-group
+  escape and Windows Job Object ownership remain outside that helper's
+  contract;
 - a committed iOS arm64, macOS arm64, Android arm64-v8a, and Linux x86_64
   Flutter reference app over the public Fonix library, with bounded worker
   ownership, exact
@@ -106,7 +126,8 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 523/523 passed |
+| Python CI-script tests | 542/542 passed |
+| POSIX bounded-process helper | 14/14 focused tests passed; native, Phase-3, and Linux-auditor integration contracts are included in the 542-test Python suite |
 | Linux final-app auditor/reference-gate focused tests | 36/36 passed; source-side synthetic coverage only |
 | Apple final-application auditor focused tests | 50/50 passed |
 | iOS reference-gate focused tests | 87/87 passed |
@@ -161,6 +182,13 @@ exact runtime; Apple Clang does not provide LeakSanitizer on this host. The
 bundled loader passed adjacency, Flutter-framework, unexpected-layout, and
 closed Android arm64/x86_64 APK-namespace tests, including malformed paths and
 missing runtime/symbol failures.
+
+The bounded-command change was verified at the Python helper and runner
+contract level and exercised on a macOS arm64 host through the POSIX native
+source harness, where configure, build, inventory, and 12/12 CTests passed.
+That source harness does not refresh earlier exact-ORT target/runtime or
+final-application evidence, prove containment of a deliberately escaping
+process, or change any platform support claim.
 
 The offline artifact cache contained the exact lock-selected macOS arm64,
 iOS arm64 XCFramework, Android arm64-v8a/x86_64, Linux x86_64/arm64, and
