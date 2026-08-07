@@ -121,8 +121,10 @@ The hook parses `application_minimum_os` as strict
 shim at the exact minimum recorded by the selected lock tuple. The application
 project's Xcode deployment target remains independently authoritative and must
 be at least the declaration. The final application audit checks both its
-`Info.plist` and the load commands of the app executable, Fonix shim, and
-packaged ORT binary.
+`Info.plist` and the load commands of every closed native image, including the
+app executable and Fonix shim. On a bundled-runtime target it also audits the
+packaged ORT binary; on linked iOS it instead enforces the linked-runtime
+identity contract described below.
 
 Code assets cannot carry the generated staging manifest and exact upstream
 notice as ordinary Flutter data on the current supported Flutter toolchain.
@@ -233,7 +235,79 @@ Preferred architecture:
 
 CoreML's NeuralNetwork format has lower OS requirements than MLProgram; flavor/options must not promise MLProgram on a lower deployment target.
 
-Avoid duplicate static ORT linkage through multiple pods/frameworks. The final link map and symbol table should show a single ORT implementation.
+Avoid duplicate static ORT linkage through multiple pods/frameworks. A final
+link map and complete build-time inputs remain necessary to prove that the
+selected static archive was linked exactly once. Final-bundle inspection alone
+cannot prove archive multiplicity, runtime `dlopen` behavior, or that another
+Mach-O does not contain a separate static ORT copy.
+
+The committed [`../example/`](../example/) is the current linked iOS arm64 CPU
+reference. Its external-copy gate consumes the device and simulator slices of
+the exact 135,152,698-byte
+`microsoft.ml.onnxruntime.1.27.1.nupkg` archive (SHA-256
+`9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383`)
+and the lock-selected macOS host archive from one offline cache:
+
+```bash
+python3 -B tool/ci/run_ios_reference_app_gate.py \
+  --repository /absolute/path/to/fonix \
+  --flutter /absolute/flutter/bin/flutter \
+  --artifact-cache /absolute/verified/cache \
+  --simulator-udid <canonical-ios-26.5-simulator-udid> \
+  --work-dir /absolute/new/fonix-ios-reference-gate
+```
+
+The gate is pinned to macOS 26.5.2 (25F84), Xcode 26.6 (17F113), the iPhoneOS
+and iPhoneSimulator 26.5 SDKs, and Flutter revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter
+`3.47.0-0.1.pre`). It freezes one source epoch and derives both clean variants
+from that tree. The application declares 15.1 and arm64 only. Exact final
+load-command floors are 15.1 for Runner and the Fonix shim and 15.0 for the
+pinned App and Flutter frameworks.
+
+The source checkpoint passed all 68 application tests and analysis;
+`reference_smoke_test.dart` passed 24/24 and
+`ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
+Debug builds passed. The complete gate result is `PASS (2026-08-07)`.
+
+The device branch builds an unsigned arm64 Release app with no provisioning
+profile. The root app and executable remain unsigned while the three nested
+frameworks have exact teamless ad-hoc signatures; the auditor accepts that
+closed policy only for this development gate. It is static-only evidence, and
+the gate does not install or execute it without a physical device. The
+simulator branch builds Debug twice and strictly audits the exact tree. On
+installation, it requires every directory, file path, byte, and the `Runner`
+executable bit to match the audited tree after applying the one closed
+install-transport normalization observed on this tuple: `simctl` clears the
+executable bit on the exact App, Flutter, and Fonix framework binaries. It then
+uses the application delegate to validate the exact smoke/challenge process-
+environment pair and expose only its cached null-or-closed activation over an
+argument-free app-owned channel; Dart revalidates it within five seconds and
+never receives the raw environment. It binds a resident CPU receipt on the
+named iOS 26.5 arm64-capable iPhone 17 Pro simulator to a fresh 256-bit
+challenge and PID. The receipt requires ORT 1.27.1, linked wrapper ownership,
+exact output `[1,4,9,16,25,36]`, active CPU, full
+assignment, and double close. Process settlement and uninstall are part of the
+same bounded lifecycle.
+
+The final audit records `linkedRuntimeIdentity`, including runtime mode,
+packaged/reference shim identities, hook invocation metadata, normalized
+runtime fields and their hash, comparison scope and accounted transformations,
+embedded build identity, nlist/dyld exports, and the closed separately packaged
+ORT/load-command findings. Those records prove that no separately packaged raw
+Mach-O or audited load-command dependency is attributable to ORT and bind the
+packaged shim to the prepackage hook output through the exact transformations.
+They deliberately report runtime `dlopen` behavior and other-Mach-O static ORT
+copies as `not-proved`, and static archive multiplicity as
+`not-provable-from-final-bundle`.
+
+This checkpoint is not physical-device, provisioning, approved signing, IPA,
+App Store, or distribution evidence. It does not qualify iOS CoreML, XNNPACK,
+GPU, Neural Engine, performance, memory, thermal, sustained behavior, simulator
+Release, or another target tuple. A release archive that advertises iOS device
+support still requires the preferred signing and physical-device paths above;
+the scoped pre-1.0 plan may retain the current device output only as static-only
+evidence and must not promote it into a device-support claim.
 
 ## 5.9 macOS packaging
 
@@ -455,11 +529,11 @@ A system-runtime mode may be offered for managed deployments but must require ex
 
 ## 5.12 Windows packaging
 
-These contracts remain authoritative, but target-host final-application,
-installer, and clean-machine qualification is deferred until a Windows
-development environment exists. Continue to enforce the current PE cross-build,
-shim ABI, secure DLL-search, and source/security checks; none is runtime support
-evidence.
+These contracts remain authoritative, but target-host inference, provider,
+final-application/package, installer, and clean-machine qualification is
+deferred until a Windows development environment exists. Continue to enforce
+the current PE cross-build, shim ABI, secure DLL-search, and source/security
+checks; none is runtime support evidence.
 
 - Package DLLs adjacent to the executable/application package in a flavor-specific directory supported by secure loader configuration.
 - Use absolute paths and safe `LoadLibraryExW` flags.

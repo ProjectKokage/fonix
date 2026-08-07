@@ -478,8 +478,11 @@ exact 4 KiB and 16 KiB tuples recorded above; that evidence does not transfer
 to another target.
 
 The four-record Android matrix and compatibility aggregation are complete for
-the exact named tuples. The roadmap now moves to iOS arm64 and then Linux
-x86_64 target-host work. Android aligned-build/QNN target qualification and all
-Windows target-host, provider/DirectML, final-application/package, installer,
-and clean-machine qualification remain deferred; existing static, source,
+the exact named tuples. The iOS arm64 CPU baseline gate result is
+`PASS (2026-08-07)`; with that exact slice frozen, the next target is
+Linux x86_64, followed by cross-platform stabilization and release work. iOS
+physical-device/provider qualification remains separately evidenced follow-up
+work. Android aligned-build/QNN target qualification and all Windows
+target-host, provider/DirectML, final-application/package, installer, and
+clean-machine qualification remain deferred; existing static, source,
 cross-build, and security checks remain mandatory.

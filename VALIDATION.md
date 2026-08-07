@@ -10,21 +10,27 @@ The source implementation is complete for Fonix's declared development API
 and locally controllable package boundary. No known source, analysis, unit,
 native-shim, exact-runtime, artifact-audit, macOS application-gate, Android
 standalone reference-gate, or sherpa runtime-provisioned static-gate failure
-remains in this snapshot. The macOS gate applications and independently
-audited Android arm64-v8a Release APKs load and execute their exact packaged
-CPU paths. A separate Android profile build also passes the closed XNNPACK
-functional assignment/parity/fallback/recovery path on the named API 35
-arm64/4096-byte emulator. The source-final sherpa-owned APK passes the complete
-trusted four-record matrix: both load orders on named API 35 arm64-v8a/4 KiB
-and 16 KiB emulators, with runtime negotiation, two alternating cycles,
-cancellation, stale suppression, recovery, both disposal orders, and cleanup
-bound to the installed APK.
+remains in this snapshot. The iOS reference source additionally passes 68/68
+application tests and analysis, including 24/24 resident-publication tests and
+5/5 iOS project-contract tests, and its linked simulator application passes
+two consecutive Debug builds. The complete manifest-bound iOS gate result is
+`PASS (2026-08-07)`.
 
-This is not redistribution, five-platform release approval, transfer to an
-untested Android tuple, or XNNPACK provider qualification. The package remains
-`publish_to: none`, and the external licensing, signing, target-host,
-physical-device, performance, and provider-qualification blockers listed below
-remain authoritative.
+The macOS gate applications and independently audited Android arm64-v8a
+Release APKs load and execute their exact packaged CPU paths. A separate
+Android profile build also passes the closed XNNPACK functional
+assignment/parity/fallback/recovery path on the named API 35 arm64/4096-byte
+emulator. The source-final sherpa-owned APK passes the complete trusted
+four-record matrix: both load orders on named API 35 arm64-v8a/4 KiB and 16 KiB
+emulators, with runtime negotiation, two alternating cycles, cancellation,
+stale suppression, recovery, both disposal orders, and cleanup bound to the
+installed APK.
+
+This is not redistribution, five-platform, unqualified `Release-ready`, or 1.0
+approval, transfer to an untested Android tuple, or XNNPACK provider
+qualification. The package remains `publish_to: none`, and the external
+licensing, signing, target-host, physical-device, performance, and provider-
+qualification boundaries listed below remain authoritative.
 
 ## Implemented boundary
 
@@ -49,14 +55,18 @@ the active documentation:
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
   release-evidence checks; and
-- a committed macOS arm64 and Android arm64-v8a Flutter reference app over the
-  public Fonix library, with bounded worker ownership, exact model/runtime
-  identity, cancellation, retry, lifecycle replacement, stale-result
-  suppression, deterministic cleanup, and platform-specific final-package
-  gates; the Android one-shot mode has separate exact CPU and XNNPACK profiles,
-  with the latter owning strict assignment, exact CPU parity, explicit fallback
-  report/rejection, post-rejection recovery, and deterministic five-session
-  cleanup; and
+- a committed iOS arm64, macOS arm64, and Android arm64-v8a Flutter reference
+  app over the public Fonix library, with bounded worker ownership, exact
+  model/runtime identity, cancellation, retry, lifecycle replacement,
+  stale-result suppression, deterministic cleanup, and platform-specific
+  final-package gates; the iOS path uses linked runtime ownership and a
+  resident, challenge/PID-bound receipt. Its app-owned native launch channel
+  exposes only a cached null-or-closed activation to Dart, which revalidates it
+  with a bounded wait and never receives the raw process environment. The
+  Android one-shot mode has
+  separate exact CPU and XNNPACK profiles, with the latter owning strict
+  assignment, exact CPU parity, explicit fallback report/rejection,
+  post-rejection recovery, and deterministic five-session cleanup; and
 - a separate sherpa-owned Android arm64-v8a reference scaffold with
   deterministic bounded Fonix/VAD fixtures, real process-runtime Fonix and
   sherpa adapters, one authoritative lifecycle publisher, active native
@@ -77,7 +87,7 @@ paths.
 
 | Gate | Result |
 | --- | --- |
-| Dart formatting | Prior 85-file full-tree baseline plus current 16-file sherpa-template pass; 93 unique tracked Dart files, 0 changes |
+| Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
 | Ordinary offline Dart suite | 185 passed, 16 explicitly provisioned skips |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
@@ -85,7 +95,9 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 355/355 passed |
+| Python CI-script tests | 487/487 passed |
+| Apple final-application auditor focused tests | 50/50 passed |
+| iOS reference-gate focused tests | 87/87 passed |
 | Standalone Python verifier tests | 54/54 passed |
 | C source quality | 34/34 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
@@ -103,8 +115,9 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
+| Committed iOS arm64 public-API reference gate | 68 app tests and analysis; unsigned device Release static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
-| Closed source checksum manifest | Corrected committed-tree manifest bound to the source-final sherpa package and every target record |
+| Closed source checksum manifest | Historical Android records retain their commit-bound manifest; the current iOS gate source-epoch binding is `PASS (2026-08-07)` |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
 real-runtime, fake-runtime, exact-archive, cross-build, and CoreML cases were
@@ -220,6 +233,80 @@ and CoreML with `MLComputeUnits=CPUOnly`, output parity, scoped cache identity,
 and worker-isolate transport. CoreML required normal host filesystem access to
 create its separate OS-managed compilation workspace. This proves neither GPU
 nor Apple Neural Engine execution.
+
+## iOS arm64 reference application evidence
+
+The iOS gate is pinned to macOS 26.5.2 (25F84), Xcode 26.6 (17F113), the
+iPhoneOS and iPhoneSimulator 26.5 SDKs, and Flutter revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter 3.47.0-0.1.pre). Its
+offline cache contains the 135,152,698-byte
+`microsoft.ml.onnxruntime.1.27.1.nupkg` archive with SHA-256
+`9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383`,
+plus the exact macOS host archive needed by host-side Dart commands. The gate
+freezes the current closed source manifest into a private source epoch and
+derives both application variants from that same tree.
+
+The committed application and hook declare iOS 15.1 and arm64 only. Its four
+closed Mach-O images are `Runner`, `App.framework/App`,
+`Flutter.framework/Flutter`, and `fonix_shim.framework/fonix_shim`. The audit
+binds the application identifier `dev.fonix.fonixReference` and
+requires exact arm64 subtype, file type, header flags, platform, deployment
+floor, dylib identity, dependency kind/path/version, load-command inventory,
+RPATH, and shim nlist/dyld export profiles. `Runner` and the Fonix shim have a
+15.1 load-command floor; the pinned Flutter `App` and `Flutter` frameworks have
+their exact 15.0 floors beneath the application-level 15.1 contract.
+
+The complete gate result is `PASS (2026-08-07)`. Its device branch
+builds Release with `--no-codesign`. The root bundle and executable are
+unsigned, contain no provisioning profile, and the three nested frameworks
+carry exact verified teamless ad-hoc signatures. The result is `static-only`:
+the application is not installed or executed on a physical device.
+
+The simulator branch builds Debug twice to exercise the idempotent RPATH
+normalization and audits the resulting arm64-only application with strict
+development signatures. Before launch, its install-transport identity requires
+the installed application to retain every directory, file path, byte, and
+`Runner` executable bit from the audited tree. It permits only the exact
+`simctl` normalization observed on this pinned tuple: executable `true` to
+`false` for `App.framework/App`, `Flutter.framework/Flutter`, and
+`fonix_shim.framework/fonix_shim`. On the iOS 26.5 arm64-capable iPhone 17 Pro
+simulator, a fresh 256-bit challenge and exact launch PID bind the resident
+receipt. On this pinned tuple, the native process received the `simctl` child
+environment while Dart `Platform.environment` did not expose those launch
+values; the application delegate therefore validates the exact two-value
+activation and forwards only its cached closed result over an argument-free
+app-owned channel. Dart revalidates that response within five seconds. The
+public receipt reports ONNX Runtime 1.27.1, linked wrapper-owned
+CPU, the exact 130-byte model, output `[1,4,9,16,25,36]`, active provider
+`cpu`, full CPU assignment, and idempotent double close. The public report
+retains only hashes of the launch challenge and PID. It then verifies process
+settlement, install-transport ownership, uninstall, and package absence.
+
+The final Mach-O audit proves that the closed bundle contains no separately
+packaged raw Mach-O or audited load-command dependency attributable to ONNX
+Runtime. Validated native-assets hook metadata, embedded schema-3 identity,
+dyld exports/fixups, and normalized runtime fields bind the packaged shim to
+the resolver-built prepackage output across the exact install-name,
+local-symbol-strip, and code-sign/linkedit transformations. This does not prove
+the absence of runtime `dlopen`, another static ONNX Runtime copy in a
+different Mach-O, or that the selected static archive was linked exactly once.
+
+The report preserves that boundary in `linkedRuntimeIdentity` through
+`runtimeMode`, `packagedShim`, `referenceShim`, `hookInvocationMetadata`,
+`normalizedRuntimeFields`, `normalizedRuntimeFieldsSha256`, `comparisonScope`,
+`accountedTransformations`, `embeddedBuildIdentity`,
+`nlistAndDyldExports`, `separatelyPackagedOrtMachOs`,
+`auditedOrtLoadCommandDependencies`, `runtimeDlopenBehavior: not-proved`,
+`otherMachOStaticOrtCopies: not-proved`,
+`staticArchiveMultiplicity: not-provable-from-final-bundle`, and the explicit
+`claimBoundary`.
+
+This checkpoint produces no physical-device execution, provisioning, approved
+device or distribution signing, IPA, App Store, or distribution evidence. It
+also produces no iOS CoreML, XNNPACK, GPU, or Neural Engine assignment,
+performance, memory, thermal, sustained-behavior, or provider-qualification
+evidence. The simulator receipt is exact Debug-tuple evidence and does not
+transfer to simulator Release or another device/runtime tuple.
 
 ## Android application evidence
 
@@ -364,9 +451,10 @@ records and the aggregate compatibility manifest remain
 This evidence is limited to the exact API 35 emulator, arm64-v8a, Release APK,
 and named 4 KiB/16 KiB tuples. It does not prove API 24 execution, a physical
 device, an AAB-derived installed split, x86_64, performance, thermal behavior,
-signing, distribution, or another tuple. The roadmap now moves to iOS arm64
-and then Linux x86_64 target-host work. Android QNN and all Windows target-host
-work remain deferred.
+signing, distribution, or another tuple. The roadmap now moves to Linux x86_64
+target-host work and then stabilization/scoped pre-1.0 release engineering for
+only exact advertised tuples. Android QNN and all Windows target-host,
+provider, final-package, installer, and clean-machine work remain deferred.
 
 ## Required CI coverage
 
@@ -389,12 +477,24 @@ version-gated inputs described above. They are not yet hosted CI lanes or
 reproducible release builds, and Gradle dependency-verification metadata
 remains absent.
 
-## Evidence not produced and release blockers
+The Apple auditor and iOS reference-gate unit/tamper suites also run in the
+ordinary Python collection. The full iOS build/audit/simulator gate is locally
+provisioned evidence rather than a hosted CI lane. Its exact source epoch,
+archive, toolchain, unsigned device application, audited simulator application,
+transport-normalized installed tree, launch binding, receipt, settlement, and
+uninstall are one
+closed tuple; none may be inferred from source tests alone.
+
+## Evidence not produced, scoped exclusions, and release blockers
 
 The following are deliberately not claimed:
 
-- signed final iOS application packaging, simulator execution, or physical
-  iOS CPU/CoreML/XNNPACK/ANE evidence;
+- physical iOS device execution, lifecycle, provisioning, approved device or
+  distribution signing, IPA/App Store packaging, or distribution evidence;
+- iOS CoreML/XNNPACK/GPU/Neural Engine assignment, representative workloads,
+  sustained performance, thermal behavior, or provider qualification;
+- iOS simulator Release execution or transfer of the exact Debug simulator
+  result to another tuple;
 - Android API 24 execution, physical-device or x86_64 inference, an installed
   AAB-derived split, or transfer of the exact 4 KiB/16 KiB emulator results to
   another tuple;
@@ -408,6 +508,15 @@ The following are deliberately not claimed:
 - physical-device or representative-hardware qualification and sustained
   benchmarks for every other non-CPU provider; or
 - notarization, public signing, publication, or redistribution approval.
+
+For the planned scoped pre-1.0 release, a missing gate blocks publication only
+when its exact target/provider tuple is selected for advertising. Deferred
+Android QNN, every deferred Windows target-host/provider/package/install path,
+and other unadvertised tuples must remain explicitly unsupported, but they are
+not completion gates for that narrower release. They remain gates for
+five-platform, unqualified `Release-ready`, and 1.0 claims. Existing portable,
+static, source, tamper, cross-build, and loader-security regressions remain
+mandatory even for excluded tuples.
 
 In particular, the reference app's local ad-hoc build disables library
 validation because it has no authorized Team ID shared with FlutterMacOS. That

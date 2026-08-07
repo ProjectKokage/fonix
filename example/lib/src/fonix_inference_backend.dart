@@ -11,9 +11,14 @@ import 'inference_backend.dart';
 const String _modelAsset = 'assets/models/mul_1.onnx';
 
 final class FonixInferenceBackend implements InferenceBackend {
-  FonixInferenceBackend({AssetBundle? assets}) : _assets = assets ?? rootBundle;
+  FonixInferenceBackend({AssetBundle? assets, OrtRuntimeSource? runtimeSource})
+    : _assets = assets ?? rootBundle,
+      _runtimeSource =
+          runtimeSource ??
+          referenceRuntimeSourceForPlatform(isIOS: Platform.isIOS);
 
   final AssetBundle _assets;
+  final OrtRuntimeSource _runtimeSource;
 
   Future<InferenceStartupReceipt>? _startupFuture;
   Future<void>? _closeFuture;
@@ -54,7 +59,7 @@ final class FonixInferenceBackend implements InferenceBackend {
       );
       _artifactRoot = artifactRoot;
       final OrtIsolateSession session = await OrtIsolateSession.spawn(
-        runtimeSource: const OrtRuntimeSource.bundled(),
+        runtimeSource: _runtimeSource,
         model: OrtModelSource.bytes(
           modelBytes,
           modelId: 'mul-1-sha256-$referenceModelSha256',
@@ -85,7 +90,7 @@ final class FonixInferenceBackend implements InferenceBackend {
       final String? artifactSha256 = diagnostics.artifactSha256;
       if (artifactSha256 == null) {
         throw const InferenceBackendFailure(
-          summary: 'The bundled runtime reported no artifact identity.',
+          summary: 'The selected runtime reported no artifact identity.',
           backendUnusable: true,
         );
       }
@@ -252,6 +257,14 @@ final class FonixInferenceBackend implements InferenceBackend {
     }
   }
 }
+
+/// Selects the one runtime source permitted by each reference-app platform.
+///
+/// iOS links the lock-selected static framework into the application image.
+/// The existing macOS and Android application-owned paths keep using their
+/// lock-selected bundled runtime.
+OrtRuntimeSource referenceRuntimeSourceForPlatform({required bool isIOS}) =>
+    isIOS ? const OrtRuntimeSource.linked() : const OrtRuntimeSource.bundled();
 
 InferenceBackendFailure _translateFailure(
   Object error, {

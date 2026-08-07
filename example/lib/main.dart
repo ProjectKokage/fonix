@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -16,13 +17,53 @@ Future<void> main() async {
     await _runAndroidSmoke(AndroidSmokeProfile.parse(androidSmokeProfileValue));
     return;
   }
-  if (Platform.environment[_smokeEnvironmentKey] == '1') {
+  if (Platform.isIOS) {
+    final ResidentReferenceChallenge? challenge;
+    try {
+      challenge = await readIosResidentReferenceChallenge();
+    } on Object {
+      stderr.writeln(residentReferenceActivationFailureDiagnostic);
+      runApp(const SizedBox.shrink());
+      return;
+    }
+    if (challenge != null) {
+      runApp(const SizedBox.shrink());
+      unawaited(
+        _runResidentPackagedSmoke(challenge, pid).catchError((Object _) {
+          stderr.writeln(residentReferencePublicationFailureDiagnostic);
+        }),
+      );
+      return;
+    }
+  }
+  if (Platform.isMacOS && Platform.environment[_smokeEnvironmentKey] == '1') {
     final int status = await _runPackagedSmoke();
     await stdout.flush();
     await stderr.flush();
     exit(status);
   }
   runApp(FonixReferenceApp(createBackend: FonixInferenceBackend.new));
+}
+
+Future<void> _runResidentPackagedSmoke(
+  ResidentReferenceChallenge challenge,
+  int processId,
+) async {
+  await runResidentReferenceSmoke(
+    FonixInferenceBackend(),
+    challenge: challenge,
+    processId: processId,
+    onPassed: (String line) => publishResidentReferenceLine(
+      line,
+      challenge: challenge,
+      processId: processId,
+    ),
+    onFailed: (String line) => publishResidentReferenceLine(
+      line,
+      challenge: challenge,
+      processId: processId,
+    ),
+  );
 }
 
 Future<int> _runPackagedSmoke() async {

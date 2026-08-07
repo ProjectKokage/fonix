@@ -145,6 +145,45 @@ assignment, and idempotent double close. Process output, time, copied entries,
 copied bytes, assets, paths, JSON, and receipt fields are all bounded; loader
 override environment variables are removed before launch.
 
+`tool/ci/run_ios_reference_app_gate.py` takes one more bounded external copy,
+freezes its source epoch, and derives linked arm64 device and simulator variants
+from the same tree. It requires the exact lock-selected iOS NuGet and macOS host
+archives, macOS 26.5.2 (25F84), Xcode 26.6 (17F113), both iOS 26.5 SDKs, and
+Flutter revision `bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter
+`3.47.0-0.1.pre`). The app contract is iOS 15.1; exact audited binary floors
+remain 15.1 for Runner and the shim and 15.0 for App and Flutter.
+
+The device branch builds Release without code signing and applies the closed
+development policy: the root app/executable are unsigned with no provisioning
+profile, while the three nested frameworks have exact teamless ad-hoc
+signatures. This is static-only final-application evidence, not physical-device
+execution. The simulator branch builds Debug twice and submits the exact
+audited second tree to `simctl`. The installed identity must preserve every
+path and byte and may differ only by the three exact framework executable-bit
+clearings in the closed transport normalization. On the selected iOS 26.5
+arm64-capable iPhone 17 Pro simulator, the application delegate validates the
+exact smoke/challenge process-environment pair and exposes only its cached
+null-or-closed activation over an argument-free app-owned channel; Dart
+revalidates it within five seconds and never receives the raw environment. The
+gate then binds a resident receipt to a fresh 256-bit challenge and PID. It
+requires ORT 1.27.1 linked wrapper-owned CPU, output
+`[1,4,9,16,25,36]`, full assignment, double close, process settlement, and
+uninstall.
+
+The source checkpoint passed all 68 application tests and analysis;
+`reference_smoke_test.dart` passed 24/24 and
+`ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
+Debug builds passed. The complete iOS gate result is
+`PASS (2026-08-07)`. Its final-bundle audit excludes a separately
+packaged raw ORT Mach-O and an audited ORT load-command dependency and binds the
+packaged shim to the exact prepackage hook output through normalized fields,
+hook metadata, schema-3 identity, dyld exports/fixups, and accounted
+transformations. It does not prove the absence of runtime `dlopen`, another
+static ORT copy in a different Mach-O, or exactly-one static archive linkage.
+It also does not prove physical-device/signing/distribution, iOS
+CoreML/XNNPACK/GPU/Neural Engine qualification, performance, simulator Release,
+or transferability to another tuple.
+
 `tool/ci/run_android_reference_app_gate.py` uses the same committed source from
 a separate clean copy. It reproduces the Android sidecars, runs Flutter
 analysis/tests, builds R8 Release APK/AAB bytes for the selected closed `cpu` or
@@ -439,15 +478,17 @@ The checked-in pull-request/push workflow currently runs:
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
 
-The Python job includes unit and tamper coverage for the Android auditor,
-schema-2 load-order receipt validator, schema-1 validation-record ingestion,
-four-record compatibility aggregation, reference-gate orchestration, and the
-trusted one-tuple target-runner contract. The full Gradle package gates and the
-standalone CPU/XNNPACK emulator runs are explicitly provisioned local evidence,
-not hosted CI lanes. Their Gradle dependency graphs also lack dependency-
-verification metadata, so these remain CI Release-mode package gates rather
-than reproducible release builds. The sherpa runner's four 4 KiB/16 KiB
-captures and aggregate are local provisioned evidence, not hosted CI runs.
+The Python job includes unit and tamper coverage for the Apple auditor, iOS
+source-epoch/final-application gate, Android auditor, schema-2 load-order
+receipt validator, schema-1 validation-record ingestion, four-record
+compatibility aggregation, Android reference-gate orchestration, and the
+trusted one-tuple target-runner contract. The complete iOS gate, full Gradle
+package gates, and standalone Android CPU/XNNPACK emulator runs are explicitly
+provisioned local evidence, not hosted CI lanes. The Android Gradle dependency
+graphs also lack dependency-verification metadata, so those remain CI
+Release-mode package gates rather than reproducible release builds. The sherpa
+runner's four 4 KiB/16 KiB captures and aggregate are local provisioned
+evidence, not hosted CI runs.
 
 The inexpensive C source-quality lane is deliberately offline and
 toolchain-independent. `tool/ci/check_c_source_quality.py` walks the closed
@@ -459,9 +500,11 @@ markers. The native CMake jobs remain the semantic compiler-lint gate through
 elsewhere. This lexical gate does not claim `clang-tidy` static-analysis
 coverage; adding a pinned cross-platform analyzer remains separate work.
 
-Flutter iOS/Linux/Windows final-application smoke, Android sherpa target
-coexistence, and Windows/Linux target-host real-ORT inference are not present
-CI jobs. The Android standalone CPU and XNNPACK gates have local API 35
+The iOS final-application gate has the exact local result
+`PASS (2026-08-07)`; it is not a hosted CI job, and its device branch is
+not physical-device execution. Flutter Linux/Windows final-application smoke
+and Windows/Linux target-host real-ORT inference are not present CI jobs. The
+Android standalone CPU and XNNPACK gates have local API 35
 arm64/4 KiB final-package evidence. The sherpa-owned path now also has local
 runtime-provisioned release-minified APK/AAB static evidence, four trusted 4
 KiB/16 KiB APK captures, and the complete exact-APK schema-2 aggregate. None of
@@ -473,9 +516,10 @@ requirements before promoting the corresponding support rows; a cross-build,
 source test, static package audit, or tiny emulator fixture must not be
 reported as a substitute.
 
-The active target roadmap starts with iOS arm64, followed by Linux x86_64 and
-then stabilization/release work. Android aligned/QNN device work
-is deferred until its exact licensed SDK/hardware tuple exists. All Windows
+The iOS arm64 baseline is now a standing regression. The next active target
+slice is Linux x86_64, followed by
+stabilization/release work. Android aligned/QNN device work is deferred until
+its exact licensed SDK/hardware tuple exists. All Windows
 target-host, provider, final-app/package, installer, and clean-machine work is
 deferred until a Windows environment exists. Their portable/static/source,
 tamper, cross-build, and loader-security gates remain required.
@@ -499,15 +543,27 @@ target-host, DirectML, final-package, installer, and clean-machine runs. Keep
 their source/static/security jobs green without scheduling them as the next
 development slice.
 
-### Release
+### Scoped pre-1.0 release and future global release
 
-- all Tier 1 target packages and sample apps;
-- complete provider qualification for advertised flavors;
-- exact sherpa compatibility matrix;
-- final APK/AAB/IPA/app/desktop artifact inspection;
-- SBOM/notices/checksums/signing;
-- clean-machine install/run tests;
-- reproducibility record.
+The planned scoped pre-1.0 release requires:
+
+- every exact target package and sample app selected for advertising;
+- complete provider qualification for only the flavors selected for
+  advertising;
+- the exact sherpa compatibility matrix for each advertised Android
+  composition;
+- final artifact inspection for every advertised package type;
+- SBOM/notices/checksums/signing and the independently owned licensing and
+  security approvals;
+- clean-machine install/run tests for every advertised target; and
+- a reproducibility record.
+
+Android QNN and every Windows target-host, provider, final-package, installer,
+and clean-machine lane remain excluded and explicitly unsupported in that
+scope. Their portable/static/source/tamper/cross-build/security regressions stay
+mandatory. An unqualified `Release-ready` or 1.0 claim additionally requires
+all Tier-1 packages and sample apps, including the deferred Windows lane, and
+every other five-platform release gate.
 
 ## 8.13 Suggested CI job names
 

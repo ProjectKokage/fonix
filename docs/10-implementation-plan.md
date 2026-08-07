@@ -10,21 +10,25 @@ The completed macOS arm64 CPU, Android arm64 CPU/XNNPACK functional emulator,
 and corrected Android sherpa four-tuple coexistence gates are standing
 regressions and must stay green. The sherpa validator and aggregate remain
 offline-consistency-only; their trusted capture manifests are retained as a
-separate provenance layer.
+separate provenance layer. The iOS arm64 CPU reference source has passed 68/68
+tests and analysis, including 24/24 focused smoke tests and 5/5 project-contract
+tests, plus two consecutive linked simulator Debug builds. Its complete
+device-build/audit and installed-simulator gate result is
+`PASS (2026-08-07)`. It is now a standing regression. Keep physical-device
+execution, approved signing/provisioning, and
+iOS CoreML/XNNPACK/GPU/Neural Engine qualification as separately evidenced
+follow-up work when hardware and credentials exist; they are not the next
+development slice.
 
-1. produce the iOS arm64 CPU/CoreML reference application; verify final
-   simulator packaging/inference first, then physical-device lifecycle,
-   assignment, parity, and fallback evidence when hardware/signing are
-   available;
-2. produce and exercise the Linux x86_64 CPU reference package on a clean
+1. produce and exercise the Linux x86_64 CPU reference package on a clean
    target host, then cover Linux arm64 or accelerated flavors only on matching
    target hardware;
-3. finish cross-platform correctness and performance stabilization:
+2. finish cross-platform correctness and performance stabilization:
    cancellation/stale-work suppression, repeated initialization/disposal,
    bounded queues/profiles, public API/shim ABI review, representative model
    corpus, and measured baselines for rows intended to be advertised; and
-4. finish release engineering for the qualified targets: hosted target lanes
-   where feasible, artifact reproducibility, final-package audits,
+3. finish scoped pre-1.0 release engineering for the qualified targets: hosted
+   target lanes where feasible, artifact reproducibility, final-package audits,
    SBOM/notices/checksums, security policy, licensing, signing, clean-machine
    installation, and explicit support-matrix promotion. This can close the
    in-scope lanes, but the five-OS product cannot become globally
@@ -33,8 +37,8 @@ separate provenance layer.
 
 Android QNN/aligned-ORT device qualification is deferred until the exact SDK,
 hardware, firmware, sherpa, licensing, and redistribution inputs exist. All
-Windows target-host inference, final-application packaging, installer, and
-clean-machine qualification work is deferred until a Windows development
+Windows target-host inference, provider, final-application/package, installer,
+and clean-machine qualification work is deferred until a Windows development
 environment exists. Existing Android QNN contract/tamper checks and Windows
 source/cross-build/security checks remain required and must stay green; neither
 deferral creates a support claim.
@@ -176,12 +180,24 @@ exact static audit. On an API 35 arm64 emulator with a queried 4096-byte page
 size, the CPU APK produces its unchanged full-assignment/double-close receipt,
 while the XNNPACK APK proves one-node full assignment for six MatMul runs across
 two sessions, exact CPU parity, fallback report/rejection, recovery, five-
-session cleanup, and double close. This closes the macOS and Android standalone
-development reference slices only. Android API 24 execution,
-physical-device/x86_64 execution, standalone 16 KiB execution, XNNPACK
-performance/thermal/provider qualification, iOS, Linux, and the deferred
-Windows target-host gates remain open. The separate sherpa-owned path now has
-its exact API 35 arm64-v8a release-minified 4 KiB/16 KiB coexistence matrix.
+session cleanup, and double close. The same committed source now includes an
+arm64-only iOS 15.1 linked CPU scaffold. Its 68 application tests and analysis,
+24 focused smoke tests, five project-contract tests, and two consecutive
+simulator Debug builds pass. The complete unsigned-device Release audit and
+transport-normalized, audited-identity-bound simulator install/run/cleanup gate
+result is
+`PASS (2026-08-07)`. The device output is static-only and unexecuted; the
+simulator receipt is exact Debug CPU/full-assignment evidence only. It proves
+neither physical-device/signing/distribution nor iOS CoreML/XNNPACK/GPU/Neural
+Engine qualification or performance.
+
+This closes the macOS and Android standalone development reference slices and
+the exact iOS simulator CPU slice. Android API 24 execution,
+physical-device/x86_64 execution, standalone
+16 KiB execution, XNNPACK performance/thermal/provider qualification, iOS
+physical-device/provider qualification, Linux, and the deferred Windows
+target-host gates remain open. The separate sherpa-owned path now has its exact
+API 35 arm64-v8a release-minified 4 KiB/16 KiB coexistence matrix.
 
 ## Phase 5: async worker and throughput primitives
 
@@ -242,8 +258,10 @@ on an API 35/4 KiB emulator: six one-node MatMul assignments across two
 sessions, exact CPU parity, explicit fallback report/rejection, recovery, and
 cleanup. This tiny emulator fixture does not satisfy Phase 6 provider
 qualification. Physical-device XNNPACK assignment, representative workloads,
-sustained benchmarks/thermal evidence, iOS/ANE, and Android NNAPI qualification
-remain evidence gates, not inferred claims.
+sustained benchmarks/thermal evidence, and Android NNAPI qualification remain
+evidence gates, not inferred claims. The iOS reference baseline adds linked CPU
+simulator inference only (`PASS (2026-08-07)`); it adds no CoreML,
+XNNPACK, GPU, or Neural Engine assignment or performance evidence.
 
 ## Phase 7: Android sherpa-owned runtime
 
@@ -412,7 +430,11 @@ build, physical device, HTP assignment, or redistribution decision exists.
 Do not schedule target qualification until those exact inputs exist; continue
 running the existing contract, static linkage, and tamper gates.
 
-## Phase 10: 1.0 stabilization
+## Phase 10: scoped release stabilization and future 1.0
+
+The work below applies first to the exact tuples selected for the scoped
+pre-1.0 release. It does not satisfy the separate global 1.0 acceptance while
+Windows target-host qualification is deferred.
 
 ### Work
 
@@ -424,13 +446,23 @@ running the existing contract, static linkage, and tamper gates.
 - Performance regression thresholds.
 - Security response process.
 
-### Acceptance
+### Scoped pre-1.0 acceptance
+
+- Every exact advertised target/provider gate passes.
+- Deferred and unadvertised tuples remain explicitly unsupported.
+- No unresolved critical/high ownership/packaging defect affects an advertised
+  tuple or shared boundary.
+- Compatibility floor and each advertised sherpa matrix are documented.
+- Licensing, security, signing, SBOM/notices, and publication approval cover
+  the exact release contents.
+- The release can be reconstructed from archived source/lock/build evidence.
+
+### Global 1.0 acceptance (deferred)
 
 - All Tier 1 and advertised provider gates pass.
-- No unresolved critical/high ownership/packaging defect.
-- Compatibility floor and sherpa matrix documented.
 - 1.0 API/ABI policy approved.
-- Release can be reconstructed from archived source/lock/build evidence.
+- Every shared correctness and release condition above passes across the
+  complete Tier-1 matrix.
 
 Implementation checkpoint (2026-08-06): the composite value surface, strict
 JSON protocols, public diagnostics, support/migration matrix, deterministic
@@ -458,7 +490,9 @@ Create independently reviewable issues:
 11. Metadata and strings.
 12. Native data leases.
 13. Async worker protocol.
-14. iOS packaging sample.
+14. iOS CPU packaging sample (baseline implemented; complete gate
+    `PASS (2026-08-07)`; physical-device/provider qualification remains
+    separate).
 15. Android standalone sample.
 16. Linux/macOS packaging samples; Windows final sample deferred.
 17. Generic provider API and diagnostics.

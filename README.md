@@ -7,9 +7,12 @@ per-run assignment separately.
 
 The package is currently `0.1.0-dev.1` and is intentionally marked
 `publish_to: none`. The source implementation is usable for development, but
-the full five-platform release matrix is not yet qualified and the repository
-does not yet contain the project-level licensing and signing decisions needed
-for redistribution.
+the repository does not yet contain the project-level licensing and signing
+decisions needed for redistribution. The planned first publication is a scoped
+pre-1.0 release over only exact, explicitly advertised target/provider tuples
+that pass their own gates. It is not five-platform, unqualified
+`Release-ready`, or 1.0 approval; those claims still require the complete Tier-1
+matrix, including the deferred Windows target-host lane.
 
 ## What is implemented
 
@@ -174,21 +177,25 @@ until an AAB-derived split is installed and exercised.
 
 ## Committed Flutter reference application
 
-[`example/`](example/) is a shared macOS arm64 and Android arm64-v8a Flutter
-reference application that imports only `package:fonix/fonix.dart`. It loads the
-lock-selected bundled runtime, creates bounded worker-isolate sessions, runs an
-exact CPU-assignment smoke model, and owns retry, cancellation,
-suspension/resume, stale-result suppression, and idempotent shutdown. Its
-Android one-shot path also has a closed XNNPACK functional profile covering
-strict assignment, CPU parity, explicit fallback, recovery, and cleanup. The
-fixtures are deliberately tiny and are not benchmarks.
+[`example/`](example/) is a shared iOS arm64, macOS arm64, and Android
+arm64-v8a Flutter reference application that imports only
+`package:fonix/fonix.dart`. It uses the lock-selected linked runtime on iOS and
+the bundled runtime on macOS and Android, creates bounded worker-isolate
+sessions, runs an exact CPU-assignment smoke model, and owns retry,
+cancellation, suspension/resume, stale-result suppression, and idempotent
+shutdown. Its Android one-shot path also has a closed XNNPACK functional
+profile covering strict assignment, CPU parity, explicit fallback, recovery,
+and cleanup. The fixtures are deliberately tiny and are not benchmarks.
 
 The committed directory is a source template nested inside this package, so it
 must be copied outside the checkout before Flutter builds its native assets.
 The platform gates perform that copy, reproduce app-owned notices, analyze and
-test the app, build Release, audit the packaged bytes, and then launch the final
-macOS executable or install the final Android APK. The Android gate also audits
-the AAB, but does not install an AAB-derived split. See the
+test the app, and audit the packaged bytes. The macOS and Android gates build
+Release and respectively launch the final executable or install the final APK;
+the Android gate also audits the AAB but does not install an AAB-derived split.
+The iOS gate builds an unsigned arm64 device Release application and two
+consecutive arm64 simulator Debug applications, then installs and exercises
+only the audited simulator application. See the
 [reference-app guide](example/README.md).
 
 [`templates/android/sherpa_reference_app/`](templates/android/sherpa_reference_app/)
@@ -231,8 +238,24 @@ exact CPU parity, fallback report/rejection, recovery, and deterministic
 cleanup. This is a functional emulator checkpoint, not physical-device,
 performance, thermal, or provider-qualification evidence. The standalone path
 still lacks API 24, 16 KiB, physical-device, AAB-split, and x86_64 execution.
-iOS, Linux, and the deferred Windows target-host gaps remain explicit release
-gates.
+
+The iOS arm64 reference source passes 68 application tests and analysis, and
+its simulator project has passed two consecutive linked Debug builds. The
+complete manifest-bound device/simulator gate result is
+`PASS (2026-08-07)`. The app delegate validates the exact native
+smoke/challenge pair and forwards only a cached null-or-closed activation over
+an argument-free app-owned channel; Dart revalidates it with a bounded wait and
+never receives the raw environment. That gate is limited to an unsigned arm64 Release
+device package audit and an exact arm64 Debug simulator CPU/full-assignment
+run. It cannot establish physical-device execution, provisioning, approved
+device or distribution signing, an IPA or App Store path, CoreML/XNNPACK/GPU/
+Neural Engine assignment, performance, or sustained behavior. Its final
+Mach-O audit can exclude separately packaged ORT Mach-Os and audited
+load-command dependencies attributable to ORT, but cannot prove the absence of
+runtime `dlopen`, another static ORT copy in a different Mach-O, or exactly-one
+static archive linkage. Linux remains an active scoped-release gate. The
+deferred Windows target-host gaps remain gates only for five-platform,
+unqualified `Release-ready`, or 1.0 status.
 
 The corrected sherpa-owned arm64-v8a checkpoint is bound to commit
 `8a9b6812c17237aeab7ec6d933f23932668c4b33` and source manifest SHA-256
@@ -284,9 +307,10 @@ exact API 35 arm64-v8a release-minified APK matrix only, not API 24, a physical
 device, an AAB-derived installation, another ABI/build, performance, signing,
 distribution, or general Android support.
 
-The next development slice is the iOS arm64 reference app, followed by the
-Linux x86_64 target-host package and cross-platform lifecycle/performance and
-release stabilization. Android
+The next development slice is the Linux x86_64 target-host package, followed
+by lifecycle/performance stabilization and scoped pre-1.0 release engineering
+for only the exact macOS, iOS, Linux, and Android-without-QNN tuples that the
+support matrix explicitly advertises. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

@@ -152,7 +152,7 @@ Options:
 
 ## Open question 5: macOS x86_64 and Windows arm64 release tier
 
-**Recommended default:** support source/build paths and qualify as Tier 1 only when stable runners and current ORT artifacts/builds exist. Do not block baseline arm64 macOS/x64 Windows release on unavailable hardware, but state the tier precisely.
+**Recommended default:** support source/build paths and qualify as Tier 1 only when stable runners and current ORT artifacts/builds exist. The baseline Windows x64 target-host gate is deferred, not passed: it blocks any Windows support, five-platform, unqualified `Release-ready`, or 1.0 claim, but does not block a scoped pre-1.0 release that excludes Windows explicitly.
 
 ## Open question 6: Android `armeabi-v7a`
 

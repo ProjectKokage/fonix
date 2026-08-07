@@ -120,7 +120,7 @@ final class _ReferenceInferenceScreenState
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   Text(
-                    'Public API → worker isolate → bundled ONNX Runtime',
+                    'Public API → worker isolate → platform-selected ONNX Runtime',
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 8),

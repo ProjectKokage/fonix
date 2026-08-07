@@ -18,6 +18,10 @@ void main() {
     final FakeInferenceBackend backend = factory.backends.single;
     expect(find.text('Fonix reference'), findsOneWidget);
     expect(find.textContaining('macOS reference'), findsNothing);
+    expect(
+      find.textContaining('platform-selected ONNX Runtime'),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('status-text')), findsOneWidget);
     expect(find.text('Starting worker…'), findsOneWidget);
     backend.startup.complete(fakeStartupReceipt());

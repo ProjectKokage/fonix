@@ -14,8 +14,8 @@
 - Added five-platform build-hook paths, pinned artifact resolution, Android
   single-runtime ownership enforcement, final-package auditors, aligned-build
   tooling, SBOM generation, and source checksum verification.
-- Added a committed macOS arm64 and Android arm64-v8a Flutter reference
-  application that uses only the public API and owns worker
+- Added a committed iOS arm64, macOS arm64, and Android arm64-v8a Flutter
+  reference application that uses only the public API and owns worker
   lifecycle/cancellation/retry.
 - Added the Android application-owned CPU gate: exact R8 Release APK/AAB audit,
   development-signature and single-ORT enforcement, and an API 35 arm64/4 KiB
@@ -57,9 +57,34 @@
   compatibility manifest is retained as `offline-consistency-only`, so this
   remains exact-tuple evidence rather than a release or support-promotion
   claim.
+- Added the arm64-only iOS 15.1 reference scaffold with linked-runtime
+  selection, no committed development team or provisioning identity, bounded
+  resident smoke publication, challenge/PID correlation, and deterministic
+  process settlement. An app-owned, argument-free launch channel converts the
+  native process environment into only a cached null-or-closed activation;
+  Dart revalidates it with a bounded wait and never receives the raw
+  environment.
+- Added the manifest-bound iOS reference gate. The source passes 68/68 app
+  tests and analysis, including 24/24 resident-publication tests and 5/5 iOS
+  project-contract tests, and the simulator application passes two consecutive
+  linked Debug builds. The gate binds installation through every directory,
+  path, byte, and the retained `Runner` executable bit while permitting only
+  `simctl`'s exact three-framework executable-bit normalization. The complete
+  unsigned-device audit and simulator install/run result is
+  `PASS (2026-08-07)`.
+- Extended the Apple final-application auditor with exact iOS arm64 Mach-O,
+  deployment-floor, dependency, RPATH, export, hook-provenance, transformation,
+  and signing profiles. Its device result is static-only, while simulator
+  execution is exact-Debug-tuple evidence. The final bundle excludes a
+  separately packaged ORT Mach-O and audited ORT load-command dependency but
+  cannot prove the absence of runtime `dlopen`, another static ORT copy, or
+  exactly-one static archive linkage.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
   assignment/parity on macOS arm64. The Android XNNPACK result is limited to an
   API 35 arm64/4 KiB emulator functional checkpoint. Android API 24,
   physical-device, AAB-split-install, x86_64, performance, signing, and
-  distribution evidence remain open. The next target-host gates are iOS arm64
-  and Linux x86_64; Android QNN and Windows remain deferred.
+  distribution evidence remain open. Linux x86_64 is the next target-host
+  gate, followed by scoped pre-1.0 stabilization for exact advertised tuples.
+  Android QNN and all Windows target-host, provider, final-package, installer,
+  and clean-machine work remain deferred; no five-platform or 1.0 claim is
+  made.

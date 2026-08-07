@@ -70,7 +70,25 @@ Use `RTLD_NOW` and constrained names/paths. The Android process mode resolves on
 
 ### Apple
 
-iOS uses linked/framework packaging. Do not attempt arbitrary runtime code loading. Validate framework signing and embedding.
+iOS uses linked/framework packaging. Do not attempt arbitrary runtime code
+loading. Validate framework signing and embedding. The committed arm64
+reference gate's unsigned-device policy is a closed development exception: the
+root app/executable have no signature or provisioning profile, and exactly
+three nested frameworks carry teamless ad-hoc signatures. Its simulator branch
+uses the exact strict development-signature inventory. Neither policy is
+approved device or distribution signing, provisioning, IPA, App Store, or
+release evidence.
+
+For linked iOS, inspect every final Mach-O and load command and bind the
+packaged shim to the validated native-assets hook output. The current auditor's
+`linkedRuntimeIdentity` records the packaged and reference shim identities,
+hook invocation metadata, normalized runtime fields and hash, comparison scope,
+accounted transformations, embedded schema-3 build identity, nlist/dyld
+exports, and closed ORT Mach-O/dependency findings. This proves that no
+separately packaged raw Mach-O or audited load-command dependency is
+attributable to ORT. It does not prove the absence of runtime `dlopen`, another
+static ORT copy inside a different Mach-O, or exactly-one static archive
+linkage; retain build-time/link-map evidence for those stronger claims.
 
 ## 9.5 Build-hook supply-chain controls
 
@@ -205,7 +223,15 @@ Rules:
 
 ## 9.11 Release contents
 
-A release must include:
+A scoped pre-1.0 release may include only exact target/provider tuples that are
+explicitly advertised and evidence-backed. Deferred Android QNN and Windows
+target-host/provider/final-package/installer/clean-machine rows remain
+unsupported and are not completion gates for that narrower release; their
+source/static/security regressions remain mandatory. Unqualified
+`Release-ready` and 1.0 retain the complete Tier-1/five-platform meaning and
+therefore still require the deferred Windows lane.
+
+Every release must include:
 
 - Dart source and generated bindings;
 - shim source/header;
@@ -229,12 +255,14 @@ Do not publish a flavor whose artifact hashes or dependency licenses are unknown
 3. Refresh lockfile URLs/hashes/toolchains.
 4. Regenerate bindings and verify shim ABI.
 5. Rebuild every affected target/flavor.
-6. Run Tier 1 matrix.
+6. Run every exact target matrix selected for advertising. Run the complete
+   Tier-1 matrix for unqualified `Release-ready` or 1.0.
 7. Run advertised EP qualification.
 8. Run exact sherpa coexistence matrix and final Android artifact audit.
 9. Generate SBOM/notices/checksums.
 10. Scan artifacts for unexpected symbols/dependencies/secrets.
-11. Build/install/run sample applications from clean environments.
+11. Build/install/run every advertised sample application from a clean
+    environment.
 12. Sign artifacts/packages as required.
 13. Publish release notes with compatibility impact.
 14. Archive manifests, build logs, symbols, and test evidence.
@@ -302,3 +330,7 @@ tool does not infer a Fonix license from the ONNX Runtime license or notices.
 `--require-release-ready` therefore fails after writing the audit documents
 until the separately owned release gates are established, and this command
 must never be used to invent or bypass those gates.
+
+`--require-release-ready` retains the unqualified Tier-1/five-platform meaning;
+a scoped release must use a separately explicit advertised-scope approval and
+must not reinterpret or weaken that flag.

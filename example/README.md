@@ -1,18 +1,20 @@
 # Fonix Flutter reference application
 
 This committed Flutter application demonstrates Fonix through
-`package:fonix/fonix.dart` only. It loads the bundled, lock-selected ONNX
-Runtime, creates bounded worker-isolate sessions, runs the deterministic CPU smoke
-model, exposes cancellation and retry, and reports path-free runtime and
-per-run assignment evidence. Its bounded Android one-shot mode also exposes a
-closed `xnnpack` profile for strict assignment, CPU parity, fallback, recovery,
-and lifecycle evidence.
+`package:fonix/fonix.dart` only. It loads the linked, lock-selected ONNX Runtime
+on iOS and the bundled runtime on its existing macOS and Android paths, creates
+bounded worker-isolate sessions, runs the deterministic CPU smoke model,
+exposes cancellation and retry, and reports path-free runtime and per-run
+assignment evidence. Its bounded Android one-shot mode also exposes a closed
+`xnnpack` profile for strict assignment, CPU parity, fallback, recovery, and
+lifecycle evidence.
 
 The app is a development reference for macOS arm64 at a 14.0 deployment floor
-and for Android arm64-v8a with a manifest/build floor of API 24. It is not a
-release artifact. The included 130-byte CPU model and 311-byte static-weight
-MatMul assignment model are bounded functional fixtures, not representative
-performance workloads.
+and Android arm64-v8a with a manifest/build floor of API 24. Its pinned Flutter
+iOS scaffold is arm64-only for both device and simulator and declares a 15.1
+deployment floor. It is not a release artifact. The included 130-byte CPU
+model and 311-byte static-weight MatMul assignment model are bounded functional
+fixtures, not representative performance workloads.
 
 The Release target keeps the app sandbox and hardened runtime enabled but
 declares `com.apple.security.cs.disable-library-validation`: the local gate has
@@ -21,7 +23,9 @@ ad-hoc signed with no common Team ID. A distribution build must use its
 approved consistent signing identity and separately review or remove this
 development entitlement; the macOS gate proves neither distribution signing
 nor notarization. Android Release validation uses the local debug keystore and
-is likewise development-only signing evidence.
+is likewise development-only signing evidence. The iOS project commits no
+development team or provisioning identity; simulator evidence cannot be
+promoted into a signed device or distribution claim.
 
 ## External-copy requirement
 
@@ -33,6 +37,19 @@ local Fonix dependency and its platform hook configuration, and keeps every
 generated native byte outside source. The committed `pubspec.yaml` remains the
 macOS-default source template; the Android gate first uses an external hook for
 host tests, then selects application-owned bundled Android assets in its copy.
+The iOS gate likewise selects the linked runtime and 15.1 application-floor
+hook only in its clean copy.
+
+On iOS, the app delegate accepts only `FONIX_REFERENCE_SMOKE=1` together with
+an exact 64-character lowercase-hex `FONIX_REFERENCE_CHALLENGE`. It exposes
+only `null` or `{schemaVersion: 1, challenge}` through the argument-free
+`dev.fonix.reference/launch` channel, and Dart revalidates that closed shape
+within five seconds. Partial or malformed activation fails closed with
+`FONIX_REFERENCE_ACTIVATION_FAILURE`. Once activated, backend failures publish
+one path-free `FONIX_REFERENCE_FAILURE=` payload; publication-transport
+failures emit only `FONIX_REFERENCE_PUBLICATION_FAILURE`. No raw environment
+map or smoke flag reaches Dart, and the environment-driven exit path remains
+macOS-only. The iOS smoke remains resident so the Flutter runner owns shutdown.
 
 ## macOS gate
 
@@ -61,6 +78,62 @@ interactive UI with the already resolved inputs:
 cd /absolute/new/fonix-reference-gate
 flutter run -d macos --no-pub
 ```
+
+## iOS arm64 gate
+
+Provision both the exact iOS NuGet archive and the lock-selected macOS host
+archive in one offline cache, then run the committed device-and-simulator gate:
+
+```sh
+python3 -B tool/ci/run_ios_reference_app_gate.py \
+  --repository /absolute/path/to/fonix \
+  --flutter /absolute/flutter/bin/flutter \
+  --artifact-cache /absolute/verified/cache \
+  --simulator-udid <canonical-ios-26.5-simulator-udid> \
+  --work-dir /absolute/new/fonix-ios-reference-gate
+```
+
+The iOS input is
+`microsoft.ml.onnxruntime.1.27.1.nupkg`, exactly 135,152,698 bytes with
+SHA-256
+`9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383`.
+The gate pins macOS 26.5.2 (25F84), Xcode 26.6 (17F113), the 26.5 device and
+simulator SDKs, Flutter revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter
+`3.47.0-0.1.pre`), and an arm64-capable iPhone 17 Pro simulator running iOS
+26.5. The exact bundle identifier is `dev.fonix.fonixReference`. The app and
+hook floor is 15.1; the exact final-binary floors are 15.1 for Runner and the
+shim and 15.0 for App and Flutter.
+
+The source checkpoint passed all 68 application tests and analysis;
+`reference_smoke_test.dart` passed 24/24 and
+`ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
+Debug builds also passed. The complete device-build, final-audit, install,
+receipt, settlement, and cleanup gate is `PASS (2026-08-07)`.
+
+The device branch produces and audits an unsigned arm64 Release application.
+Its root application and executable have no signature or provisioning profile;
+the three nested frameworks have exact teamless ad-hoc signatures. That branch
+is static-only evidence and is not executed without a physical device. The
+simulator branch builds Debug twice and audits the exact tree before
+installation. Its install-transport identity preserves every directory, file
+path, byte, and the `Runner` executable bit while permitting `simctl` to clear
+the executable bit only on the exact App, Flutter, and Fonix framework
+binaries. It then binds that installed identity to a fresh 256-bit challenge
+and process, requires ORT 1.27.1 CPU output `[1,4,9,16,25,36]`, full assignment
+and double close, settles the process, and uninstalls the app. Its result is
+exact-simulator functional evidence only.
+
+For both branches, the closed Mach-O inventory and load-command audit excludes
+a separately packaged raw ONNX Runtime Mach-O and an audited ORT load-command
+dependency. Hook metadata, embedded schema-3 identity, dyld exports/fixups, and
+normalized runtime fields bind the packaged shim to its prepackage output
+through the explicitly accounted transformations. This does not prove the
+absence of runtime `dlopen`, another static ORT copy in a different Mach-O, or
+exactly-one static archive linkage. It also does not prove physical-device
+execution, approved signing/provisioning, IPA/App Store distribution,
+CoreML/XNNPACK/GPU/Neural Engine qualification, performance, or transferability
+to another tuple.
 
 ## Android arm64-v8a gate
 
@@ -162,9 +235,9 @@ launches a bounded one-shot smoke mode from the packaged executable. It checks
 the exact numeric output and CPU assignment receipt and closes the worker twice
 to prove idempotence.
 
-The Android gate is currently an explicitly provisioned local package/runtime
-gate rather than a hosted CI lane. Its auditor and orchestration tamper tests
-remain part of the ordinary Python CI collection.
+The Android and complete iOS gates are currently explicitly provisioned local
+package/runtime gates rather than hosted CI lanes. Their auditor and
+orchestration tamper tests remain part of the ordinary Python CI collection.
 
 The widget/controller tests use an app-owned fake backend. They do not load
 native code and therefore prove application state ownership, cancellation,

@@ -14,10 +14,11 @@ the target.
 | Target-tested | The named runtime/model path executed on the target host or device. |
 | Final-app tested | The packaged application bytes were audited, loaded, and exercised. |
 | Provider-qualified | Assignment, parity, fallback, cache, and benchmark receipts exist for an exact provider/model/device tuple. |
-| Release-ready | Every advertised target/provider gate, licensing, signing, SBOM, security, and reproducibility requirement passed. |
+| Scoped pre-1.0 candidate | Every exact advertised target/provider gate and its licensing, signing, SBOM, security, and reproducibility requirements passed; excluded rows remain explicitly unsupported. |
+| Release-ready / 1.0 | Every Tier-1 target and advertised provider gate, licensing, signing, SBOM, security, and reproducibility requirement passed, including the Windows target-host lane. |
 
-Fonix is not currently release-ready. No row may be promoted by inference from
-a lower status.
+Fonix is not currently a scoped pre-1.0 candidate or release-ready. No row may
+be promoted by inference from a lower status.
 
 ## 13.2 Baseline platform matrix
 
@@ -26,8 +27,8 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 | Target | Locked baseline | Highest current evidence | Missing before a support claim |
 | --- | --- | --- | --- |
 | macOS arm64, minimum 14.0 | bundled CPU | Final-app tested with both a freshly generated gate app and the committed public-API reference `.app`, exact packaged bytes, and numeric CPU inference | Consistent distribution signing, removal/review of the local ad-hoc library-validation exception, notarization, and release approval |
-| iOS arm64 device, minimum 15.1 | linked CPU | Shim/runtime source resolution and device-target compilation | Signed final app, physical-device load/inference, lifecycle, and packaging audit |
-| iOS arm64 simulator, minimum 15.1 | linked CPU | Shim/runtime source resolution and simulator-target compilation | Final simulator app load/inference and packaging audit |
+| iOS arm64 device, minimum 15.1 | linked CPU | Complete reference gate `PASS (2026-08-07)`: unsigned arm64 Release app with a closed static audit; root app/executable unsigned, no provisioning profile, and three exact teamless ad-hoc nested frameworks; no separately packaged raw ORT Mach-O or audited ORT load-command dependency; packaged shim bound to prepackage hook output | No physical-device execution. Approved signing/provisioning, device load/inference/lifecycle, IPA/App Store/distribution, build-time exactly-one-archive proof, provider qualification, and release approval remain open |
+| iOS arm64 simulator, minimum 15.1 | linked CPU | Complete reference gate `PASS (2026-08-07)`: two consecutive Debug builds and exact install-transport identity on an arm64-capable iPhone 17 Pro/iOS 26.5 simulator; every path/byte and the Runner executable bit remain bound while only the three exact framework executable bits are normalized; ORT 1.27.1 CPU output `[1,4,9,16,25,36]`, full assignment, double close, process settlement, and uninstall | Exact-simulator functional evidence only. Simulator Release, another tuple, physical device, approved signing/distribution, iOS CoreML/XNNPACK/GPU/Neural Engine qualification, and performance remain open |
 | Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64/4096-byte emulator. The sherpa-owned path has an exact commit-bound static audit and a passing four-record schema-2 matrix for both load orders on API 35 arm64 4 KiB/16 KiB emulators against one release-minified APK | API 24 execution, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, approved distribution signing, and release approval; QNN is deferred |
 | Android x86_64, API 24 | application-owned CPU or sherpa-owned process shim | NDK cross-build, ELF/16 KiB static audit, and synthetic final native inventory | Flutter APK/AAB, emulator runtime/inference, sherpa coexistence, and release/R8 |
 | Linux x86_64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
@@ -41,9 +42,9 @@ have no locked baseline artifact and are not supported by this snapshot.
 
 | Provider | Configuration path | Highest current evidence | Qualification boundary |
 | --- | --- | --- | --- |
-| CPU | implicit or explicit last provider | Exact ORT 1.27.1 CPU inference and full-assignment receipts through the packaged public-API app on macOS arm64 and the application-owned Android arm64 APK on the named API 35/4 KiB emulator | Other target tuples and Android API 24/physical-device/AAB-split cases retain their platform gates; the application-owned path still lacks a 16 KiB run, and these tiny fixtures are not benchmark qualification |
+| CPU | implicit or explicit last provider | Exact ORT 1.27.1 CPU inference and full-assignment receipts through the packaged public-API app on macOS arm64 and the application-owned Android arm64 APK on the named API 35/4 KiB emulator; linked iOS arm64 Debug simulator gate result: `PASS (2026-08-07)` | Other target tuples, the unexecuted iOS device output, and Android API 24/physical-device/AAB-split cases retain their platform gates; the application-owned Android path still lacks a 16 KiB run, and these tiny fixtures are not benchmark qualification |
 | XNNPACK | typed options plus one canonical generic thread option and oversubscription checks | Exact ORT 1.27.1 final-app functional checkpoint on an API 35 arm64/4 KiB emulator: one-node static-weight MatMul full assignment for six runs across two sessions, exact CPU parity, fallback report/rejection, recovery, and cleanup | Not provider-qualified: the tiny fixture is not representative; physical-device assignment, API 24/16 KiB/x86_64 execution, sustained performance, thermal behavior, and benchmark receipts remain open |
-| CoreML | typed format/compute/cache options | Exact macOS arm64 `CPUOnly` full assignment, CPU parity, and scoped-cache behavior | No inference about GPU/ANE; iOS and physical-device qualification remain open |
+| CoreML | typed format/compute/cache options | Exact macOS arm64 `CPUOnly` full assignment, CPU parity, and scoped-cache behavior | No inference about GPU/ANE. The iOS baseline is CPU-only and adds no CoreML, XNNPACK, GPU, or Neural Engine evidence; physical-device qualification remains open |
 | NNAPI | typed legacy flags; Android-only native symbol | Cross-built for locked Android ABIs | Deprecated/opt-in; requires real-device assignment, parity, and fallback evidence |
 | QNN | generic options plus aligned-build/receipt tooling | Contracts exercised with synthetic local artifacts only | Deferred: exact SDK/license, aligned ORT+sherpa bytes, selected device/firmware, HTP assignment, parity, and cache receipts; existing contract/tamper checks remain required |
 | CUDA | provider-specific adapter | Implemented source path only | Exact flavor/dependencies, clean GPU host, assignment, parity, lifecycle, and benchmark |
@@ -208,14 +209,25 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
 10. Re-run the exact final-package and target/device gates for every tuple the
    application intends to advertise.
 
-## 13.7 Release blockers in this snapshot
+## 13.7 Scoped exclusions and release blockers in this snapshot
+
+For the planned scoped pre-1.0 release, a missing gate is a blocker only when
+its exact tuple is selected for advertising. Deferred Android QNN, every
+Windows target-host/provider/package/install path, and other unadvertised rows
+remain explicitly unsupported and outside that completion scope. They remain
+blockers for unqualified `Release-ready`, five-platform, and 1.0 claims. Shared
+source/static/tamper/cross-build/security regressions remain mandatory whether
+or not their target row is advertised.
 
 - The repository has no project-level `LICENSE`; the ONNX Runtime license and
   third-party notices do not authorize Fonix distribution by themselves.
 - No approved private security-reporting contact, signing identity, or
   publication authority is recorded.
-- iOS, Android, Linux, and Windows still have target/final-application gaps
-  listed above.
+- The iOS baseline gate result is `PASS (2026-08-07)`. Even with that exact
+  simulator CPU slice closed, iOS physical-device execution,
+  provisioning/approved signing, distribution, and provider qualification
+  retain the gaps listed above. Android, Linux, and deferred Windows likewise
+  retain their named target/release gaps.
 - No non-CPU provider has the complete advertised hardware qualification
   matrix. The macOS CoreML receipt is intentionally limited to `CPUOnly`.
 - The corrected Android sherpa APK/AAB passed the static audit, and the exact
@@ -224,13 +236,20 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
   performance, signing, distribution, and general Android support remain open.
 - Android QNN product receipts require an exact SDK/license, aligned build,
   selected device/firmware, and redistribution decision that are not present.
-- Android QNN qualification and Windows target-host/package work are explicitly
+- Android QNN qualification and all Windows target-host, provider,
+  final-application/package, installer, and clean-machine work are explicitly
   deferred. Their existing source and cross-build evidence does not promote a
   support row.
 
-The active non-deferred sequence is the iOS arm64 reference application, then
-the Linux x86_64 target-host package, then cross-platform stabilization and
-release engineering for the qualified targets.
+With the exact iOS arm64 CPU baseline closed and frozen, the next active
+non-deferred target is the Linux x86_64 target-host package, followed by
+cross-platform stabilization and release engineering for the qualified
+targets. iOS physical-device/provider qualification remains a separately
+evidenced follow-up rather than the next development slice. Android QNN and all
+Windows target-host, provider, final-application/package, installer, and
+clean-machine work remain explicitly deferred.
 
-Release-evidence generation must continue to report these as fail-closed
-readiness conditions; tools and documentation must not synthesize approvals.
+Release-evidence generation must fail closed for every tuple actually selected
+for advertising and must preserve explicit unsupported status for every
+excluded tuple. It must not synthesize approvals. Deferred QNN/Windows gaps
+remain fail-closed conditions for unqualified `Release-ready` and 1.0 only.

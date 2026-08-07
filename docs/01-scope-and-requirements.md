@@ -29,6 +29,25 @@ The wrapper is responsible for the Dart API, C shim, native artifact resolution,
 
 A platform name alone is insufficient. Every public support claim names the operating system, CPU architecture, runtime flavor, minimum deployment target, and validation tier.
 
+### Current scoped pre-1.0 release boundary
+
+The current development sequence does not redefine or complete the Tier-1
+matrix. A scoped pre-1.0 release may advertise only exact tuples whose
+target-host, final-package, lifecycle, and applicable provider gates pass. Its
+candidate scope is the evidence-backed macOS arm64 CPU row, the exact iOS arm64
+CPU evidence recorded in the support matrix, Linux x86_64 CPU after its
+target-host gate, and exact Android arm64 CPU/sherpa-owned rows without QNN.
+This does not promote physical-device iOS, general Android, another ABI, or an
+unlisted provider.
+
+Android aligned-runtime/QNN device qualification and all Windows target-host,
+provider, final-application/package, installer, and clean-machine qualification
+are deferred until their required environments exist. Existing Android QNN
+contract/tamper checks and Windows source, cross-build, and loader-security
+checks remain mandatory. Windows remains Tier 1 and therefore remains required
+before Fonix can claim five-platform, unqualified `Release-ready`, or 1.0
+status; it is not a completion gate for the narrower scoped pre-1.0 release.
+
 ## 1.3 Functional requirements
 
 ### Runtime and environment
@@ -145,6 +164,11 @@ No EP is enabled by default solely because it is present. The automatic policy m
 These may be added through separate packages after the core ABI and lifecycle model are stable.
 
 ## 1.9 Release milestones
+
+The milestones below describe the complete program. The current scoped
+pre-1.0 plan does not declare the five-OS 0.1 milestone or the 1.0 milestone
+complete, and it does not promote an excluded tuple merely because its source
+or cross-build checks pass.
 
 ### 0.1: portable CPU MVP
 
