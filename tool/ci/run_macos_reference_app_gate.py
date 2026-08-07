@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -12,9 +13,7 @@ import platform
 import plistlib
 import re
 import stat
-import subprocess
 import sys
-import threading
 from typing import Any, Mapping, NamedTuple, Sequence
 import urllib.parse
 
@@ -27,7 +26,13 @@ ARTIFACT_ID = "onnxruntime-1.27.1-macos-arm64-cpu"
 ARTIFACT_VERSION = "1.27.1"
 MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
 
-COMMAND_TIMEOUT_SECONDS = 30 * 60
+FLUTTER_VERSION_TIMEOUT_SECONDS = 2 * 60
+PUB_GET_TIMEOUT_SECONDS = 10 * 60
+ASSET_PREPARATION_TIMEOUT_SECONDS = 10 * 60
+ANALYSIS_TIMEOUT_SECONDS = 15 * 60
+TEST_TIMEOUT_SECONDS = 30 * 60
+BUILD_TIMEOUT_SECONDS = 60 * 60
+CODESIGN_TIMEOUT_SECONDS = 2 * 60
 REFERENCE_TIMEOUT_SECONDS = 60
 MAX_COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024
 MAX_REFERENCE_OUTPUT_BYTES = 64 * 1024
@@ -101,6 +106,35 @@ _CODESIGN_FLAGS = re.compile(
 
 class MacOsReferenceAppGateError(RuntimeError):
     """The committed reference-application gate failed closed."""
+
+
+def _load_bounded_process() -> Any:
+    path = Path(__file__).resolve().with_name("bounded_process.py")
+    specification = importlib.util.spec_from_file_location(
+        "_fonix_macos_reference_bounded_process",
+        path,
+    )
+    if specification is None or specification.loader is None:
+        raise MacOsReferenceAppGateError("could not load bounded process helper")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+_BOUNDED_PROCESS = _load_bounded_process()
+
+
+def _load_apple_auditor(repository: Path) -> Any:
+    path = repository / "tool/ci/audit_apple_application.py"
+    specification = importlib.util.spec_from_file_location(
+        "_fonix_macos_reference_apple_auditor",
+        path,
+    )
+    if specification is None or specification.loader is None:
+        raise MacOsReferenceAppGateError("could not load Apple application auditor")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
 
 
 class PinnedArchive(NamedTuple):
@@ -495,17 +529,19 @@ def _populate_relative_artifact_cache(
 
 def _tool_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     environment = dict(os.environ if base is None else base)
+    for key in tuple(environment):
+        if key.startswith("DYLD_"):
+            environment.pop(key)
     environment.pop("FONIX_REFERENCE_SMOKE", None)
     environment["DART_SUPPRESS_ANALYTICS"] = "true"
     environment["FLUTTER_SUPPRESS_ANALYTICS"] = "true"
+    environment["LC_ALL"] = "C"
+    environment["LANG"] = "C"
     return environment
 
 
 def _reference_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     environment = _tool_environment(base)
-    for key in tuple(environment):
-        if key.startswith("DYLD_"):
-            environment.pop(key)
     environment["FONIX_REFERENCE_SMOKE"] = "1"
     return environment
 
@@ -522,152 +558,70 @@ def _diagnostic(value: str, maximum: int = 4096) -> str:
     return encoded[:maximum].decode("utf-8", errors="replace") + "\n<truncated>"
 
 
-def _execute_process(
-    command: Sequence[str],
-    *,
-    cwd: Path | None,
-    environment: Mapping[str, str],
-    timeout_seconds: int,
-    maximum_output: int,
-) -> tuple[int, bytes, bytes]:
-    """Run one child while bounding each captured stream during execution."""
-
-    process = subprocess.Popen(
-        list(command),
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=dict(environment),
-    )
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    overflow: list[str] = []
-    reader_errors: list[str] = []
-    overflow_lock = threading.Lock()
-
-    def drain(label: str, stream: Any) -> None:
-        try:
-            while chunk := stream.read(8192):
-                buffer = buffers[label]
-                remaining = maximum_output - len(buffer)
-                if remaining > 0:
-                    buffer.extend(chunk[:remaining])
-                if len(chunk) > remaining:
-                    with overflow_lock:
-                        if not overflow:
-                            overflow.append(label)
-                    try:
-                        process.kill()
-                    except OSError:
-                        pass
-        except OSError:
-            with overflow_lock:
-                reader_errors.append(label)
-            try:
-                process.kill()
-            except OSError:
-                pass
-        finally:
-            stream.close()
-
-    assert process.stdout is not None and process.stderr is not None
-    threads = [
-        threading.Thread(
-            target=drain,
-            args=("stdout", process.stdout),
-            name="fonix-gate-stdout",
-            daemon=True,
-        ),
-        threading.Thread(
-            target=drain,
-            args=("stderr", process.stderr),
-            name="fonix-gate-stderr",
-            daemon=True,
-        ),
-    ]
-    for thread in threads:
-        thread.start()
-    timed_out = False
-    try:
-        return_code = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        process.kill()
-        try:
-            return_code = process.wait(timeout=5)
-        except subprocess.TimeoutExpired as error:
-            raise MacOsReferenceAppGateError(
-                "child process did not exit after termination"
-            ) from error
-    for thread in threads:
-        thread.join(timeout=5)
-    if any(thread.is_alive() for thread in threads):
-        raise MacOsReferenceAppGateError(
-            "child output stream did not close after process exit"
-        )
-    if timed_out:
-        raise subprocess.TimeoutExpired(list(command), timeout_seconds)
-    if reader_errors:
-        raise MacOsReferenceAppGateError(
-            f"could not read child {reader_errors[0]}"
-        )
-    if overflow:
-        raise MacOsReferenceAppGateError(
-            f"child {overflow[0]} exceeds {maximum_output} bytes"
-        )
-    return return_code, bytes(buffers["stdout"]), bytes(buffers["stderr"])
-
-
 def _run(
     command: Sequence[str],
     *,
+    operation: str,
+    timeout_seconds: int,
+    maximum_output: int,
     cwd: Path | None = None,
     environment: Mapping[str, str] | None = None,
-    timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
-    maximum_output: int = MAX_COMMAND_OUTPUT_BYTES,
-    operation: str = "command",
 ) -> CommandOutput:
-    if timeout_seconds <= 0 or timeout_seconds > COMMAND_TIMEOUT_SECONDS:
+    if timeout_seconds <= 0 or timeout_seconds > BUILD_TIMEOUT_SECONDS:
         raise MacOsReferenceAppGateError(f"{operation} timeout is outside its bound")
     if maximum_output <= 0 or maximum_output > MAX_COMMAND_OUTPUT_BYTES:
         raise MacOsReferenceAppGateError(
             f"{operation} output bound is outside its allowed range"
         )
     try:
-        return_code, stdout_bytes, stderr_bytes = _execute_process(
+        result = _BOUNDED_PROCESS.run_bounded(
             command,
+            operation=operation,
             cwd=cwd,
-            environment=dict(environment or _tool_environment()),
+            environment=dict(
+                _tool_environment() if environment is None else environment
+            ),
             timeout_seconds=timeout_seconds,
-            maximum_output=maximum_output,
+            maximum_stdout_bytes=maximum_output,
+            maximum_stderr_bytes=maximum_output,
         )
-    except subprocess.TimeoutExpired as error:
+    except _BOUNDED_PROCESS.BoundedProcessTimeoutError as error:
         raise MacOsReferenceAppGateError(
             f"{operation} timed out after {timeout_seconds} seconds"
         ) from error
-    except OSError as error:
-        raise MacOsReferenceAppGateError(f"could not execute {operation}") from error
-    try:
-        stdout = stdout_bytes.decode("utf-8")
-        stderr = stderr_bytes.decode("utf-8")
-    except UnicodeDecodeError as error:
+    except _BOUNDED_PROCESS.BoundedProcessOutputLimitError as error:
+        raise MacOsReferenceAppGateError(
+            f"{operation} {error.stream_name} exceeds {maximum_output} bytes"
+        ) from error
+    except _BOUNDED_PROCESS.BoundedProcessEncodingError as error:
         raise MacOsReferenceAppGateError(
             f"{operation} output is not valid UTF-8"
         ) from error
-    _bounded_output(stdout, f"{operation} stdout", maximum_output)
-    _bounded_output(stderr, f"{operation} stderr", maximum_output)
-    if return_code != 0:
+    except _BOUNDED_PROCESS.BoundedProcessExitError as error:
+        if error.residual_group_members or error.cleanup_failures:
+            raise MacOsReferenceAppGateError(
+                f"{operation} failed without clean process-group settlement: {error}"
+            ) from error
+        stdout = error.stdout or ""
+        stderr = error.stderr or ""
         raise MacOsReferenceAppGateError(
-            f"{operation} failed with exit code {return_code}"
+            f"{operation} failed with exit code {error.return_code}"
             f"\nstdout:\n{_diagnostic(stdout)}"
             f"\nstderr:\n{_diagnostic(stderr)}"
-        )
-    return CommandOutput(stdout=stdout, stderr=stderr)
+        ) from error
+    except _BOUNDED_PROCESS.BoundedProcessError as error:
+        raise MacOsReferenceAppGateError(
+            f"could not execute {operation}: {error}"
+        ) from error
+    return CommandOutput(stdout=result.stdout, stderr=result.stderr)
 
 
 def _verify_flutter(flutter: Path) -> dict[str, object]:
     output = _run(
         (str(flutter), "--version", "--machine"),
         operation="Flutter version check",
+        timeout_seconds=FLUTTER_VERSION_TIMEOUT_SECONDS,
+        maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     value = _strict_json(
         output.stdout, "Flutter version output", maximum=MAX_COMMAND_OUTPUT_BYTES
@@ -785,9 +739,9 @@ def _run_reference_application(
         (str(executable),),
         cwd=executable.parent,
         environment=_reference_environment(),
+        operation="reference application",
         timeout_seconds=timeout_seconds,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
-        operation="reference application",
     )
     _bounded_output(
         output.stderr, "reference application stderr", MAX_REFERENCE_OUTPUT_BYTES
@@ -903,16 +857,19 @@ def _audit_hardened_runtime(application: Path, executable: Path) -> None:
         _run(
             ("/usr/bin/codesign", "--verify", "--strict", str(binary)),
             operation="pre-execution code-signature verification",
+            timeout_seconds=CODESIGN_TIMEOUT_SECONDS,
             maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         )
     _run(
         ("/usr/bin/codesign", "--verify", "--strict", str(application)),
         operation="pre-execution application-signature verification",
+        timeout_seconds=CODESIGN_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     output = _run(
         ("/usr/bin/codesign", "--display", "--verbose=4", str(executable)),
         operation="codesign hardened-runtime inspection",
+        timeout_seconds=CODESIGN_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     _require_hardened_runtime_codesign(f"{output.stdout}\n{output.stderr}")
@@ -925,6 +882,7 @@ def _audit_hardened_runtime(application: Path, executable: Path) -> None:
             str(executable),
         ),
         operation="signed reference entitlement inspection",
+        timeout_seconds=CODESIGN_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     _require_reference_entitlements(
@@ -964,6 +922,56 @@ def _sha256_file(path: Path, label: str) -> str:
     with path.open("rb") as stream:
         _, digest = _copy_and_hash(stream, None, MAX_ASSET_BYTES)
     return digest
+
+
+def _run_apple_application_audit(
+    *,
+    repository: Path,
+    application: Path,
+    reference_runtime: Path,
+    model: Path,
+) -> dict[str, Any]:
+    """Run the trusted auditor in-process to avoid nested process groups."""
+
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        auditor = _load_apple_auditor(repository)
+        try:
+            report = auditor.audit_application_and_optional_probe(
+                application,
+                "macos",
+                APPLICATION_MINIMUM_OS,
+                repository=repository,
+                reference_runtime=reference_runtime,
+                cpu_probe_model=model,
+            )
+        except (auditor.AppleApplicationAuditError, FileNotFoundError) as error:
+            raise MacOsReferenceAppGateError(
+                f"final Apple application audit failed: {error}"
+            ) from error
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    if not isinstance(report, dict):
+        raise MacOsReferenceAppGateError(
+            "final Apple application audit report must be an object"
+        )
+    try:
+        serialized = json.dumps(report, sort_keys=True) + "\n"
+    except (TypeError, ValueError) as error:
+        raise MacOsReferenceAppGateError(
+            "final Apple application audit report is not serializable"
+        ) from error
+    normalized = _strict_json(
+        serialized,
+        "final Apple application audit report",
+        maximum=MAX_COMMAND_OUTPUT_BYTES,
+    )
+    if not isinstance(normalized, dict):  # pragma: no cover - guarded above
+        raise MacOsReferenceAppGateError(
+            "final Apple application audit report must be an object"
+        )
+    return normalized
 
 
 def run_gate(
@@ -1026,6 +1034,8 @@ def run_gate(
         (str(flutter), "pub", "get", "--offline"),
         cwd=work_directory,
         operation="offline Flutter pub get",
+        timeout_seconds=PUB_GET_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     asset_output = work_directory / "assets/fonix"
     _run(
@@ -1048,6 +1058,8 @@ def run_gate(
         ),
         cwd=work_directory,
         operation="Fonix Flutter asset regeneration",
+        timeout_seconds=ASSET_PREPARATION_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     _require_asset_equality(committed_assets, asset_output)
 
@@ -1055,16 +1067,22 @@ def run_gate(
         (str(flutter), "analyze", "--no-pub"),
         cwd=work_directory,
         operation="reference Flutter analysis",
+        timeout_seconds=ANALYSIS_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     _run(
         (str(flutter), "test", "--no-pub"),
         cwd=work_directory,
         operation="reference Flutter tests",
+        timeout_seconds=TEST_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     _run(
         (str(flutter), "build", "macos", "--release", "--no-pub"),
         cwd=work_directory,
         operation="reference Flutter Release build",
+        timeout_seconds=BUILD_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
 
     application = _directory(
@@ -1079,30 +1097,11 @@ def run_gate(
     model = work_directory / "assets/models/mul_1.onnx"
     if _sha256_file(model, "reference mul_1 model") != MODEL_SHA256:
         raise MacOsReferenceAppGateError("reference mul_1 model digest changed")
-    audit_output = _run(
-        (
-            sys.executable,
-            "-B",
-            str(repository / "tool/ci/audit_apple_application.py"),
-            "--repository",
-            str(repository),
-            "--app",
-            str(application),
-            "--platform",
-            "macos",
-            "--application-minimum-os",
-            APPLICATION_MINIMUM_OS,
-            "--reference-runtime",
-            str(reference_runtime),
-            "--run-cpu-probe",
-            str(model),
-        ),
-        operation="final Apple application audit",
-    )
-    audit = _strict_json(
-        audit_output.stdout,
-        "final Apple application audit report",
-        maximum=MAX_COMMAND_OUTPUT_BYTES,
+    audit = _run_apple_application_audit(
+        repository=repository,
+        application=application,
+        reference_runtime=reference_runtime,
+        model=model,
     )
     _validate_audit_binding(
         audit,

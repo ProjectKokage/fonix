@@ -850,6 +850,272 @@ class AndroidReferenceAvdOwnershipTest(unittest.TestCase):
 
 
 class AndroidReferenceToolIdentityTest(unittest.TestCase):
+    def test_auditor_loader_binds_its_sibling_common_module(self) -> None:
+        ambient_common = sys.modules["android_gate_common"]
+        with tempfile.TemporaryDirectory(
+            prefix="fonix-android-auditor-"
+        ) as temporary:
+            repository = Path(temporary)
+            ci_directory = repository / "tool/ci"
+            ci_directory.mkdir(parents=True)
+            (ci_directory / "android_gate_common.py").write_text(
+                'SOURCE_MARKER = "selected-repository"\n',
+                encoding="utf-8",
+            )
+            (ci_directory / "audit_android_application.py").write_text(
+                "from android_gate_common import SOURCE_MARKER\n",
+                encoding="utf-8",
+            )
+
+            module = gate._load_android_application_auditor(repository)
+
+        self.assertEqual(module.SOURCE_MARKER, "selected-repository")
+        self.assertIs(sys.modules["android_gate_common"], ambient_common)
+
+    def test_auditor_loader_restores_common_module_after_failure(self) -> None:
+        ambient_common = sys.modules["android_gate_common"]
+        with tempfile.TemporaryDirectory(
+            prefix="fonix-android-auditor-"
+        ) as temporary:
+            repository = Path(temporary)
+            ci_directory = repository / "tool/ci"
+            ci_directory.mkdir(parents=True)
+            (ci_directory / "android_gate_common.py").write_text(
+                'SOURCE_MARKER = "selected-repository"\n',
+                encoding="utf-8",
+            )
+            (ci_directory / "audit_android_application.py").write_text(
+                "from android_gate_common import SOURCE_MARKER\n"
+                'raise RuntimeError("fixture failure")\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                gate.AndroidReferenceAppGateError,
+                "could not load the Android application auditor",
+            ):
+                gate._load_android_application_auditor(repository)
+
+        self.assertIs(sys.modules["android_gate_common"], ambient_common)
+
+    def _audit_report(self, artifact: Path) -> dict[str, object]:
+        return {
+            "shimBuildId": gate.EXPECTED_SHIM_BUILD_ID,
+            "abi": gate.ABI,
+            "artifact": str(artifact),
+            "result": "passed",
+        }
+
+    def _auditor(
+        self,
+        report: dict[str, object],
+        *,
+        exercise_tool_environment: bool = False,
+    ) -> SimpleNamespace:
+        class FakeAuditError(RuntimeError):
+            pass
+
+        auditor = SimpleNamespace(
+            AndroidApplicationAuditError=FakeAuditError,
+            AndroidGateCommonError=FakeAuditError,
+            run_bounded=mock.Mock(
+                return_value=SimpleNamespace(stdout="", stderr="")
+            ),
+        )
+
+        def audit(**_arguments: object) -> dict[str, object]:
+            if exercise_tool_environment:
+                auditor.run_bounded(
+                    ("audit-tool", "argument"),
+                    operation="audit tool fixture",
+                    maximum_output=123,
+                )
+            return report
+
+        auditor.audit_android_application = mock.Mock(side_effect=audit)
+        return auditor
+
+    def test_apk_audit_runs_in_process_with_exact_tools_and_json_boundary(
+        self,
+    ) -> None:
+        repository = Path("/trusted/fonix")
+        artifact = Path("/trusted/app-release.apk")
+        runtime = Path("/trusted/libonnxruntime.so")
+        tools = {
+            "readelf": Path("/ndk/llvm-readelf"),
+            "apkanalyzer": Path("/sdk/apkanalyzer"),
+            "zipalign": Path("/sdk/zipalign"),
+            "apksigner": Path("/sdk/apksigner"),
+        }
+        environment = {"JAVA_HOME": "/jdk", "LC_ALL": "C"}
+        raw_report = self._audit_report(artifact)
+        auditor = self._auditor(
+            raw_report,
+            exercise_tool_environment=True,
+        )
+        bytecode_modes: list[bool] = []
+        original_audit = auditor.audit_android_application
+
+        def audit_with_bytecode_check(**arguments: object) -> object:
+            bytecode_modes.append(sys.dont_write_bytecode)
+            return original_audit(**arguments)
+
+        auditor.audit_android_application = mock.Mock(
+            side_effect=audit_with_bytecode_check
+        )
+        original_tool_runner = auditor.run_bounded
+        with (
+            mock.patch.object(sys, "dont_write_bytecode", False),
+            mock.patch.object(
+                gate,
+                "_load_android_application_auditor",
+                return_value=auditor,
+            ) as load_auditor,
+            mock.patch.object(gate, "_run_command") as outer_runner,
+            mock.patch.object(
+                gate,
+                "strict_json",
+                wraps=gate.strict_json,
+            ) as parse_report,
+        ):
+            result = gate._audit_package(
+                repository=repository,
+                artifact=artifact,
+                reference_runtime=runtime,
+                tools=tools,
+                java=Path("/jdk/bin/java"),
+                jarsigner=Path("/jdk/bin/jarsigner"),
+                bundletool=Path("/tools/bundletool.jar"),
+                environment=environment,
+            )
+            restored_bytecode_mode = sys.dont_write_bytecode
+
+        self.assertEqual(result, raw_report)
+        self.assertEqual(bytecode_modes, [True])
+        self.assertFalse(restored_bytecode_mode)
+        load_auditor.assert_called_once_with(repository)
+        auditor.audit_android_application.assert_called_once_with(
+            repository=repository,
+            artifact=artifact,
+            reference_runtime=runtime,
+            readelf=tools["readelf"],
+            apkanalyzer=tools["apkanalyzer"],
+            java=None,
+            bundletool=None,
+            zipalign=tools["zipalign"],
+            apksigner=tools["apksigner"],
+            jarsigner=None,
+        )
+        original_tool_runner.assert_called_once_with(
+            ("audit-tool", "argument"),
+            operation="audit tool fixture",
+            maximum_output=123,
+            environment=environment,
+        )
+        self.assertIs(auditor.run_bounded, original_tool_runner)
+        parse_report.assert_called_once_with(
+            json.dumps(raw_report, sort_keys=True, separators=(",", ":")) + "\n",
+            "Android package audit",
+            maximum=gate.MAX_AUDIT_REPORT_BYTES,
+        )
+        outer_runner.assert_not_called()
+
+    def test_aab_audit_runs_in_process_with_exact_tools(self) -> None:
+        repository = Path("/trusted/fonix")
+        artifact = Path("/trusted/app-release.aab")
+        runtime = Path("/trusted/libonnxruntime.so")
+        tools = {
+            "readelf": Path("/ndk/llvm-readelf"),
+            "apkanalyzer": Path("/sdk/apkanalyzer"),
+            "zipalign": Path("/sdk/zipalign"),
+            "apksigner": Path("/sdk/apksigner"),
+        }
+        java = Path("/jdk/bin/java")
+        jarsigner = Path("/jdk/bin/jarsigner")
+        bundletool = Path("/tools/bundletool.jar")
+        auditor = self._auditor(self._audit_report(artifact))
+        with (
+            mock.patch.object(
+                gate,
+                "_load_android_application_auditor",
+                return_value=auditor,
+            ),
+            mock.patch.object(gate, "_run_command") as outer_runner,
+        ):
+            gate._audit_package(
+                repository=repository,
+                artifact=artifact,
+                reference_runtime=runtime,
+                tools=tools,
+                java=java,
+                jarsigner=jarsigner,
+                bundletool=bundletool,
+                environment={"JAVA_HOME": "/jdk"},
+            )
+
+        auditor.audit_android_application.assert_called_once_with(
+            repository=repository,
+            artifact=artifact,
+            reference_runtime=runtime,
+            readelf=tools["readelf"],
+            apkanalyzer=None,
+            java=java,
+            bundletool=bundletool,
+            zipalign=None,
+            apksigner=None,
+            jarsigner=jarsigner,
+        )
+        outer_runner.assert_not_called()
+
+    def test_in_process_audit_report_bound_and_binding_fail_closed(self) -> None:
+        repository = Path("/trusted/fonix")
+        artifact = Path("/trusted/app-release.apk")
+        tools = {
+            "readelf": Path("/ndk/llvm-readelf"),
+            "apkanalyzer": Path("/sdk/apkanalyzer"),
+            "zipalign": Path("/sdk/zipalign"),
+            "apksigner": Path("/sdk/apksigner"),
+        }
+        arguments = {
+            "repository": repository,
+            "artifact": artifact,
+            "reference_runtime": Path("/trusted/libonnxruntime.so"),
+            "tools": tools,
+            "java": Path("/jdk/bin/java"),
+            "jarsigner": Path("/jdk/bin/jarsigner"),
+            "bundletool": Path("/tools/bundletool.jar"),
+            "environment": {"JAVA_HOME": "/jdk"},
+        }
+
+        oversized = self._audit_report(artifact)
+        oversized["padding"] = "x" * gate.MAX_AUDIT_REPORT_BYTES
+        with (
+            mock.patch.object(
+                gate,
+                "_load_android_application_auditor",
+                return_value=self._auditor(oversized),
+            ),
+            self.assertRaisesRegex(
+                gate.AndroidReferenceAppGateError,
+                "exceeds",
+            ),
+        ):
+            gate._audit_package(**arguments)
+
+        wrong_artifact = self._audit_report(Path("/trusted/other.apk"))
+        with (
+            mock.patch.object(
+                gate,
+                "_load_android_application_auditor",
+                return_value=self._auditor(wrong_artifact),
+            ),
+            self.assertRaisesRegex(
+                gate.AndroidReferenceAppGateError,
+                "not bound to output",
+            ),
+        ):
+            gate._audit_package(**arguments)
+
     def test_static_tool_resolution_does_not_require_adb_or_emulator(self) -> None:
         with tempfile.TemporaryDirectory(prefix="fonix-android-sdk-") as temporary:
             sdk = Path(temporary)

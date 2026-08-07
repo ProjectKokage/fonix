@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import plistlib
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -341,6 +340,7 @@ class MacOsReferenceAppGateProcessTest(unittest.TestCase):
         }
 
         result = run_macos_reference_app_gate._reference_environment(base)
+        tool_result = run_macos_reference_app_gate._tool_environment(base)
 
         self.assertEqual(base["DYLD_LIBRARY_PATH"], "/untrusted")
         self.assertNotIn("DYLD_LIBRARY_PATH", result)
@@ -348,6 +348,9 @@ class MacOsReferenceAppGateProcessTest(unittest.TestCase):
         self.assertNotIn("DYLD_FRAMEWORK_PATH", result)
         self.assertNotIn("DYLD_INSERT_LIBRARIES", result)
         self.assertFalse(any(key.startswith("DYLD_") for key in result))
+        self.assertFalse(any(key.startswith("DYLD_") for key in tool_result))
+        self.assertEqual(tool_result["LC_ALL"], "C")
+        self.assertEqual(tool_result["LANG"], "C")
         self.assertEqual(result["FONIX_REFERENCE_SMOKE"], "1")
         self.assertEqual(result["KEEP"], "yes")
         self.assertEqual(result["DART_SUPPRESS_ANALYTICS"], "true")
@@ -359,9 +362,15 @@ class MacOsReferenceAppGateProcessTest(unittest.TestCase):
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         executable.chmod(0o755)
         with mock.patch.object(
-            run_macos_reference_app_gate,
-            "_execute_process",
-            side_effect=subprocess.TimeoutExpired([str(executable)], 7),
+            run_macos_reference_app_gate._BOUNDED_PROCESS,
+            "run_bounded",
+            side_effect=(
+                run_macos_reference_app_gate._BOUNDED_PROCESS
+                .BoundedProcessTimeoutError(
+                    "reference application",
+                    7,
+                )
+            ),
         ):
             with self.assertRaisesRegex(
                 run_macos_reference_app_gate.MacOsReferenceAppGateError,
@@ -371,6 +380,169 @@ class MacOsReferenceAppGateProcessTest(unittest.TestCase):
                     executable, timeout_seconds=7
                 )
 
+    def test_run_delegates_explicit_bounds_to_shared_process_helper(self) -> None:
+        expected = run_macos_reference_app_gate._BOUNDED_PROCESS.CommandOutput(
+            stdout="captured stdout",
+            stderr="captured stderr",
+        )
+        environment = {"KEEP": "yes"}
+        work_directory = Path("/trusted/work")
+        with mock.patch.object(
+            run_macos_reference_app_gate._BOUNDED_PROCESS,
+            "run_bounded",
+            return_value=expected,
+        ) as bounded:
+            result = run_macos_reference_app_gate._run(
+                ("trusted-tool", "argument"),
+                operation="delegation fixture",
+                timeout_seconds=17,
+                maximum_output=1234,
+                cwd=work_directory,
+                environment=environment,
+            )
+
+        self.assertEqual(
+            result,
+            run_macos_reference_app_gate.CommandOutput(
+                stdout="captured stdout",
+                stderr="captured stderr",
+            ),
+        )
+        bounded.assert_called_once_with(
+            ("trusted-tool", "argument"),
+            operation="delegation fixture",
+            cwd=work_directory,
+            environment=environment,
+            timeout_seconds=17,
+            maximum_stdout_bytes=1234,
+            maximum_stderr_bytes=1234,
+        )
+
+    def test_apple_audit_runs_in_process_without_an_outer_process_group(self) -> None:
+        class FakeAuditError(RuntimeError):
+            pass
+
+        repository = Path("/trusted/fonix")
+        application = Path("/trusted/Fonix Reference.app")
+        reference_runtime = Path("/trusted/libonnxruntime.dylib")
+        model = Path("/trusted/mul_1.onnx")
+        report = {
+            "platform": "macos",
+            "cpuInference": "passed",
+            "probeBuildManifest": {"schemaVersion": 1},
+        }
+        auditor = mock.Mock()
+        auditor.AppleApplicationAuditError = FakeAuditError
+        bytecode_modes: list[bool] = []
+
+        def audit(*_: object, **__: object) -> dict[str, object]:
+            bytecode_modes.append(sys.dont_write_bytecode)
+            return report
+
+        auditor.audit_application_and_optional_probe.side_effect = audit
+        with (
+            mock.patch.object(sys, "dont_write_bytecode", False),
+            mock.patch.object(
+                run_macos_reference_app_gate,
+                "_load_apple_auditor",
+                return_value=auditor,
+            ),
+            mock.patch.object(
+                run_macos_reference_app_gate._BOUNDED_PROCESS,
+                "run_bounded",
+            ) as bounded,
+        ):
+            result = run_macos_reference_app_gate._run_apple_application_audit(
+                repository=repository,
+                application=application,
+                reference_runtime=reference_runtime,
+                model=model,
+            )
+            restored_bytecode_mode = sys.dont_write_bytecode
+
+        self.assertEqual(result, report)
+        self.assertEqual(bytecode_modes, [True])
+        self.assertFalse(restored_bytecode_mode)
+        auditor.audit_application_and_optional_probe.assert_called_once_with(
+            application,
+            "macos",
+            run_macos_reference_app_gate.APPLICATION_MINIMUM_OS,
+            repository=repository,
+            reference_runtime=reference_runtime,
+            cpu_probe_model=model,
+        )
+        bounded.assert_not_called()
+
+    def test_apple_audit_uses_former_cli_serialization_boundary(self) -> None:
+        class FakeAuditError(RuntimeError):
+            pass
+
+        report = {"cpuInference": "passed", "payload": "x" * 64}
+        auditor = mock.Mock()
+        auditor.AppleApplicationAuditError = FakeAuditError
+        auditor.audit_application_and_optional_probe.return_value = report
+        former_cli = json.dumps(report, sort_keys=True) + "\n"
+        original_strict_json = run_macos_reference_app_gate._strict_json
+        with (
+            mock.patch.object(
+                run_macos_reference_app_gate,
+                "_load_apple_auditor",
+                return_value=auditor,
+            ),
+            mock.patch.object(
+                run_macos_reference_app_gate,
+                "_strict_json",
+                wraps=original_strict_json,
+            ) as strict_json,
+        ):
+            result = run_macos_reference_app_gate._run_apple_application_audit(
+                repository=Path("/trusted/fonix"),
+                application=Path("/trusted/Fonix Reference.app"),
+                reference_runtime=Path("/trusted/libonnxruntime.dylib"),
+                model=Path("/trusted/mul_1.onnx"),
+            )
+
+        self.assertEqual(result, report)
+        strict_json.assert_called_once_with(
+            former_cli,
+            "final Apple application audit report",
+            maximum=run_macos_reference_app_gate.MAX_COMMAND_OUTPUT_BYTES,
+        )
+
+    def test_nonzero_exit_preserves_unsettled_group_diagnostics(self) -> None:
+        failure = (
+            run_macos_reference_app_gate._BOUNDED_PROCESS.BoundedProcessExitError(
+                "unsettled group fixture",
+                return_code=7,
+                residual_group_members=True,
+                cleanup_failures=("SIGKILL failed",),
+                stdout="bounded stdout",
+                stderr="bounded stderr",
+            )
+        )
+        with (
+            mock.patch.object(
+                run_macos_reference_app_gate._BOUNDED_PROCESS,
+                "run_bounded",
+                side_effect=failure,
+            ),
+            self.assertRaises(
+                run_macos_reference_app_gate.MacOsReferenceAppGateError
+            ) as raised,
+        ):
+            run_macos_reference_app_gate._run(
+                ("trusted-tool",),
+                operation="unsettled group fixture",
+                timeout_seconds=5,
+                maximum_output=1024,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("clean process-group settlement", message)
+        self.assertIn("left members", message)
+        self.assertIn("SIGKILL failed", message)
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
     def test_process_output_is_bounded_while_child_runs(self) -> None:
         with self.assertRaisesRegex(
             run_macos_reference_app_gate.MacOsReferenceAppGateError,
@@ -378,9 +550,99 @@ class MacOsReferenceAppGateProcessTest(unittest.TestCase):
         ):
             run_macos_reference_app_gate._run(
                 (sys.executable, "-c", "print('x' * 4096)"),
-                maximum_output=1024,
                 operation="bounded fixture",
+                timeout_seconds=5,
+                maximum_output=1024,
             )
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_process_output_rejects_invalid_utf8_while_child_runs(self) -> None:
+        with self.assertRaisesRegex(
+            run_macos_reference_app_gate.MacOsReferenceAppGateError,
+            "output is not valid UTF-8",
+        ):
+            run_macos_reference_app_gate._run(
+                (
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-B",
+                    "-c",
+                    "import os; os.write(1, b'\\xff')",
+                ),
+                operation="invalid encoding fixture",
+                timeout_seconds=5,
+                maximum_output=1024,
+            )
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_nonzero_exit_preserves_bounded_stream_diagnostics(self) -> None:
+        with self.assertRaises(
+            run_macos_reference_app_gate.MacOsReferenceAppGateError
+        ) as raised:
+            run_macos_reference_app_gate._run(
+                (
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-B",
+                    "-c",
+                    "import sys; print('stdout marker'); "
+                    "print('stderr marker', file=sys.stderr); raise SystemExit(7)",
+                ),
+                operation="diagnostic fixture",
+                timeout_seconds=5,
+                maximum_output=1024,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("failed with exit code 7", message)
+        self.assertIn("stdout marker", message)
+        self.assertIn("stderr marker", message)
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_residual_group_member_is_retired_before_failure_returns(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="fonix-residual-group-")
+        self.addCleanup(temporary.cleanup)
+        group_marker = Path(temporary.name) / "group-id"
+        child = (
+            "import signal, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "print('ready', flush=True)\n"
+            "while True:\n"
+            "    time.sleep(1)\n"
+        )
+        source = (
+            "import os, pathlib, subprocess, sys\n"
+            f"child = {child!r}\n"
+            "process = subprocess.Popen([sys.executable, '-I', '-S', '-B', "
+            "'-c', child], stdout=subprocess.PIPE)\n"
+            "assert process.stdout.readline() == b'ready\\n'\n"
+            f"pathlib.Path({str(group_marker)!r}).write_text("
+            "str(os.getpid()), encoding='ascii')\n"
+        )
+        with (
+            mock.patch.multiple(
+                run_macos_reference_app_gate._BOUNDED_PROCESS,
+                TERMINATION_GRACE_SECONDS=0.1,
+                KILL_GRACE_SECONDS=0.5,
+                OUTPUT_DRAIN_GRACE_SECONDS=0.3,
+            ),
+            self.assertRaisesRegex(
+                run_macos_reference_app_gate.MacOsReferenceAppGateError,
+                "process-group member",
+            ),
+        ):
+            run_macos_reference_app_gate._run(
+                (sys.executable, "-I", "-S", "-B", "-c", source),
+                operation="residual group fixture",
+                timeout_seconds=5,
+                maximum_output=1024,
+            )
+
+        process_group_id = int(group_marker.read_text(encoding="ascii"))
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(process_group_id, 0)
 
     def test_codesign_parser_requires_exact_runtime_flag_token(self) -> None:
         run_macos_reference_app_gate._require_hardened_runtime_codesign(

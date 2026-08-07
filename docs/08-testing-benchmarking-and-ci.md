@@ -487,18 +487,17 @@ The checked-in pull-request/push workflow currently runs:
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
 
-The POSIX paths in `tool/ci/run_native_tests.py` and
-`tool/ci/run_phase3_fixture_tests.py`, together with GNU `readelf` execution in
-the Linux final-application auditor, use the shared
-`tool/ci/bounded_process.py` boundary. It is designed for trusted CI commands:
-stdin is `/dev/null`; each command starts a new POSIX session and process
-group; stdout and stderr are independently capped and incrementally validated
-as strict UTF-8; and a monotonic wall deadline is followed by bounded
-process-group TERM, KILL, and direct-child reap steps. A direct child that exits
-while an ordinary inherited group member or output pipe remains is rejected.
-The boundary owns only the spawned process group inherited by ordinary tool
-subprocesses. It is not a sandbox, and deliberate `setsid` or `setpgid` escape
-is outside its contract.
+The POSIX native and Phase-3 runners, Linux `readelf`, desktop `objdump`,
+binding verifier, macOS runtime checker, Apple final-application auditor, and
+macOS/iOS application gates use the shared `tool/ci/bounded_process.py`
+boundary. It is designed for trusted CI commands: stdin is `/dev/null`; each
+command starts a new POSIX session and process group; stdout and stderr are
+independently capped and incrementally validated as strict UTF-8; and a
+monotonic wall deadline is followed by bounded process-group TERM, KILL, and
+direct-child reap steps. A direct child that exits while an ordinary inherited
+group member or output pipe remains is rejected. The boundary owns only the
+spawned process group inherited by ordinary tool subprocesses. It is not a
+sandbox, and deliberate `setsid` or `setpgid` escape is outside its contract.
 
 The native and Phase-3 configure, build, and inventory deadlines are five,
 twenty, and two minutes respectively; the Phase-3 byte check is also limited to
@@ -511,12 +510,53 @@ tests cover independent stream overflow, invalid and split UTF-8, timeout,
 TERM-ignoring residual group members, nonzero exit, launch failure, cleanup,
 and the explicit non-POSIX contract.
 
+Binding regeneration uses 15-minute generation and five-minute formatting
+deadlines with 16 MiB per stream. Its POSIX environment removes every
+`DYLD_*` and `LD_*` key, selects the `C` locale, and suppresses tool analytics.
+POSIX desktop `objdump` uses a 30-second, 1 MiB combined report boundary and a
+minimal `C`-locale environment. The macOS runtime checker bounds inspection,
+compilation, and provider execution at two, five, and two minutes with 8 MiB
+per stream and accepts only validated regular executables at the exact
+`/usr/bin/cc`, `codesign`, `nm`, and `otool` entry points. Those commands
+receive only `PATH=/usr/bin:/bin` plus the `C` locale, excluding inherited
+Xcode, SDK, compiler, loader, cache, and search-path selectors. The checker
+copies the locked versioned runtime once, without following links, into one
+private regular-file snapshot named for the pinned `@rpath` install-name
+basename. The copy is size/SHA-256 verified during and after staging, every
+Mach-O/export/signature/provider operation uses that one snapshot, and it is
+removed with the private directory. The Apple auditor gives each `otool`, `nm`,
+`dyld_info`, `codesign`, compile, or probe call five minutes and 8 MiB per
+stream. Apple audit and gate environments remove every `DYLD_*` key and select
+the `C` locale.
+
+The fresh macOS gate bounds version, create, offline resolution, asset
+preparation, build, and audit-tool work separately; its longest build deadline
+is 60 minutes and its command streams are capped at 16 MiB. The committed
+macOS gate uses explicit two-to-sixty-minute operation deadlines, a 2 MiB
+general cap, and a 64 KiB launch cap. The iOS gate uses explicit deadlines for
+environment checks, source checks, asset preparation, builds, simulator
+commands, boot settlement, and process probes, with 2 MiB general and 256 KiB
+reference caps. Its bounded plist input is written to a private temporary file
+and removed after conversion. Expected nonzero process probes are accepted
+only when the owned group settled with no cleanup failure.
+
+The macOS, iOS, Linux, and Android reference gates load their trusted
+final-application auditors in-process rather than putting a second bounded
+session owner around each auditor CLI. This prevents the auditors' individual
+tool sessions from escaping an outer auditor process group while retaining the
+same serialized-report byte boundaries and closed report validation. Dynamic
+loading and the complete audit calls keep bytecode writes disabled, preserving
+the former `python -B` source-epoch contract. The Android loader binds both the
+auditor and its `android_gate_common.py` dependency to bounded regular files in
+the selected repository and restores the caller's ambient module after either
+success or failure.
+
 On Windows, the native and Phase-3 runners retain direct-child deadlines; only
-captured CTest inventory receives post-completion byte and UTF-8 checks. They
-do not claim descendant-tree cleanup. Windows Job Object ownership remains
-deferred until it is implemented and exercised on a Windows host. These three
-integrations are not a claim of repository-wide subprocess hardening; other
-runner and audit commands remain separate review or migration work.
+captured CTest inventory receives post-completion byte and UTF-8 checks.
+Binding regeneration and desktop `objdump` retain explicit direct-child
+fallbacks. They do not claim descendant-tree cleanup. Windows Job Object
+ownership remains deferred until it is implemented and exercised on a Windows
+host. None of these boundaries is an untrusted-code sandbox.
 
 The Python job includes unit and tamper coverage for the Apple auditor, iOS
 source-epoch/final-application gate, Android auditor, schema-2 load-order

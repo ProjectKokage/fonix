@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -80,6 +81,9 @@ MAX_COPY_ENTRIES = 100_000
 MAX_COPY_FILES = 10_000
 MAX_COPY_BYTES = 96 * 1024 * 1024
 MAX_REPORT_BYTES = 64 * 1024
+MAX_AUDITOR_SOURCE_BYTES = 2 * 1024 * 1024
+MAX_AUDITOR_DEPENDENCY_SOURCE_BYTES = 512 * 1024
+MAX_AUDIT_REPORT_BYTES = 2 * 1024 * 1024
 MAX_LOGCAT_BYTES = 64 * 1024
 MAX_ZIP_ENTRIES = 100_000
 MAX_COMPRESSION_RATIO = 200
@@ -274,6 +278,65 @@ class JavaTools(NamedTuple):
 
 def _common(error: AndroidGateCommonError) -> AndroidReferenceAppGateError:
     return AndroidReferenceAppGateError(str(error))
+
+
+def _load_android_application_auditor(repository: Path) -> Any:
+    ci_directory = repository / "tool/ci"
+    path = ci_directory / "audit_android_application.py"
+    common_path = ci_directory / "android_gate_common.py"
+    try:
+        path = regular_file(
+            path,
+            "Android application auditor",
+            maximum=MAX_AUDITOR_SOURCE_BYTES,
+        )
+        common_path = regular_file(
+            common_path,
+            "Android application auditor dependency",
+            maximum=MAX_AUDITOR_DEPENDENCY_SOURCE_BYTES,
+        )
+    except AndroidGateCommonError as error:
+        raise _common(error) from error
+    common_specification = importlib.util.spec_from_file_location(
+        "_fonix_android_reference_application_auditor_common",
+        common_path,
+    )
+    if common_specification is None or common_specification.loader is None:
+        raise AndroidReferenceAppGateError(
+            "could not load the Android application auditor dependency"
+        )
+    common_module = importlib.util.module_from_spec(common_specification)
+    try:
+        common_specification.loader.exec_module(common_module)
+    except Exception as error:
+        raise AndroidReferenceAppGateError(
+            "could not load the Android application auditor dependency"
+        ) from error
+
+    specification = importlib.util.spec_from_file_location(
+        "_fonix_android_reference_application_auditor",
+        path,
+    )
+    if specification is None or specification.loader is None:
+        raise AndroidReferenceAppGateError(
+            "could not load the Android application auditor"
+        )
+    module = importlib.util.module_from_spec(specification)
+    had_previous_common = "android_gate_common" in sys.modules
+    previous_common = sys.modules.get("android_gate_common")
+    sys.modules["android_gate_common"] = common_module
+    try:
+        specification.loader.exec_module(module)
+    except Exception as error:
+        raise AndroidReferenceAppGateError(
+            "could not load the Android application auditor"
+        ) from error
+    finally:
+        if had_previous_common:
+            sys.modules["android_gate_common"] = previous_common
+        else:
+            sys.modules.pop("android_gate_common", None)
+    return module
 
 
 def _is_excluded(relative: Path) -> bool:
@@ -1029,48 +1092,79 @@ def _audit_package(
     bundletool: Path,
     environment: Mapping[str, str],
 ) -> dict[str, Any]:
-    command = [
-        sys.executable,
-        "-B",
-        str(repository / "tool/ci/audit_android_application.py"),
-        "--repository",
-        str(repository),
-        "--artifact",
-        str(artifact),
-        "--reference-runtime",
-        str(reference_runtime),
-        "--readelf",
-        str(tools["readelf"]),
-    ]
     if artifact.suffix == ".apk":
-        command.extend(
-            [
-                "--apkanalyzer",
-                str(tools["apkanalyzer"]),
-                "--zipalign",
-                str(tools["zipalign"]),
-                "--apksigner",
-                str(tools["apksigner"]),
-            ]
-        )
+        audit_tools = {
+            "apkanalyzer": tools["apkanalyzer"],
+            "java": None,
+            "bundletool": None,
+            "zipalign": tools["zipalign"],
+            "apksigner": tools["apksigner"],
+            "jarsigner": None,
+        }
     else:
-        command.extend(
-            [
-                "--java",
-                str(java),
-                "--bundletool",
-                str(bundletool),
-                "--jarsigner",
-                str(jarsigner),
-            ]
-        )
-    output = _run_command(
-        command,
-        operation=f"final {artifact.suffix} audit",
-        environment=environment,
-    )
+        audit_tools = {
+            "apkanalyzer": None,
+            "java": java,
+            "bundletool": bundletool,
+            "zipalign": None,
+            "apksigner": None,
+            "jarsigner": jarsigner,
+        }
+
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
     try:
-        value = strict_json(output, "Android package audit", maximum=2 * 1024 * 1024)
+        auditor = _load_android_application_auditor(repository)
+        # The auditor's trusted native tools retain the exact build environment
+        # that its former CLI process inherited. The module is a new private
+        # instance for this call, so replacing its command adapter cannot affect
+        # another audit owner.
+        original_run_bounded = auditor.run_bounded
+
+        def run_audit_tool(command: Sequence[str], **arguments: Any) -> Any:
+            arguments.setdefault("environment", dict(environment))
+            return original_run_bounded(command, **arguments)
+
+        auditor.run_bounded = run_audit_tool
+        try:
+            try:
+                raw_value = auditor.audit_android_application(
+                    repository=repository,
+                    artifact=artifact,
+                    reference_runtime=reference_runtime,
+                    readelf=tools["readelf"],
+                    **audit_tools,
+                )
+            except (
+                auditor.AndroidApplicationAuditError,
+                auditor.AndroidGateCommonError,
+                AndroidGateCommonError,
+                OSError,
+            ) as error:
+                raise AndroidReferenceAppGateError(
+                    f"final {artifact.suffix} audit failed: {error}"
+                ) from error
+        finally:
+            auditor.run_bounded = original_run_bounded
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+
+    try:
+        output = json.dumps(
+            raw_value,
+            sort_keys=True,
+            separators=(",", ":"),
+        ) + "\n"
+    except (TypeError, ValueError) as error:
+        raise AndroidReferenceAppGateError(
+            "Android package audit report is not canonical JSON"
+        ) from error
+    try:
+        value = strict_json(
+            output,
+            "Android package audit",
+            maximum=MAX_AUDIT_REPORT_BYTES,
+        )
     except AndroidGateCommonError as error:
         raise _common(error) from error
     if (

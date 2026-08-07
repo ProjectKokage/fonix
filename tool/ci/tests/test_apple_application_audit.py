@@ -2353,7 +2353,125 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
             )
 
 
+class AppleApplicationCommandBoundaryTest(unittest.TestCase):
+    def test_checked_command_uses_shared_online_bounds(self) -> None:
+        helper = audit_apple_application._bounded_process_helper()
+        command = ("/usr/bin/otool", "-l", "/tmp/Fonix")
+        output = helper.CommandOutput("report\n", "")
+        with (
+            mock.patch.dict(
+                audit_apple_application.os.environ,
+                {"DYLD_INSERT_LIBRARIES": "/tmp/injected.dylib"},
+            ),
+            mock.patch.object(
+                helper,
+                "run_bounded",
+                return_value=output,
+            ) as bounded,
+        ):
+            self.assertEqual(audit_apple_application._run(command), output.stdout)
+
+        bounded.assert_called_once_with(
+            command,
+            operation="Apple application otool inspection",
+            environment=mock.ANY,
+            timeout_seconds=audit_apple_application._COMMAND_TIMEOUT_SECONDS,
+            maximum_stdout_bytes=(
+                audit_apple_application._MAX_COMMAND_OUTPUT_BYTES
+            ),
+            maximum_stderr_bytes=(
+                audit_apple_application._MAX_COMMAND_OUTPUT_BYTES
+            ),
+        )
+        environment = bounded.call_args.kwargs["environment"]
+        self.assertNotIn("DYLD_INSERT_LIBRARIES", environment)
+        self.assertEqual(environment["LC_ALL"], "C")
+        self.assertEqual(environment["LANG"], "C")
+
+    def test_unchecked_clean_nonzero_status_is_preserved(self) -> None:
+        helper = audit_apple_application._bounded_process_helper()
+        command = ("/usr/bin/codesign", "-d", "/tmp/Fonix")
+        failure = helper.BoundedProcessExitError(
+            "Apple application codesign status inspection",
+            return_code=1,
+            residual_group_members=False,
+            stdout="",
+            stderr="code object is not signed",
+        )
+        with mock.patch.object(
+            helper,
+            "run_bounded",
+            side_effect=failure,
+        ):
+            result = audit_apple_application._run_unchecked(command)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "code object is not signed")
+
+    def test_unchecked_nonzero_with_residual_group_fails(self) -> None:
+        helper = audit_apple_application._bounded_process_helper()
+        failure = helper.BoundedProcessExitError(
+            "Apple application codesign status inspection",
+            return_code=1,
+            residual_group_members=True,
+            stdout="",
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                helper,
+                "run_bounded",
+                side_effect=failure,
+            ),
+            self.assertRaises(
+                audit_apple_application.AppleApplicationAuditError
+            ),
+        ):
+            audit_apple_application._run_unchecked(
+                ("/usr/bin/codesign", "-d", "/tmp/Fonix")
+            )
+
+
 class AppleApplicationBuildIdentityTest(unittest.TestCase):
+    def test_in_process_audit_entry_point_attaches_macos_probe(self) -> None:
+        application = Path("/tmp/fonix.app")
+        repository = Path("/tmp/fonix")
+        model = Path("/tmp/model.onnx")
+        report = {"buildManifest": {"schemaVersion": 3}}
+        with (
+            mock.patch.object(
+                audit_apple_application,
+                "audit_application",
+                return_value=report,
+            ) as audit,
+            mock.patch.object(
+                audit_apple_application,
+                "run_packaged_cpu_probe",
+                return_value={"schemaVersion": 3},
+            ) as probe,
+        ):
+            result = (
+                audit_apple_application.audit_application_and_optional_probe(
+                    application,
+                    "macos",
+                    "14.0",
+                    repository=repository,
+                    reference_runtime=Path("/tmp/runtime.dylib"),
+                    cpu_probe_model=model,
+                )
+            )
+
+        audit.assert_called_once()
+        probe.assert_called_once_with(
+            application,
+            repository,
+            model,
+            {"schemaVersion": 3},
+            clang="/usr/bin/clang",
+        )
+        self.assertEqual(result["cpuInference"], "passed")
+        self.assertEqual(result["probeBuildManifest"], {"schemaVersion": 3})
+
     def test_rejects_tampered_probe_identity(self) -> None:
         expected = {
             "schemaVersion": 3,

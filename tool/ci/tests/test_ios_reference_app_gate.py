@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 from contextlib import ExitStack
 import hashlib
@@ -8,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -55,6 +57,275 @@ def _archive(variant: str) -> object:
         sha256=gate.ARCHIVE_SHA256,
         size_bytes=gate.ARCHIVE_SIZE_BYTES,
     )
+
+
+class IosReferenceBoundedProcessTest(unittest.TestCase):
+    def test_successful_command_delegates_exact_posix_bounds(self) -> None:
+        gate = run_ios_reference_app_gate
+        command = ("tool", "argument")
+        cwd = Path("/tmp/fonix-ios-bounded-command")
+        environment = {"PATH": "/usr/bin", "LANG": "C"}
+        output = gate._BOUNDED_PROCESS.CommandOutput(
+            stdout="result\n", stderr="warning\n"
+        )
+        with mock.patch.object(
+            gate._BOUNDED_PROCESS, "run_bounded", return_value=output
+        ) as bounded:
+            result = gate._run(
+                command,
+                cwd=cwd,
+                environment=environment,
+                operation="iOS bounded command contract",
+                timeout_seconds=37,
+                maximum_output=1234,
+            )
+
+        self.assertEqual(result.stdout, "result\n")
+        self.assertEqual(result.stderr, "warning\n")
+        bounded.assert_called_once_with(
+            command,
+            operation="iOS bounded command contract",
+            cwd=cwd,
+            environment=environment,
+            timeout_seconds=37,
+            maximum_stdout_bytes=1234,
+            maximum_stderr_bytes=1234,
+        )
+
+    def test_bounded_failure_preserves_diagnostics_and_cause(self) -> None:
+        gate = run_ios_reference_app_gate
+        failure = gate._BOUNDED_PROCESS.BoundedProcessTimeoutError(
+            "iOS timeout fixture",
+            3,
+            stdout="bounded stdout",
+            stderr="bounded stderr",
+        )
+        with mock.patch.object(
+            gate._BOUNDED_PROCESS, "run_bounded", side_effect=failure
+        ):
+            with self.assertRaises(gate.IosReferenceAppGateError) as context:
+                gate._run(
+                    ("tool",),
+                    operation="iOS timeout fixture",
+                    timeout_seconds=3,
+                    maximum_output=1024,
+                )
+
+        self.assertIs(context.exception.__cause__, failure)
+        self.assertIn("timed out after 3 seconds", str(context.exception))
+        self.assertIn("bounded stdout", str(context.exception))
+        self.assertIn("bounded stderr", str(context.exception))
+
+    def test_default_runners_remove_simulator_child_injection(self) -> None:
+        gate = run_ios_reference_app_gate
+        output = gate._BOUNDED_PROCESS.CommandOutput(stdout="", stderr="")
+        injected = {
+            "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": "/tmp/injected.dylib",
+            "SIMCTL_CHILD_OTHER": "untrusted",
+            "FONIX_REFERENCE_SMOKE": "host",
+            "FONIX_REFERENCE_CHALLENGE": "host",
+            "PATH": "/usr/bin:/bin",
+        }
+        with (
+            mock.patch.dict(gate.os.environ, injected, clear=True),
+            mock.patch.object(
+                gate._BOUNDED_PROCESS,
+                "run_bounded",
+                return_value=output,
+            ) as bounded,
+        ):
+            gate._run(
+                ("xcrun", "simctl", "spawn", "udid", "/usr/bin/arch"),
+                operation="simulator architecture probe",
+                timeout_seconds=3,
+                maximum_output=1024,
+            )
+            gate._run_status(
+                ("xcrun", "simctl", "spawn", "udid", "/bin/ps"),
+                operation="simulator process settlement probe",
+                timeout_seconds=3,
+                maximum_output=1024,
+            )
+
+        self.assertEqual(bounded.call_count, 2)
+        for call in bounded.call_args_list:
+            environment = call.kwargs["environment"]
+            self.assertEqual(environment["PATH"], "/usr/bin:/bin")
+            self.assertEqual(environment["LC_ALL"], "C")
+            self.assertFalse(
+                any(key.startswith("SIMCTL_CHILD_") for key in environment)
+            )
+            self.assertNotIn("FONIX_REFERENCE_SMOKE", environment)
+            self.assertNotIn("FONIX_REFERENCE_CHALLENGE", environment)
+
+    def test_status_runner_accepts_only_clean_nonzero_direct_exit(self) -> None:
+        gate = run_ios_reference_app_gate
+        failure = gate._BOUNDED_PROCESS.BoundedProcessExitError(
+            "simulator process probe fixture",
+            return_code=1,
+            residual_group_members=False,
+            stdout="",
+            stderr="",
+        )
+        with mock.patch.object(
+            gate._BOUNDED_PROCESS, "run_bounded", side_effect=failure
+        ) as bounded:
+            status = gate._run_status(
+                ("probe",),
+                operation="simulator process probe fixture",
+                timeout_seconds=7,
+                maximum_output=321,
+            )
+
+        self.assertEqual(gate.CommandStatus(1, "", ""), status)
+        call = bounded.call_args
+        self.assertEqual(call.args, (("probe",),))
+        self.assertEqual(call.kwargs["timeout_seconds"], 7)
+        self.assertEqual(call.kwargs["maximum_stdout_bytes"], 321)
+        self.assertEqual(call.kwargs["maximum_stderr_bytes"], 321)
+
+        residual = gate._BOUNDED_PROCESS.BoundedProcessExitError(
+            "simulator process probe fixture",
+            return_code=1,
+            residual_group_members=True,
+            stdout="",
+            stderr="",
+        )
+        with mock.patch.object(
+            gate._BOUNDED_PROCESS, "run_bounded", side_effect=residual
+        ):
+            with self.assertRaisesRegex(
+                gate.IosReferenceAppGateError, "left members"
+            ):
+                gate._run_status(
+                    ("probe",),
+                    operation="simulator process probe fixture",
+                    timeout_seconds=7,
+                    maximum_output=321,
+                )
+
+    def test_plist_input_uses_private_file_and_removes_it(self) -> None:
+        gate = run_ios_reference_app_gate
+        payload = b"{ value = 1; }\n"
+        observed_path: Path | None = None
+
+        def run(command: object, **kwargs: object) -> object:
+            nonlocal observed_path
+            values = tuple(command)  # type: ignore[arg-type]
+            observed_path = Path(values[-1])
+            self.assertEqual(
+                values[:-1],
+                ("/usr/bin/plutil", "-convert", "json", "-o", "-", "--"),
+            )
+            self.assertTrue(observed_path.is_file())
+            self.assertEqual(observed_path.read_bytes(), payload)
+            self.assertEqual(kwargs["timeout_seconds"], 11)
+            self.assertEqual(kwargs["maximum_output"], 99)
+            self.assertEqual(kwargs["operation"], "plist conversion fixture")
+            return gate._COMMON.CommandOutput(stdout="{}", stderr="")
+
+        with mock.patch.object(gate, "_run", side_effect=run) as bounded:
+            output = gate._run_with_input(
+                ("/usr/bin/plutil", "-convert", "json", "-o", "-", "--", "-"),
+                input_bytes=payload,
+                maximum_input=99,
+                maximum_output=99,
+                timeout_seconds=11,
+                operation="plist conversion fixture",
+            )
+
+        self.assertEqual(output.stdout, "{}")
+        bounded.assert_called_once()
+        self.assertIsNotNone(observed_path)
+        assert observed_path is not None
+        self.assertFalse(observed_path.exists())
+
+    def test_every_local_command_call_declares_deadline_and_stream_cap(self) -> None:
+        tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+        missing: list[tuple[str, int, set[str]]] = []
+        required = {
+            "_run": {"operation", "timeout_seconds", "maximum_output"},
+            "_run_status": {"operation", "timeout_seconds", "maximum_output"},
+        }
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            expected = required.get(node.func.id)
+            if expected is None:
+                continue
+            supplied = {keyword.arg for keyword in node.keywords if keyword.arg}
+            absent = expected - supplied
+            if absent:
+                missing.append((node.func.id, node.lineno, absent))
+        self.assertEqual([], missing)
+
+    def test_final_app_audit_is_in_process_without_nested_runner(self) -> None:
+        gate = run_ios_reference_app_gate
+        with tempfile.TemporaryDirectory(prefix="fonix-ios-audit-call-") as temporary:
+            root = Path(temporary)
+            repository = root / "repository"
+            repository.mkdir()
+            application = root / "Runner.app"
+            application.mkdir()
+            shim = root / "libfonix_shim.dylib"
+            shim.write_bytes(b"shim")
+            reference = gate.ReferenceShim(
+                path=shim,
+                sha256=hashlib.sha256(b"shim").hexdigest(),
+                invocation_hash="a" * 10,
+            )
+            raw_report = {"result": "raw-audit"}
+            validated_report = {"result": "validated-audit"}
+            bytecode_modes: list[bool] = []
+
+            def run_audit(*_: object, **__: object) -> dict[str, object]:
+                bytecode_modes.append(sys.dont_write_bytecode)
+                return raw_report
+
+            audit = mock.Mock(side_effect=run_audit)
+            audit_module = SimpleNamespace(
+                audit_application_and_optional_probe=audit,
+                AppleApplicationAuditError=RuntimeError,
+            )
+            with (
+                mock.patch.object(sys, "dont_write_bytecode", False),
+                mock.patch.object(
+                    gate,
+                    "_load_apple_auditor",
+                    return_value=audit_module,
+                ) as load_audit,
+                mock.patch.object(
+                    gate, "_sha256_file", return_value=reference.sha256
+                ),
+                mock.patch.object(
+                    gate,
+                    "_validate_audit_binding",
+                    return_value=validated_report,
+                ) as validate,
+                mock.patch.object(gate, "_run") as bounded,
+            ):
+                result = gate._audit_application(
+                    repository=repository,
+                    application=application,
+                    archive=_archive("simulator"),
+                    reference_shim=reference,
+                )
+                restored_bytecode_mode = sys.dont_write_bytecode
+
+        self.assertEqual(result, validated_report)
+        self.assertEqual(bytecode_modes, [True])
+        self.assertFalse(restored_bytecode_mode)
+        load_audit.assert_called_once_with(repository, "simulator")
+        audit.assert_called_once_with(
+            application.resolve(strict=False),
+            "ios-simulator",
+            gate.APPLICATION_MINIMUM_OS,
+            repository=repository.resolve(strict=False),
+            reference_shim=shim,
+            signature_policy="strict",
+        )
+        validate.assert_called_once()
+        bounded.assert_not_called()
 
 
 def _native_inventory_fixture(
@@ -1011,20 +1282,22 @@ class IosReferenceSimulatorTest(unittest.TestCase):
 
     def test_plist_conversion_rejects_oversized_input_before_spawn(self) -> None:
         gate = run_ios_reference_app_gate
-        with mock.patch.object(gate.subprocess, "Popen") as popen:
-            with self.assertRaisesRegex(
-                gate.IosReferenceAppGateError,
-                "input exceeds",
-            ):
-                gate._run_with_input(
-                    ("/usr/bin/plutil",),
-                    input_bytes=b"x" * 17,
-                    maximum_input=16,
-                    maximum_output=16,
-                    timeout_seconds=1,
-                    operation="test conversion",
-                )
-        popen.assert_not_called()
+        with mock.patch.object(gate, "_run") as bounded:
+            with mock.patch.object(gate.tempfile, "NamedTemporaryFile") as temporary:
+                with self.assertRaisesRegex(
+                    gate.IosReferenceAppGateError,
+                    "input exceeds",
+                ):
+                    gate._run_with_input(
+                        ("/usr/bin/plutil",),
+                        input_bytes=b"x" * 17,
+                        maximum_input=16,
+                        maximum_output=16,
+                        timeout_seconds=1,
+                        operation="test conversion",
+                    )
+        bounded.assert_not_called()
+        temporary.assert_not_called()
 
     def test_arm64_probe_uses_explicit_arch_process(self) -> None:
         gate = run_ios_reference_app_gate

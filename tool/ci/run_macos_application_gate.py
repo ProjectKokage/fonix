@@ -4,24 +4,71 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
 import re
 import stat
-import subprocess
 import sys
-from typing import Sequence
+from typing import Any, Sequence
 
 
 VALIDATED_FLUTTER_REVISION = "bd1e75d918605c91b411e8789fb911e6c9a84534"
 APPLICATION_NAME = "fonix_macos_application_gate"
 APPLICATION_MINIMUM_OS = "14.0"
+MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
+VERSION_TIMEOUT_SECONDS = 2 * 60
+CREATE_TIMEOUT_SECONDS = 10 * 60
+PUB_GET_TIMEOUT_SECONDS = 10 * 60
+ASSET_PREPARATION_TIMEOUT_SECONDS = 10 * 60
+BUILD_TIMEOUT_SECONDS = 60 * 60
 
 
 class MacOsApplicationGateError(RuntimeError):
     """The reproducible Flutter macOS gate could not be completed."""
+
+
+def _load_bounded_process() -> Any:
+    path = Path(__file__).resolve().with_name("bounded_process.py")
+    specification = importlib.util.spec_from_file_location(
+        "_fonix_macos_application_bounded_process",
+        path,
+    )
+    if specification is None or specification.loader is None:
+        raise MacOsApplicationGateError("could not load bounded process helper")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+_BOUNDED_PROCESS = _load_bounded_process()
+
+
+def _load_apple_auditor(repository: Path) -> Any:
+    path = repository / "tool/ci/audit_apple_application.py"
+    specification = importlib.util.spec_from_file_location(
+        "_fonix_macos_application_apple_auditor",
+        path,
+    )
+    if specification is None or specification.loader is None:
+        raise MacOsApplicationGateError("could not load Apple application auditor")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def _macos_command_environment() -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("DYLD_")
+    }
+    environment["DART_SUPPRESS_ANALYTICS"] = "true"
+    environment["LC_ALL"] = "C"
+    environment["LANG"] = "C"
+    return environment
 
 
 def _regular_file(path: Path, label: str) -> Path:
@@ -42,22 +89,26 @@ def _directory(path: Path, label: str) -> Path:
     return path
 
 
-def _run(command: Sequence[str], *, cwd: Path | None = None) -> str:
+def _run(
+    command: Sequence[str],
+    *,
+    operation: str,
+    timeout_seconds: int,
+    cwd: Path | None = None,
+) -> str:
     try:
-        result = subprocess.run(
+        result = _BOUNDED_PROCESS.run_bounded(
             command,
+            operation=operation,
             cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            env={**os.environ, "DART_SUPPRESS_ANALYTICS": "true"},
+            environment=_macos_command_environment(),
+            timeout_seconds=timeout_seconds,
+            maximum_stdout_bytes=MAX_COMMAND_OUTPUT_BYTES,
+            maximum_stderr_bytes=MAX_COMMAND_OUTPUT_BYTES,
         )
-    except (OSError, subprocess.CalledProcessError) as error:
-        detail = ""
-        if isinstance(error, subprocess.CalledProcessError):
-            detail = f"\nstdout:\n{error.stdout}\nstderr:\n{error.stderr}"
+    except _BOUNDED_PROCESS.BoundedProcessError as error:
         raise MacOsApplicationGateError(
-            f"command failed: {' '.join(command)}{detail}"
+            f"bounded command failed: {error}"
         ) from error
     return result.stdout
 
@@ -112,7 +163,13 @@ def configure_xcode_project(source: str) -> str:
 
 
 def _verify_flutter(flutter: Path) -> dict[str, object]:
-    value = json.loads(_run((str(flutter), "--version", "--machine")))
+    value = json.loads(
+        _run(
+            (str(flutter), "--version", "--machine"),
+            operation="Flutter version inspection",
+            timeout_seconds=VERSION_TIMEOUT_SECONDS,
+        )
+    )
     if not isinstance(value, dict):
         raise MacOsApplicationGateError("Flutter --version --machine was not an object")
     if value.get("frameworkRevision") != VALIDATED_FLUTTER_REVISION:
@@ -121,6 +178,57 @@ def _verify_flutter(flutter: Path) -> dict[str, object]:
             f"{value.get('frameworkRevision')!r}"
         )
     return value
+
+
+def _run_apple_application_audit(
+    *,
+    repository: Path,
+    application: Path,
+    reference_runtime: Path,
+    model: Path,
+) -> dict[str, object]:
+    """Run the trusted auditor without nesting another process-group owner."""
+
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        auditor = _load_apple_auditor(repository)
+        try:
+            report = auditor.audit_application_and_optional_probe(
+                application,
+                "macos",
+                APPLICATION_MINIMUM_OS,
+                repository=repository,
+                reference_runtime=reference_runtime,
+                cpu_probe_model=model,
+            )
+        except (auditor.AppleApplicationAuditError, FileNotFoundError) as error:
+            raise MacOsApplicationGateError(
+                f"macOS final-application audit failed: {error}"
+            ) from error
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    if not isinstance(report, dict):
+        raise MacOsApplicationGateError(
+            "macOS final-application audit report must be an object"
+        )
+    try:
+        serialized = json.dumps(report, sort_keys=True) + "\n"
+        encoded = serialized.encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as error:
+        raise MacOsApplicationGateError(
+            "macOS final-application audit report is not serializable"
+        ) from error
+    if len(encoded) > MAX_COMMAND_OUTPUT_BYTES:
+        raise MacOsApplicationGateError(
+            "macOS final-application audit report exceeds its byte bound"
+        )
+    normalized = json.loads(serialized)
+    if not isinstance(normalized, dict):  # pragma: no cover - guarded above
+        raise MacOsApplicationGateError(
+            "macOS final-application audit report must be an object"
+        )
+    return normalized
 
 
 def run_gate(
@@ -158,7 +266,9 @@ def run_gate(
             "--org=dev.fonix.gate",
             f"--project-name={APPLICATION_NAME}",
             str(work_directory),
-        )
+        ),
+        operation="Flutter macOS application creation",
+        timeout_seconds=CREATE_TIMEOUT_SECONDS,
     )
 
     pubspec = _regular_file(work_directory / "pubspec.yaml", "generated pubspec")
@@ -172,7 +282,12 @@ def run_gate(
         encoding="utf-8",
     )
 
-    _run((str(flutter), "pub", "get", "--offline"), cwd=work_directory)
+    _run(
+        (str(flutter), "pub", "get", "--offline"),
+        operation="offline Flutter dependency resolution",
+        timeout_seconds=PUB_GET_TIMEOUT_SECONDS,
+        cwd=work_directory,
+    )
     asset_output = work_directory / "assets/fonix"
     _run(
         (
@@ -192,35 +307,28 @@ def run_gate(
             "--output",
             str(asset_output),
         ),
+        operation="Fonix macOS asset preparation",
+        timeout_seconds=ASSET_PREPARATION_TIMEOUT_SECONDS,
         cwd=work_directory,
     )
-    _run((str(flutter), "build", "macos", "--release", "--no-pub"), cwd=work_directory)
+    _run(
+        (str(flutter), "build", "macos", "--release", "--no-pub"),
+        operation="Flutter macOS release build",
+        timeout_seconds=BUILD_TIMEOUT_SECONDS,
+        cwd=work_directory,
+    )
 
     application = (
         work_directory
         / f"build/macos/Build/Products/Release/{APPLICATION_NAME}.app"
     )
-    audit_output = _run(
-        (
-            sys.executable,
-            "-B",
-            str(repository / "tool/ci/audit_apple_application.py"),
-            "--repository",
-            str(repository),
-            "--app",
-            str(application),
-            "--platform",
-            "macos",
-            "--application-minimum-os",
-            APPLICATION_MINIMUM_OS,
-            "--reference-runtime",
-            str(reference_runtime),
-            "--run-cpu-probe",
-            str(repository / "test/fixtures/mul_1.onnx"),
-        )
+    audit = _run_apple_application_audit(
+        repository=repository,
+        application=application.resolve(strict=True),
+        reference_runtime=reference_runtime,
+        model=(repository / "test/fixtures/mul_1.onnx").resolve(strict=True),
     )
-    audit = json.loads(audit_output)
-    if not isinstance(audit, dict) or audit.get("cpuInference") != "passed":
+    if audit.get("cpuInference") != "passed":
         raise MacOsApplicationGateError("final application audit did not pass")
     return {
         "application": str(application),

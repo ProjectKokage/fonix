@@ -206,6 +206,84 @@ class WorkflowContractTest(unittest.TestCase):
 
 
 class BindingConfigurationTest(unittest.TestCase):
+    def test_posix_binding_environment_is_deterministic_and_loader_clean(self) -> None:
+        base = {
+            "KEEP": "yes",
+            "CI": "false",
+            "DART_SUPPRESS_ANALYTICS": "false",
+            "LC_ALL": "ja_JP.UTF-8",
+            "LANG": "ja_JP.UTF-8",
+            "DYLD_INSERT_LIBRARIES": "/tmp/injected.dylib",
+            "DYLD_FRAMEWORK_PATH": "/tmp/frameworks",
+            "LD_PRELOAD": "/tmp/injected.so",
+            "LD_LIBRARY_PATH": "/tmp/libraries",
+        }
+
+        environment = verify_bindings._posix_tool_environment(base)
+
+        self.assertEqual(base["DART_SUPPRESS_ANALYTICS"], "false")
+        self.assertFalse(
+            any(
+                key.startswith("DYLD_") or key.startswith("LD_")
+                for key in environment
+            )
+        )
+        self.assertEqual(environment["KEEP"], "yes")
+        self.assertEqual(environment["CI"], "true")
+        self.assertEqual(environment["DART_SUPPRESS_ANALYTICS"], "true")
+        self.assertEqual(environment["LC_ALL"], "C")
+        self.assertEqual(environment["LANG"], "C")
+
+    def test_posix_binding_tools_use_shared_online_bounds(self) -> None:
+        command = ["dart", "run", "ffigen"]
+        environment = {"CI": "true"}
+        with (
+            mock.patch.object(verify_bindings.os, "name", "posix"),
+            mock.patch.object(verify_bindings, "_emit_output"),
+            mock.patch.object(
+                verify_bindings,
+                "run_bounded",
+                return_value=verify_bindings.CommandOutput("ok\n", ""),
+            ) as bounded,
+        ):
+            verify_bindings._run_tool(
+                command,
+                operation="binding tool contract",
+                cwd=Path("/tmp/fonix-binding-command"),
+                environment=environment,
+                timeout_seconds=29,
+            )
+
+        bounded.assert_called_once_with(
+            command,
+            operation="binding tool contract",
+            cwd=Path("/tmp/fonix-binding-command"),
+            environment=environment,
+            timeout_seconds=29,
+            maximum_stdout_bytes=verify_bindings.MAX_COMMAND_OUTPUT_BYTES,
+            maximum_stderr_bytes=verify_bindings.MAX_COMMAND_OUTPUT_BYTES,
+        )
+
+    def test_deferred_windows_binding_tool_keeps_direct_deadline(self) -> None:
+        command = ["dart.exe", "format", "generated.dart"]
+        with (
+            mock.patch.object(verify_bindings.os, "name", "nt"),
+            mock.patch.object(verify_bindings.subprocess, "run") as direct,
+        ):
+            verify_bindings._run_tool(
+                command,
+                operation="Windows binding source check",
+                cwd=Path("C:/fonix"),
+                environment={"CI": "true"},
+                timeout_seconds=31,
+            )
+
+        self.assertEqual(direct.call_args.kwargs["timeout"], 31)
+        self.assertIs(
+            direct.call_args.kwargs["stdin"],
+            verify_bindings.subprocess.DEVNULL,
+        )
+
     def test_package_language_version_uses_the_exact_sdk_floor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
@@ -575,6 +653,81 @@ class WindowsBinaryReportTest(unittest.TestCase):
 
 
 class DesktopBundleAuditTest(unittest.TestCase):
+    def test_posix_objdump_uses_shared_online_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "objdump"
+            binary = root / "library.so"
+            executable.write_bytes(b"tool")
+            executable.chmod(0o755)
+            binary.write_bytes(b"binary")
+            helper = audit_desktop_bundle._bounded_process_helper()
+            output = helper.CommandOutput(
+                stdout="file format elf64-x86-64\n",
+                stderr="",
+            )
+            with (
+                mock.patch.object(audit_desktop_bundle.os, "name", "posix"),
+                mock.patch.object(
+                    helper,
+                    "run_bounded",
+                    return_value=output,
+                ) as bounded,
+            ):
+                self.assertEqual(
+                    audit_desktop_bundle._objdump(executable, binary),
+                    output.stdout,
+                )
+
+        bounded.assert_called_once_with(
+            [str(executable), "-p", str(binary)],
+            operation="objdump inspection for library.so",
+            environment={
+                "PATH": "/usr/bin:/bin",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
+            timeout_seconds=audit_desktop_bundle.OBJDUMP_TIMEOUT_SECONDS,
+            maximum_stdout_bytes=(
+                audit_desktop_bundle.MAX_OBJDUMP_OUTPUT_BYTES
+            ),
+            maximum_stderr_bytes=(
+                audit_desktop_bundle.MAX_OBJDUMP_OUTPUT_BYTES
+            ),
+        )
+
+    def test_deferred_windows_objdump_keeps_direct_child_deadline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "objdump.exe"
+            binary = root / "library.dll"
+            executable.write_bytes(b"tool")
+            executable.chmod(0o755)
+            binary.write_bytes(b"binary")
+            completed = audit_desktop_bundle.subprocess.CompletedProcess(
+                [str(executable), "-p", str(binary)],
+                0,
+                stdout=b"file format coff-x86-64\n",
+                stderr=b"",
+            )
+            with (
+                mock.patch.object(audit_desktop_bundle.os, "name", "nt"),
+                mock.patch.object(
+                    audit_desktop_bundle.subprocess,
+                    "run",
+                    return_value=completed,
+                ) as direct,
+            ):
+                self.assertEqual(
+                    audit_desktop_bundle._objdump(executable, binary),
+                    "file format coff-x86-64\n",
+                )
+
+        self.assertEqual(
+            direct.call_args.kwargs["timeout"],
+            audit_desktop_bundle.OBJDUMP_TIMEOUT_SECONDS,
+        )
+
     def _linux_bundle(
         self, root: Path
     ) -> tuple[Path, dict[str, str], Path]:
@@ -871,6 +1024,379 @@ file format elf64-x86-64
 
 
 class MacOsRuntimeReportTest(unittest.TestCase):
+    def _expected_macos_runtime(
+        self, contents: bytes
+    ) -> fetch_pinned_macos_ort.ExpectedFile:
+        return fetch_pinned_macos_ort.ExpectedFile(
+            path=(
+                "onnxruntime-osx-arm64-1.27.1/lib/"
+                "libonnxruntime.1.27.1.dylib"
+            ),
+            sha256=hashlib.sha256(contents).hexdigest(),
+            size_bytes=len(contents),
+        )
+
+    def _pinned_macos_runtime(
+        self, contents: bytes
+    ) -> fetch_pinned_macos_ort.PinnedRuntime:
+        expected = self._expected_macos_runtime(contents)
+        return fetch_pinned_macos_ort.PinnedRuntime(
+            artifact_id="synthetic-macos-runtime",
+            url="https://example.invalid/runtime.tgz",
+            archive_sha256="0" * 64,
+            archive_size_bytes=1,
+            runtime=expected,
+            expected_files=(expected,),
+            expected_symlinks=(),
+        )
+
+    def test_runtime_snapshot_is_one_exact_regular_copy(self) -> None:
+        contents = b"synthetic locked macOS runtime"
+        expected = self._expected_macos_runtime(contents)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "libonnxruntime.1.27.1.dylib"
+            source.write_bytes(contents)
+            source.chmod(0o755)
+            original_mode = source.stat().st_mode
+            probe_directory = root / "private-probe"
+            probe_directory.mkdir(mode=0o700)
+
+            alias = check_macos_runtime._stage_locked_runtime_snapshot(
+                source,
+                probe_directory,
+                expected,
+            )
+
+            self.assertEqual(
+                alias,
+                probe_directory / "libonnxruntime.1.dylib",
+            )
+            self.assertTrue(alias.is_file())
+            self.assertFalse(alias.is_symlink())
+            self.assertEqual(alias.stat().st_nlink, 1)
+            self.assertEqual(alias.read_bytes(), contents)
+            self.assertEqual(source.read_bytes(), contents)
+            self.assertEqual(source.stat().st_mode, original_mode)
+
+    def test_runtime_snapshot_rejects_tamper_and_symlinks(self) -> None:
+        expected = self._expected_macos_runtime(b"locked")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            probe_directory = root / "private-probe"
+            probe_directory.mkdir(mode=0o700)
+            tampered = root / "libonnxruntime.1.27.1.dylib"
+            tampered.write_bytes(b"tamper")
+
+            with self.assertRaisesRegex(
+                check_macos_runtime.MacOsRuntimeError,
+                "SHA-256 differs",
+            ):
+                check_macos_runtime._stage_locked_runtime_snapshot(
+                    tampered,
+                    probe_directory,
+                    expected,
+                )
+            self.assertFalse(
+                (probe_directory / "libonnxruntime.1.dylib").exists()
+            )
+
+            source = root / "locked-runtime"
+            source.write_bytes(b"locked")
+            link = root / "runtime-link"
+            link.symlink_to(source)
+            with self.assertRaisesRegex(
+                check_macos_runtime.MacOsRuntimeError,
+                "regular, non-symlink",
+            ):
+                check_macos_runtime._stage_locked_runtime_snapshot(
+                    link,
+                    probe_directory,
+                    expected,
+                )
+            self.assertFalse(
+                (probe_directory / "libonnxruntime.1.dylib").exists()
+            )
+
+    def test_provider_probe_links_and_runs_against_supplied_snapshot(self) -> None:
+        contents = b"synthetic locked macOS runtime"
+        expected = self._expected_macos_runtime(contents)
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            source_directory = repository / "tool" / "ci" / "macos"
+            source_directory.mkdir(parents=True)
+            (source_directory / "probe_ort_providers.c").write_text(
+                "int main(void) { return 0; }\n",
+                encoding="utf-8",
+            )
+            header_directory = (
+                repository / "third_party" / "onnxruntime" / "include"
+            )
+            header_directory.mkdir(parents=True)
+            runtime = repository / "libonnxruntime.1.27.1.dylib"
+            runtime.write_bytes(contents)
+            snapshot_directory = repository / "private-snapshot"
+            snapshot_directory.mkdir(mode=0o700)
+            snapshot = check_macos_runtime._stage_locked_runtime_snapshot(
+                runtime,
+                snapshot_directory,
+                expected,
+            )
+            private_aliases: list[Path] = []
+
+            def compile_probe(
+                tool: str,
+                *arguments: str,
+                **_options: object,
+            ) -> str:
+                self.assertEqual(tool, "cc")
+                aliases = [
+                    Path(argument)
+                    for argument in arguments
+                    if argument.endswith("/libonnxruntime.1.dylib")
+                ]
+                self.assertEqual(len(aliases), 1)
+                alias = aliases[0]
+                private_aliases.append(alias)
+                self.assertNotEqual(alias.parent, runtime.parent)
+                self.assertTrue(alias.is_file())
+                self.assertFalse(alias.is_symlink())
+                self.assertEqual(alias.read_bytes(), contents)
+                self.assertIn(f"-Wl,-rpath,{alias.parent}", arguments)
+                self.assertNotIn(str(runtime), arguments)
+                return ""
+
+            provider_output = (
+                "runtimeVersion=1.27.1\n"
+                "CoreMLExecutionProvider\n"
+                "WebGpuExecutionProvider\n"
+                "CPUExecutionProvider\n"
+            )
+            with (
+                mock.patch.object(
+                    check_macos_runtime,
+                    "_run",
+                    side_effect=compile_probe,
+                ) as compile_command,
+                mock.patch.object(
+                    check_macos_runtime,
+                    "_run_command",
+                    return_value=provider_output,
+                ) as probe_command,
+            ):
+                check_macos_runtime.probe_available_providers(
+                    snapshot,
+                    repository,
+                )
+
+        compile_command.assert_called_once()
+        probe_command.assert_called_once()
+        self.assertEqual(len(private_aliases), 1)
+        self.assertFalse(private_aliases[0].exists())
+
+    def test_macos_runtime_tools_are_exact_validated_system_paths(self) -> None:
+        self.assertEqual(
+            check_macos_runtime.TRUSTED_SYSTEM_TOOLS,
+            {
+                "cc": Path("/usr/bin/cc"),
+                "codesign": Path("/usr/bin/codesign"),
+                "nm": Path("/usr/bin/nm"),
+                "otool": Path("/usr/bin/otool"),
+            },
+        )
+        with (
+            mock.patch.object(
+                check_macos_runtime,
+                "_trusted_system_tool",
+                return_value="/usr/bin/otool",
+            ) as trusted,
+            mock.patch.object(
+                check_macos_runtime,
+                "_run_command",
+                return_value="inspection\n",
+            ) as bounded,
+        ):
+            self.assertEqual(
+                check_macos_runtime._run("otool", "-l", "/tmp/runtime.dylib"),
+                "inspection\n",
+            )
+
+        trusted.assert_called_once_with("otool")
+        bounded.assert_called_once_with(
+            ["/usr/bin/otool", "-l", "/tmp/runtime.dylib"],
+            operation="otool -l",
+            timeout_seconds=check_macos_runtime.INSPECTION_TIMEOUT_SECONDS,
+            environment=None,
+        )
+
+    def test_macos_runtime_tool_validation_rejects_non_regular_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "tool"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            link = root / "tool-link"
+            link.symlink_to(executable)
+            with mock.patch.dict(
+                check_macos_runtime.TRUSTED_SYSTEM_TOOLS,
+                {"fixture": link},
+                clear=True,
+            ):
+                with self.assertRaisesRegex(
+                    check_macos_runtime.MacOsRuntimeError,
+                    "not a regular executable",
+                ):
+                    check_macos_runtime._trusted_system_tool("fixture")
+
+    def test_macos_runtime_environment_is_a_closed_system_tool_allowlist(self) -> None:
+        with mock.patch.dict(
+            check_macos_runtime.os.environ,
+            {
+                "PATH": "/tmp/attacker-bin",
+                "HOME": "/tmp/attacker-home",
+                "DYLD_INSERT_LIBRARIES": "/tmp/injected.dylib",
+                "DYLD_FRAMEWORK_PATH": "/tmp/frameworks",
+                "DEVELOPER_DIR": "/tmp/attacker-xcode",
+                "TOOLCHAINS": "attacker.toolchain",
+                "SDKROOT": "/tmp/attacker-sdk",
+                "XCRUN_TOOLCHAIN_PATH": "/tmp/attacker-tools",
+                "XCRUN_CACHE_PATH": "/tmp/attacker-cache",
+                "CPATH": "/tmp/attacker-headers",
+                "LIBRARY_PATH": "/tmp/attacker-libraries",
+                "CCC_OVERRIDE_OPTIONS": "#^--attacker",
+            },
+            clear=True,
+        ):
+            environment = check_macos_runtime._macos_command_environment()
+
+        self.assertEqual(
+            environment,
+            {
+                "PATH": "/usr/bin:/bin",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
+        )
+
+    def test_main_uses_one_snapshot_across_original_path_aba_changes(self) -> None:
+        locked_contents = b"locked-runtime"
+        tampered_contents = b"tamper-runtime"
+        pinned = self._pinned_macos_runtime(locked_contents)
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            original = repository / "libonnxruntime.1.27.1.dylib"
+            original.write_bytes(locked_contents)
+            lock = repository / "versions.lock.yaml"
+            snapshot_paths: list[Path] = []
+
+            def inspect_snapshot(
+                _tool: str,
+                *arguments: str,
+                **_options: object,
+            ) -> str:
+                snapshot = Path(arguments[-1])
+                snapshot_paths.append(snapshot)
+                self.assertEqual(snapshot.name, "libonnxruntime.1.dylib")
+                self.assertNotEqual(snapshot, original)
+                self.assertEqual(snapshot.read_bytes(), locked_contents)
+                if len(snapshot_paths) == 1:
+                    original.write_bytes(tampered_contents)
+                elif len(snapshot_paths) == 2:
+                    original.write_bytes(locked_contents)
+                return f"report-{len(snapshot_paths)}"
+
+            provider_snapshot: list[Path] = []
+
+            def probe_snapshot(snapshot: Path, root: Path) -> None:
+                self.assertEqual(root, repository.resolve())
+                self.assertEqual(snapshot.read_bytes(), locked_contents)
+                provider_snapshot.append(snapshot)
+
+            with (
+                mock.patch.object(
+                    check_macos_runtime,
+                    "_load_pinned_runtime",
+                    return_value=pinned,
+                ) as load_lock,
+                mock.patch.object(
+                    check_macos_runtime,
+                    "_run",
+                    side_effect=inspect_snapshot,
+                ),
+                mock.patch.object(
+                    check_macos_runtime,
+                    "validate_reports",
+                ) as reports,
+                mock.patch.object(
+                    check_macos_runtime,
+                    "probe_available_providers",
+                    side_effect=probe_snapshot,
+                ) as probe,
+                mock.patch("builtins.print") as output,
+            ):
+                result = check_macos_runtime.main(
+                    [
+                        "--runtime",
+                        str(original),
+                        "--lock",
+                        str(lock),
+                        "--repository",
+                        str(repository),
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        output.assert_called_once_with(
+            "Pinned macOS arm64 ORT dylib matches its bytes, Mach-O layout, "
+            "dependencies, exports, provider inventory, and embedded signature."
+        )
+        load_lock.assert_called_once_with(lock)
+        reports.assert_called_once_with(
+            headers_report="report-1",
+            install_name_report="report-2",
+            dependencies_report="report-3",
+            load_commands_report="report-4",
+            exports_report="report-5",
+        )
+        probe.assert_called_once()
+        self.assertEqual(len(snapshot_paths), 6)
+        self.assertTrue(all(path == snapshot_paths[0] for path in snapshot_paths))
+        self.assertEqual(provider_snapshot, [snapshot_paths[0]])
+        self.assertFalse(snapshot_paths[0].exists())
+
+    def test_macos_runtime_commands_use_shared_online_bounds(self) -> None:
+        command = ["otool", "-l", "/tmp/runtime.dylib"]
+        environment = {"LC_ALL": "C"}
+        output = check_macos_runtime.CommandOutput(
+            stdout="inspection\n",
+            stderr="",
+        )
+        with mock.patch.object(
+            check_macos_runtime,
+            "run_bounded",
+            return_value=output,
+        ) as bounded:
+            self.assertEqual(
+                check_macos_runtime._run_command(
+                    command,
+                    operation="macOS runtime inspection",
+                    timeout_seconds=41,
+                    cwd=Path("/tmp"),
+                    environment=environment,
+                ),
+                output.stdout,
+            )
+
+        bounded.assert_called_once_with(
+            command,
+            operation="macOS runtime inspection",
+            cwd=Path("/tmp"),
+            environment=environment,
+            timeout_seconds=41,
+            maximum_stdout_bytes=check_macos_runtime.MAX_COMMAND_OUTPUT_BYTES,
+            maximum_stderr_bytes=check_macos_runtime.MAX_COMMAND_OUTPUT_BYTES,
+        )
+
     def _reports(self) -> dict[str, str]:
         dependencies = "\n".join(
             f"\t{path} (compatibility version 1.0.0, current version 1.0.0)"

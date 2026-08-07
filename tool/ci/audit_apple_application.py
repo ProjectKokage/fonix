@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -28,12 +29,45 @@ _MAX_MANIFEST_BYTES = 1024 * 1024
 _MAX_MACHO_BYTES = 512 * 1024 * 1024
 _MAX_APPLICATION_ENTRIES = 32768
 _MAX_IOS_MACHO_FILES = 64
+_MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024
+_COMMAND_TIMEOUT_SECONDS = 5 * 60
 _STRICT_SIGNATURE_POLICY = "strict"
 _IOS_DEVICE_UNSIGNED_SIGNATURE_POLICY = "ios-device-unsigned-development"
 _SIGNATURE_POLICIES = (
     _STRICT_SIGNATURE_POLICY,
     _IOS_DEVICE_UNSIGNED_SIGNATURE_POLICY,
 )
+
+_BOUNDED_PROCESS_HELPER: Any | None = None
+
+
+def _bounded_process_helper() -> Any:
+    global _BOUNDED_PROCESS_HELPER
+    if _BOUNDED_PROCESS_HELPER is None:
+        path = Path(__file__).resolve().with_name("bounded_process.py")
+        specification = importlib.util.spec_from_file_location(
+            "_fonix_apple_bounded_process",
+            path,
+        )
+        if specification is None or specification.loader is None:
+            raise AppleApplicationAuditError(
+                "could not load bounded process helper"
+            )
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        _BOUNDED_PROCESS_HELPER = module
+    return _BOUNDED_PROCESS_HELPER
+
+
+def _apple_command_environment() -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("DYLD_")
+    }
+    environment["LC_ALL"] = "C"
+    environment["LANG"] = "C"
+    return environment
 _MACHO_MAGICS = {
     b"\xcf\xfa\xed\xfe",
     b"\xfe\xed\xfa\xcf",
@@ -983,32 +1017,64 @@ def _plist(application: Path, platform: str) -> tuple[dict[str, Any], Path]:
     return value, plist_path
 
 
-def _run(command: Sequence[str]) -> str:
+def _run(
+    command: Sequence[str],
+    *,
+    operation: str | None = None,
+    timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS,
+) -> str:
+    helper = _bounded_process_helper()
     try:
-        result = subprocess.run(
+        result = helper.run_bounded(
             command,
-            check=True,
-            capture_output=True,
-            text=True,
+            operation=(
+                operation
+                or f"Apple application {Path(command[0]).name} inspection"
+            ),
+            environment=_apple_command_environment(),
+            timeout_seconds=timeout_seconds,
+            maximum_stdout_bytes=_MAX_COMMAND_OUTPUT_BYTES,
+            maximum_stderr_bytes=_MAX_COMMAND_OUTPUT_BYTES,
         )
-    except (OSError, subprocess.CalledProcessError) as error:
+    except helper.BoundedProcessError as error:
         raise AppleApplicationAuditError(
-            f"command failed: {' '.join(command)}"
+            f"bounded Apple command failed: {error}"
         ) from error
     return result.stdout
 
 
 def _run_unchecked(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    helper = _bounded_process_helper()
+    operation = f"Apple application {Path(command[0]).name} status inspection"
     try:
-        return subprocess.run(
+        result = helper.run_bounded(
             command,
-            check=False,
-            capture_output=True,
-            text=True,
+            operation=operation,
+            environment=_apple_command_environment(),
+            timeout_seconds=_COMMAND_TIMEOUT_SECONDS,
+            maximum_stdout_bytes=_MAX_COMMAND_OUTPUT_BYTES,
+            maximum_stderr_bytes=_MAX_COMMAND_OUTPUT_BYTES,
         )
-    except OSError as error:
+        return subprocess.CompletedProcess(
+            args=tuple(command),
+            returncode=0,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+    except helper.BoundedProcessExitError as error:
+        if error.residual_group_members or error.cleanup_failures:
+            raise AppleApplicationAuditError(
+                f"unchecked Apple command did not settle safely: {error}"
+            ) from error
+        return subprocess.CompletedProcess(
+            args=tuple(command),
+            returncode=error.return_code,
+            stdout=error.stdout or "",
+            stderr=error.stderr or "",
+        )
+    except helper.BoundedProcessError as error:
         raise AppleApplicationAuditError(
-            f"command could not run: {' '.join(command)}"
+            f"bounded unchecked Apple command failed: {error}"
         ) from error
 
 
@@ -3821,6 +3887,60 @@ def run_packaged_cpu_probe(
         return _object(value, "packaged probe build manifest")
 
 
+def audit_application_and_optional_probe(
+    application: Path,
+    platform: str,
+    declared_minimum_os: str,
+    *,
+    repository: Path,
+    reference_runtime: Path | None = None,
+    reference_shim: Path | None = None,
+    cpu_probe_model: Path | None = None,
+    otool: str = "/usr/bin/otool",
+    nm: str = "/usr/bin/nm",
+    dyld_info: str = "/usr/bin/dyld_info",
+    clang: str = "/usr/bin/clang",
+    codesign: str = "/usr/bin/codesign",
+    signature_policy: str = _STRICT_SIGNATURE_POLICY,
+) -> dict[str, Any]:
+    """Audit one application in-process and optionally run its macOS probe.
+
+    Gates use this entry point instead of nesting the auditor beneath another
+    bounded subprocess owner.  Individual native tools can therefore own one
+    POSIX process group without escaping an outer auditor process group.
+    """
+
+    report = audit_application(
+        application,
+        platform,
+        declared_minimum_os,
+        repository=repository,
+        reference_runtime=reference_runtime,
+        reference_shim=reference_shim,
+        otool=otool,
+        nm=nm,
+        dyld_info=dyld_info,
+        codesign=codesign,
+        signature_policy=signature_policy,
+    )
+    if cpu_probe_model is None:
+        return report
+    if platform != "macos":
+        raise AppleApplicationAuditError(
+            "the host CPU probe is available only for macOS apps"
+        )
+    probe_manifest = run_packaged_cpu_probe(
+        application,
+        repository,
+        cpu_probe_model,
+        _object(report.get("buildManifest"), "expected build manifest"),
+        clang=clang,
+    )
+    report["cpuInference"] = "passed"
+    report["probeBuildManifest"] = probe_manifest
+    return report
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", required=True, type=Path)
@@ -3868,7 +3988,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        report = audit_application(
+        report = audit_application_and_optional_probe(
             arguments.app.resolve(strict=True),
             arguments.platform,
             arguments.application_minimum_os,
@@ -3883,26 +4003,18 @@ def main(argv: list[str] | None = None) -> int:
                 if arguments.reference_shim is not None
                 else None
             ),
+            cpu_probe_model=(
+                arguments.run_cpu_probe.resolve(strict=True)
+                if arguments.run_cpu_probe is not None
+                else None
+            ),
             otool=arguments.otool,
             nm=arguments.nm,
             dyld_info=arguments.dyld_info,
+            clang=arguments.clang,
             codesign=arguments.codesign,
             signature_policy=arguments.signature_policy,
         )
-        if arguments.run_cpu_probe is not None:
-            if arguments.platform != "macos":
-                raise AppleApplicationAuditError(
-                    "the host CPU probe is available only for macOS apps"
-                )
-            probe_manifest = run_packaged_cpu_probe(
-                arguments.app,
-                arguments.repository.resolve(strict=True),
-                arguments.run_cpu_probe.resolve(strict=True),
-                _object(report.get("buildManifest"), "expected build manifest"),
-                clang=arguments.clang,
-            )
-            report["cpuInference"] = "passed"
-            report["probeBuildManifest"] = probe_manifest
         print(json.dumps(report, sort_keys=True))
         return 0
     except (AppleApplicationAuditError, FileNotFoundError) as error:

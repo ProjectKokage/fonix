@@ -19,23 +19,42 @@ implemented but has no exact target-host PASS. Local stabilization now uses an
 ordered protocol-v4 worker retirement handshake after malformed replies and
 worker-authored terminal failures, and includes `Isolate.spawn` inside the
 startup deadline. Sessions and pools now
-reserve aggregate input bytes across active and queued work. Native and
-standalone Phase-3 orchestration on POSIX, plus GNU `readelf` execution in the
-Linux final-application auditor, now share a bounded trusted-command boundary.
-It applies independent stdout/stderr byte caps, incremental strict UTF-8
-validation, monotonic deadlines, bounded process-group TERM/KILL, and
-direct-child reap cleanup. A successful direct-child exit is rejected while
-the new POSIX process group inherited by ordinary tool subprocesses or an
-inherited output pipe remains. This is not a sandbox: deliberate
-`setsid`/`setpgid` escape is outside the contract. Native and Phase-3 CTest
-calls have an exact 300-second per-test timeout inside a 1,800-second suite
-deadline.
+reserve aggregate input bytes across active and queued work. The native and
+standalone Phase-3 runners, Linux `readelf`, POSIX desktop `objdump`, binding
+regeneration, macOS runtime inspection, Apple final-application auditor, and
+macOS/iOS reference and final-app command paths now share a bounded
+trusted-command boundary. It applies independent stdout/stderr byte caps,
+incremental strict UTF-8 validation, monotonic deadlines, bounded
+process-group TERM/KILL, and direct-child reap cleanup. A successful
+direct-child exit is rejected while the new POSIX process group inherited by
+ordinary tool subprocesses or an inherited output pipe remains. This is not a
+sandbox: deliberate `setsid`/`setpgid` escape is outside the contract. Native
+and Phase-3 CTest calls have an exact 300-second per-test timeout inside a
+1,800-second suite deadline.
+
+The Apple, Linux, and Android reference gates call their final-application
+auditors in-process so the auditors' bounded tool groups are not nested beneath
+an outer session owner. Their former closed serialized-report boundaries are
+preserved, and bytecode writes remain disabled across the dynamically loaded
+audits. The Android gate binds both the auditor and its shared helper to the
+selected repository rather than reusing an ambient module. Apple audit and
+gate commands scrub `DYLD_*` loader injection and use a
+deterministic locale; binding tools also scrub `LD_*`, and the POSIX desktop
+metadata auditor uses a minimal fixed environment. Expected nonzero status
+probes are accepted only after clean group settlement, and the iOS plist
+converter stages its bounded input in a private temporary file that is removed
+after the call. The macOS runtime checker validates exact regular `/usr/bin`
+entry points and invokes them with only a fixed system `PATH` and `C` locale,
+so caller-supplied Xcode, SDK, compiler, and loader selectors are absent. It
+copies the locked runtime once into a private, reverified regular-file snapshot
+matching its `@rpath` install-name basename; every Mach-O, export, signature,
+and provider check uses that same snapshot.
 
 Windows retains a direct-child timeout fallback and post-completion CTest
-inventory bounds; Job Object ownership and descendant-tree cleanup remain
-deferred and unclaimed. This closes only those native, Phase-3, and Linux
-auditor integrations. It is not universal subprocess hardening; other CI
-scripts remain separate review or migration work.
+inventory bounds; binding regeneration and desktop `objdump` also retain
+direct-child Windows fallbacks. Job Object ownership and descendant-tree
+cleanup remain deferred and unclaimed. This is not a claim that every
+repository subprocess is an untrusted-code sandbox.
 
 The macOS gate applications and independently audited Android arm64-v8a
 Release APKs load and execute their exact packaged CPU paths. A separate
@@ -76,12 +95,12 @@ the active documentation:
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
   release-evidence checks;
-- a shared bounded-command helper for the trusted POSIX native, standalone
-  Phase-3, and Linux-auditor command paths, with online per-stream caps, strict
-  UTF-8, monotonic deadlines, process-group TERM/KILL, direct-child reap
-  cleanup, and residual-group/output-pipe rejection; deliberate process-group
-  escape and Windows Job Object ownership remain outside that helper's
-  contract;
+- a shared bounded-command helper for trusted POSIX native, Phase-3,
+  Linux/desktop audit, binding, macOS runtime, and Apple application/gate
+  commands, with online per-stream caps, strict UTF-8, monotonic deadlines,
+  process-group TERM/KILL, direct-child reap cleanup, and residual-group or
+  output-pipe rejection; deliberate process-group escape and Windows Job
+  Object ownership remain outside that helper's contract;
 - a committed iOS arm64, macOS arm64, Android arm64-v8a, and Linux x86_64
   Flutter reference app over the public Fonix library, with bounded worker
   ownership, exact
@@ -126,11 +145,14 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 542/542 passed |
-| POSIX bounded-process helper | 14/14 focused tests passed; native, Phase-3, and Linux-auditor integration contracts are included in the 542-test Python suite |
-| Linux final-app auditor/reference-gate focused tests | 36/36 passed; source-side synthetic coverage only |
-| Apple final-application auditor focused tests | 50/50 passed |
-| iOS reference-gate focused tests | 87/87 passed |
+| Python CI-script tests | 585/585 passed |
+| POSIX bounded-process helper | 14/14 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 585-test Python suite |
+| macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
+| Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
+| Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
+| Apple final-application auditor focused tests | 54/54 passed |
+| iOS reference-gate focused tests | 94/94 passed |
+| macOS reference/final-app gate focused tests | 32/32 passed |
 | Standalone Python verifier tests | 54/54 passed |
 | C source quality | 34/34 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
@@ -183,12 +205,23 @@ bundled loader passed adjacency, Flutter-framework, unexpected-layout, and
 closed Android arm64/x86_64 APK-namespace tests, including malformed paths and
 missing runtime/symbol failures.
 
-The bounded-command change was verified at the Python helper and runner
-contract level and exercised on a macOS arm64 host through the POSIX native
-source harness, where configure, build, inventory, and 12/12 CTests passed.
-That source harness does not refresh earlier exact-ORT target/runtime or
-final-application evidence, prove containment of a deliberately escaping
-process, or change any platform support claim.
+The bounded-command changes were verified at the Python helper, auditor, and
+runner-contract levels. The first native-runner slice was also exercised on a
+macOS arm64 host through the POSIX native source harness, where configure,
+build, inventory, and 12/12 CTests passed. Binding regeneration reproduced both
+checked-in outputs exactly through the new command owner. The later Apple gate
+migration has not rerun the full provisioned macOS or iOS application gates,
+so their exact results above remain evidence for their named earlier source
+epochs and artifacts rather than refreshed evidence for this process-control
+change. None of these checks proves containment of a deliberately escaping
+process or changes a platform support claim.
+
+The hardened macOS runtime checker separately passed against the exact pinned
+38,502,216-byte ORT dylib while the parent supplied hostile Xcode, SDK,
+compiler, loader, and search-path selectors; the child tool environment omitted
+them, and the single private snapshot passed byte, Mach-O, dependency, export,
+provider, and embedded-signature checks. This is runtime-artifact inspection,
+not a refreshed final-application gate.
 
 The offline artifact cache contained the exact lock-selected macOS arm64,
 iOS arm64 XCFramework, Android arm64-v8a/x86_64, Linux x86_64/arm64, and

@@ -13,15 +13,92 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from typing import Mapping, Sequence
+
+from bounded_process import BoundedProcessError, CommandOutput, run_bounded
 
 
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_PUBSPEC_BYTES = 1024 * 1024
+MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
+FFIGEN_TIMEOUT_SECONDS = 15 * 60
+FORMAT_TIMEOUT_SECONDS = 5 * 60
 DEFAULT_CONFIGS = ("ffigen.yaml", "ffigen.native_assets.yaml")
 
 
 class BindingVerificationError(RuntimeError):
     """A closed binding-regeneration precondition or comparison failed."""
+
+
+def _posix_tool_environment(
+    base: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    environment = dict(os.environ if base is None else base)
+    for key in tuple(environment):
+        if key.startswith("DYLD_") or key.startswith("LD_"):
+            environment.pop(key)
+    environment["CI"] = "true"
+    environment["DART_SUPPRESS_ANALYTICS"] = "true"
+    environment["LC_ALL"] = "C"
+    environment["LANG"] = "C"
+    return environment
+
+
+def _emit_output(output: CommandOutput) -> None:
+    if output.stdout:
+        print(output.stdout, end="" if output.stdout.endswith("\n") else "\n")
+    if output.stderr:
+        print(
+            output.stderr,
+            end="" if output.stderr.endswith("\n") else "\n",
+            file=sys.stderr,
+        )
+
+
+def _run_tool(
+    command: Sequence[str],
+    *,
+    operation: str,
+    cwd: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: int,
+) -> None:
+    if os.name == "posix":
+        try:
+            output = run_bounded(
+                command,
+                operation=operation,
+                cwd=cwd,
+                environment=environment,
+                timeout_seconds=timeout_seconds,
+                maximum_stdout_bytes=MAX_COMMAND_OUTPUT_BYTES,
+                maximum_stderr_bytes=MAX_COMMAND_OUTPUT_BYTES,
+            )
+        except BoundedProcessError as error:
+            raise BindingVerificationError(
+                f"bounded command failed: {error}"
+            ) from error
+        _emit_output(output)
+        return
+
+    # Windows source verification remains required, while target-host process
+    # ownership is deferred. Keep a direct-child deadline without claiming Job
+    # Object or inherited-subprocess cleanup.
+    try:
+        subprocess.run(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            check=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise BindingVerificationError(
+            f"{operation} exceeded its direct-child deadline on Windows"
+        ) from error
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise BindingVerificationError(f"{operation} failed") from error
 
 
 def _replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
@@ -218,11 +295,13 @@ def verify_bindings(
             temporary_config.write_text(transformed, encoding="utf-8")
 
             environment = os.environ.copy()
-            # Keep ffigen deterministic and prevent the Dart launcher from
-            # attempting to update per-user analytics state in hermetic CI.
-            environment.setdefault("CI", "true")
-            environment.setdefault("DART_SUPPRESS_ANALYTICS", "true")
-            result = subprocess.run(
+            if os.name == "posix":
+                environment = _posix_tool_environment(environment)
+            else:
+                # Keep the documented Windows direct-child fallback unchanged.
+                environment.setdefault("CI", "true")
+                environment.setdefault("DART_SUPPRESS_ANALYTICS", "true")
+            _run_tool(
                 [
                     str(dart_executable),
                     "run",
@@ -232,20 +311,16 @@ def verify_bindings(
                     "--verbose",
                     "warning",
                 ],
+                operation=f"ffigen regeneration for {config_name}",
                 cwd=repository,
-                env=environment,
-                check=False,
+                environment=environment,
+                timeout_seconds=FFIGEN_TIMEOUT_SECONDS,
             )
-            if result.returncode != 0:
-                raise BindingVerificationError(
-                    f"ffigen failed for {config_name} with exit code "
-                    f"{result.returncode}"
-                )
             if not generated_output.is_file():
                 raise BindingVerificationError(
                     f"ffigen did not create the isolated output for {config_name}"
                 )
-            format_result = subprocess.run(
+            _run_tool(
                 [
                     str(dart_executable),
                     "format",
@@ -253,14 +328,11 @@ def verify_bindings(
                     language_version,
                     str(generated_output),
                 ],
+                operation=f"Dart formatting for {config_name}",
                 cwd=repository,
-                env=environment,
-                check=False,
+                environment=environment,
+                timeout_seconds=FORMAT_TIMEOUT_SECONDS,
             )
-            if format_result.returncode != 0:
-                raise BindingVerificationError(
-                    f"dart format failed for the isolated {config_name} output"
-                )
             if committed_output.read_bytes() != generated_output.read_bytes():
                 mismatches.append(_diff(committed_output, generated_output))
 

@@ -15,9 +15,8 @@ import re
 import secrets
 import shutil
 import stat
-import subprocess
 import sys
-import threading
+import tempfile
 import time
 from typing import Any, Callable, Mapping, NamedTuple, Sequence, TypeVar
 import urllib.parse
@@ -40,6 +39,17 @@ if _SOURCE_MANIFEST_SPEC is None or _SOURCE_MANIFEST_SPEC.loader is None:  # pra
     raise RuntimeError("could not load the source-manifest helpers")
 _SOURCE_MANIFEST = importlib.util.module_from_spec(_SOURCE_MANIFEST_SPEC)
 _SOURCE_MANIFEST_SPEC.loader.exec_module(_SOURCE_MANIFEST)
+
+_BOUNDED_PROCESS_PATH = Path(__file__).with_name("bounded_process.py")
+_BOUNDED_PROCESS_SPEC = importlib.util.spec_from_file_location(
+    "_fonix_ios_reference_gate_bounded_process", _BOUNDED_PROCESS_PATH
+)
+if (
+    _BOUNDED_PROCESS_SPEC is None or _BOUNDED_PROCESS_SPEC.loader is None
+):  # pragma: no cover
+    raise RuntimeError("could not load the bounded process helper")
+_BOUNDED_PROCESS = importlib.util.module_from_spec(_BOUNDED_PROCESS_SPEC)
+_BOUNDED_PROCESS_SPEC.loader.exec_module(_BOUNDED_PROCESS)
 
 # The common copier is loaded into a private module instance. Extend its exact
 # generated-path inventory before copying the committed iOS scaffold.
@@ -93,9 +103,17 @@ REFERENCE_RECEIPT_SUFFIX = ".txt"
 REFERENCE_STAGING_SUFFIX = ".txt.tmp"
 
 COMMAND_TIMEOUT_SECONDS = 30 * 60
+ENVIRONMENT_CHECK_TIMEOUT_SECONDS = 2 * 60
+DEPENDENCY_RESOLUTION_TIMEOUT_SECONDS = 10 * 60
+SOURCE_CHECK_TIMEOUT_SECONDS = 30 * 60
+ASSET_PREPARATION_TIMEOUT_SECONDS = 30 * 60
+APPLICATION_BUILD_TIMEOUT_SECONDS = 30 * 60
+SIMULATOR_COMMAND_TIMEOUT_SECONDS = 2 * 60
+SIMULATOR_BOOT_TIMEOUT_SECONDS = 10 * 60
 REFERENCE_TIMEOUT_SECONDS = 2 * 60
 REFERENCE_POLL_INTERVAL_SECONDS = 0.05
 PROCESS_SETTLEMENT_TIMEOUT_SECONDS = 10
+PROCESS_PROBE_TIMEOUT_SECONDS = 30
 PLUTIL_TIMEOUT_SECONDS = 30
 MAX_COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024
 MAX_REFERENCE_OUTPUT_BYTES = 256 * 1024
@@ -388,56 +406,85 @@ def _sha256_file(path: Path, label: str) -> str:
     return digest.hexdigest()
 
 
+def _tool_environment(
+    base: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a host-tool environment with simulator child injection removed."""
+
+    environment = _COMMON._tool_environment(base)
+    for key in tuple(environment):
+        if key.startswith("SIMCTL_CHILD_") or key in {
+            "FONIX_REFERENCE_SMOKE",
+            "FONIX_REFERENCE_CHALLENGE",
+        }:
+            environment.pop(key)
+    return environment
+
+
 def _run(
     command: Sequence[str],
     *,
+    timeout_seconds: int,
+    maximum_output: int,
+    operation: str,
     cwd: Path | None = None,
     environment: Mapping[str, str] | None = None,
-    timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
-    maximum_output: int = MAX_COMMAND_OUTPUT_BYTES,
-    operation: str = "command",
 ) -> Any:
-    return _COMMON._run(
-        command,
-        cwd=cwd,
-        environment=environment,
-        timeout_seconds=timeout_seconds,
-        maximum_output=maximum_output,
-        operation=operation,
-    )
+    if timeout_seconds <= 0 or timeout_seconds > COMMAND_TIMEOUT_SECONDS:
+        raise IosReferenceAppGateError(f"{operation} timeout is outside its bound")
+    if maximum_output <= 0 or maximum_output > MAX_COMMAND_OUTPUT_BYTES:
+        raise IosReferenceAppGateError(
+            f"{operation} output bound is outside its allowed range"
+        )
+    try:
+        output = _BOUNDED_PROCESS.run_bounded(
+            command,
+            operation=operation,
+            cwd=cwd,
+            environment=dict(
+                _tool_environment() if environment is None else environment
+            ),
+            timeout_seconds=timeout_seconds,
+            maximum_stdout_bytes=maximum_output,
+            maximum_stderr_bytes=maximum_output,
+        )
+    except _BOUNDED_PROCESS.BoundedProcessError as error:
+        raise IosReferenceAppGateError(str(error)) from error
+    return _COMMON.CommandOutput(stdout=output.stdout, stderr=output.stderr)
 
 
 def _run_status(
     command: Sequence[str],
     *,
-    timeout_seconds: int = PLUTIL_TIMEOUT_SECONDS,
-    maximum_output: int = MAX_REFERENCE_OUTPUT_BYTES,
+    timeout_seconds: int,
+    maximum_output: int,
     operation: str,
 ) -> CommandStatus:
-    if timeout_seconds <= 0 or timeout_seconds > PLUTIL_TIMEOUT_SECONDS:
+    if timeout_seconds <= 0 or timeout_seconds > PROCESS_PROBE_TIMEOUT_SECONDS:
         raise IosReferenceAppGateError(f"{operation} timeout is outside its bound")
     if maximum_output <= 0 or maximum_output > MAX_COMMAND_OUTPUT_BYTES:
         raise IosReferenceAppGateError(f"{operation} output bound is invalid")
     try:
-        return_code, stdout_bytes, stderr_bytes = _COMMON._execute_process(
+        output = _BOUNDED_PROCESS.run_bounded(
             command,
+            operation=operation,
             cwd=None,
-            environment=_COMMON._tool_environment(),
+            environment=_tool_environment(),
             timeout_seconds=timeout_seconds,
-            maximum_output=maximum_output,
+            maximum_stdout_bytes=maximum_output,
+            maximum_stderr_bytes=maximum_output,
         )
-    except subprocess.TimeoutExpired as error:
-        raise IosReferenceAppGateError(
-            f"{operation} timed out after {timeout_seconds} seconds"
-        ) from error
-    except OSError as error:
-        raise IosReferenceAppGateError(f"could not execute {operation}") from error
-    try:
-        stdout = stdout_bytes.decode("utf-8")
-        stderr = stderr_bytes.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise IosReferenceAppGateError(f"{operation} output is not UTF-8") from error
-    return CommandStatus(return_code=return_code, stdout=stdout, stderr=stderr)
+    except _BOUNDED_PROCESS.BoundedProcessExitError as error:
+        if error.residual_group_members or error.cleanup_failures:
+            raise IosReferenceAppGateError(str(error)) from error
+        return CommandStatus(
+            return_code=error.return_code,
+            stdout=error.stdout or "",
+            stderr=error.stderr or "",
+        )
+    except _BOUNDED_PROCESS.BoundedProcessError as error:
+        raise IosReferenceAppGateError(str(error)) from error
+    return CommandStatus(return_code=0, stdout=output.stdout, stderr=output.stderr)
 
 
 def _run_with_input(
@@ -461,127 +508,24 @@ def _run_with_input(
         )
     if timeout_seconds <= 0 or timeout_seconds > PLUTIL_TIMEOUT_SECONDS:
         raise IosReferenceAppGateError(f"{operation} timeout is outside its bound")
-    try:
-        process = subprocess.Popen(
-            list(command),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=_COMMON._tool_environment(),
-        )
-    except OSError as error:
-        raise IosReferenceAppGateError(f"could not execute {operation}") from error
-    if process.stdin is None or process.stdout is None or process.stderr is None:
-        _terminate_child(process)
-        raise IosReferenceAppGateError(f"{operation} pipes were not created")
-
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    overflow: list[str] = []
-    reader_errors: list[str] = []
-    writer_errors: list[BaseException] = []
-    lock = threading.Lock()
-
-    def drain(label: str, stream: Any) -> None:
-        try:
-            while chunk := stream.read(8192):
-                with lock:
-                    remaining = maximum_output - len(buffers[label])
-                    if remaining > 0:
-                        buffers[label].extend(chunk[:remaining])
-                    if len(chunk) > remaining and not overflow:
-                        overflow.append(label)
-                if overflow:
-                    _terminate_child(process)
-                    break
-        except OSError:
-            with lock:
-                reader_errors.append(label)
-            _terminate_child(process)
-        finally:
-            stream.close()
-
-    def write_input() -> None:
-        try:
-            view = memoryview(input_bytes)
-            for offset in range(0, len(view), 8192):
-                process.stdin.write(view[offset : offset + 8192])
-            process.stdin.flush()
-        except BrokenPipeError:
-            # A rejecting converter may close stdin before consuming the bounded
-            # payload; its exit status and stderr remain authoritative.
-            pass
-        except OSError as error:
-            writer_errors.append(error)
-            _terminate_child(process)
-        finally:
-            try:
-                process.stdin.close()
-            except OSError:
-                pass
-
-    readers = [
-        threading.Thread(
-            target=drain,
-            args=("stdout", process.stdout),
-            name="fonix-plutil-stdout",
-            daemon=True,
-        ),
-        threading.Thread(
-            target=drain,
-            args=("stderr", process.stderr),
-            name="fonix-plutil-stderr",
-            daemon=True,
-        ),
-    ]
-    writer = threading.Thread(
-        target=write_input,
-        name="fonix-plutil-stdin",
-        daemon=True,
-    )
-    for thread in readers:
-        thread.start()
-    writer.start()
-    timed_out = False
-    try:
-        return_code = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _terminate_child(process)
-        return_code = process.wait(timeout=5)
-    writer.join(timeout=5)
-    for thread in readers:
-        thread.join(timeout=5)
-    if writer.is_alive() or any(thread.is_alive() for thread in readers):
-        _terminate_child(process)
+    if not command or command[-1] != "-":
         raise IosReferenceAppGateError(
-            f"{operation} stream did not close after process exit"
+            f"{operation} command must end with the bounded input placeholder"
         )
-    if timed_out:
-        raise IosReferenceAppGateError(
-            f"{operation} timed out after {timeout_seconds} seconds"
+    with tempfile.NamedTemporaryFile(
+        mode="w+b",
+        prefix="fonix-ios-plist-",
+        suffix=".plist",
+    ) as input_file:
+        input_file.write(input_bytes)
+        input_file.flush()
+        os.fsync(input_file.fileno())
+        return _run(
+            (*command[:-1], input_file.name),
+            timeout_seconds=timeout_seconds,
+            maximum_output=maximum_output,
+            operation=operation,
         )
-    if writer_errors:
-        raise IosReferenceAppGateError(f"could not write {operation} input") from writer_errors[0]
-    if reader_errors:
-        raise IosReferenceAppGateError(
-            f"could not read {operation} {reader_errors[0]}"
-        )
-    if overflow:
-        raise IosReferenceAppGateError(
-            f"{operation} {overflow[0]} exceeds {maximum_output} bytes"
-        )
-    try:
-        stdout = bytes(buffers["stdout"]).decode("utf-8")
-        stderr = bytes(buffers["stderr"]).decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise IosReferenceAppGateError(f"{operation} output is not UTF-8") from error
-    if return_code != 0:
-        raise IosReferenceAppGateError(
-            f"{operation} failed with exit code {return_code}"
-            f"\nstdout:\n{_COMMON._diagnostic(stdout)}"
-            f"\nstderr:\n{_COMMON._diagnostic(stderr)}"
-        )
-    return _COMMON.CommandOutput(stdout=stdout, stderr=stderr)
 
 
 def _string(value: object, label: str) -> str:
@@ -918,19 +862,53 @@ def _single_line(output: Any, label: str) -> str:
     return lines[0]
 
 
+def _verify_flutter(flutter: Path) -> dict[str, object]:
+    output = _run(
+        (str(flutter), "--version", "--machine"),
+        operation="Flutter version check",
+        timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
+    )
+    value = _strict_json(
+        output.stdout, "Flutter version output", maximum=MAX_COMMAND_OUTPUT_BYTES
+    )
+    if not isinstance(value, dict):
+        raise IosReferenceAppGateError("Flutter version output must be an object")
+    if value.get("frameworkRevision") != VALIDATED_FLUTTER_REVISION:
+        raise IosReferenceAppGateError(
+            "Flutter revision differs from the reference-app gate revision"
+        )
+    framework_version = value.get("frameworkVersion")
+    if not isinstance(framework_version, str) or not framework_version:
+        raise IosReferenceAppGateError("Flutter framework version is missing")
+    if len(framework_version.encode("utf-8")) > 128:
+        raise IosReferenceAppGateError("Flutter framework version is too long")
+    return value
+
+
 def _verify_apple_environment(flutter: Path) -> tuple[dict[str, object], AppleEnvironment]:
-    flutter_version = _COMMON._verify_flutter(flutter)
+    flutter_version = _verify_flutter(flutter)
     if flutter_version.get("frameworkRevision") != VALIDATED_FLUTTER_REVISION:
         raise IosReferenceAppGateError("Flutter revision changed")
 
-    xcode = _run(("/usr/bin/xcodebuild", "-version"), operation="Xcode version check")
+    xcode = _run(
+        ("/usr/bin/xcodebuild", "-version"),
+        operation="Xcode version check",
+        timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+        maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
+    )
     if xcode.stderr or xcode.stdout.splitlines() != [
         f"Xcode {VALIDATED_XCODE_VERSION}",
         f"Build version {VALIDATED_XCODE_BUILD}",
     ]:
         raise IosReferenceAppGateError("Xcode version differs from the iOS gate tuple")
     developer = _single_line(
-        _run(("/usr/bin/xcode-select", "-p"), operation="Xcode selection check"),
+        _run(
+            ("/usr/bin/xcode-select", "-p"),
+            operation="Xcode selection check",
+            timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
+        ),
         "Xcode selection",
     )
     if developer != VALIDATED_DEVELOPER_DIRECTORY:
@@ -939,6 +917,8 @@ def _verify_apple_environment(flutter: Path) -> tuple[dict[str, object], AppleEn
         _run(
             ("/usr/bin/xcrun", "--sdk", "iphoneos", "--show-sdk-version"),
             operation="iPhoneOS SDK check",
+            timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         ),
         "iPhoneOS SDK",
     )
@@ -946,17 +926,29 @@ def _verify_apple_environment(flutter: Path) -> tuple[dict[str, object], AppleEn
         _run(
             ("/usr/bin/xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"),
             operation="iPhoneSimulator SDK check",
+            timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         ),
         "iPhoneSimulator SDK",
     )
     if device_sdk != VALIDATED_IOS_SDK or simulator_sdk != VALIDATED_IOS_SDK:
         raise IosReferenceAppGateError("selected Apple SDK versions changed")
     macos_version = _single_line(
-        _run(("/usr/bin/sw_vers", "-productVersion"), operation="macOS version check"),
+        _run(
+            ("/usr/bin/sw_vers", "-productVersion"),
+            operation="macOS version check",
+            timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
+        ),
         "macOS version",
     )
     macos_build = _single_line(
-        _run(("/usr/bin/sw_vers", "-buildVersion"), operation="macOS build check"),
+        _run(
+            ("/usr/bin/sw_vers", "-buildVersion"),
+            operation="macOS build check",
+            timeout_seconds=ENVIRONMENT_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
+        ),
         "macOS build",
     )
     if (
@@ -980,6 +972,7 @@ def _simulator_identity(udid: str) -> SimulatorIdentity:
     output = _run(
         ("/usr/bin/xcrun", "simctl", "list", "devices", "available", "--json"),
         operation="available simulator inventory",
+        timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
         maximum_output=MAX_SIMCTL_BYTES,
     )
     value = _strict_json(
@@ -1035,14 +1028,7 @@ def _reference_environment(
     challenge: str, base: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     challenge = _validate_challenge(challenge)
-    environment = _COMMON._tool_environment(base)
-    for key in tuple(environment):
-        if (
-            key.startswith("SIMCTL_CHILD_")
-            or key.startswith("DYLD_")
-            or key in {"FONIX_REFERENCE_SMOKE", "FONIX_REFERENCE_CHALLENGE"}
-        ):
-            environment.pop(key)
+    environment = _tool_environment(base)
     environment["SIMCTL_CHILD_FONIX_REFERENCE_SMOKE"] = "1"
     environment["SIMCTL_CHILD_FONIX_REFERENCE_CHALLENGE"] = challenge
     return environment
@@ -1169,17 +1155,6 @@ def _parse_reference_output(
             "iOS reference receipt is not canonical JSON"
         )
     return validated
-
-
-def _terminate_child(process: subprocess.Popen[bytes]) -> None:
-    try:
-        process.kill()
-    except OSError:
-        pass
-    try:
-        process.wait(timeout=5)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
 
 
 def _application_identity(application: Path) -> tuple[Path, str]:
@@ -1660,6 +1635,22 @@ def _validate_audit_binding(
     return value
 
 
+def _load_apple_auditor(repository: Path, variant: str) -> Any:
+    audit_path = _regular_file(
+        repository / "tool/ci/audit_apple_application.py",
+        "frozen Apple application auditor",
+        maximum=MAX_COMMAND_OUTPUT_BYTES,
+    )
+    specification = importlib.util.spec_from_file_location(
+        f"_fonix_ios_reference_gate_apple_audit_{variant}", audit_path
+    )
+    if specification is None or specification.loader is None:  # pragma: no cover
+        raise IosReferenceAppGateError("could not load the frozen Apple auditor")
+    audit_module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(audit_module)
+    return audit_module
+
+
 def _audit_application(
     *,
     repository: Path,
@@ -1668,28 +1659,32 @@ def _audit_application(
     reference_shim: ReferenceShim,
 ) -> dict[str, Any]:
     platform_name = "ios-device" if archive.variant == "device" else "ios-simulator"
-    command = [
-        sys.executable,
-        "-B",
-        str(repository / "tool/ci/audit_apple_application.py"),
-        "--repository",
-        str(repository),
-        "--app",
-        str(application),
-        "--platform",
-        platform_name,
-        "--application-minimum-os",
-        APPLICATION_MINIMUM_OS,
-        "--reference-shim",
-        str(reference_shim.path),
-    ]
-    if archive.variant == "device":
-        command.extend(
-            ["--signature-policy", "ios-device-unsigned-development"]
-        )
-    output = _run(command, operation=f"final iOS {archive.variant} application audit")
+    signature_policy = (
+        "ios-device-unsigned-development"
+        if archive.variant == "device"
+        else "strict"
+    )
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        audit_module = _load_apple_auditor(repository, archive.variant)
+        try:
+            raw_value = audit_module.audit_application_and_optional_probe(
+                application.resolve(strict=True),
+                platform_name,
+                APPLICATION_MINIMUM_OS,
+                repository=repository.resolve(strict=True),
+                reference_shim=reference_shim.path,
+                signature_policy=signature_policy,
+            )
+        except audit_module.AppleApplicationAuditError as error:
+            raise IosReferenceAppGateError(
+                f"final iOS {archive.variant} application audit failed: {error}"
+            ) from error
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
     value = _strict_json(
-        output.stdout,
+        json.dumps(raw_value, sort_keys=True) + "\n",
         f"final iOS {archive.variant} application audit report",
         maximum=MAX_COMMAND_OUTPUT_BYTES,
     )
@@ -1766,17 +1761,23 @@ def _prepare_variant(
         (str(flutter), "pub", "get", "--offline"),
         cwd=destination,
         operation=f"offline Flutter pub get ({archive.variant})",
+        timeout_seconds=DEPENDENCY_RESOLUTION_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     if run_source_checks:
         _run(
             (str(flutter), "analyze", "--no-pub"),
             cwd=destination,
             operation="iOS reference Flutter analysis",
+            timeout_seconds=SOURCE_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_COMMAND_OUTPUT_BYTES,
         )
         _run(
             (str(flutter), "test", "--no-pub"),
             cwd=destination,
             operation="iOS reference Flutter tests",
+            timeout_seconds=SOURCE_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_COMMAND_OUTPUT_BYTES,
         )
     _run(
         (
@@ -1798,6 +1799,8 @@ def _prepare_variant(
         ),
         cwd=destination,
         operation=f"Fonix iOS {archive.variant} asset preparation",
+        timeout_seconds=ASSET_PREPARATION_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     manifest_sha256 = _validate_prepared_assets(
         destination / "assets/fonix", archive
@@ -2024,6 +2027,7 @@ def _simulator_apps(identity: SimulatorIdentity) -> dict[str, Any]:
     output = _run(
         ("/usr/bin/xcrun", "simctl", "listapps", identity.udid),
         operation="simulator installed-application inventory",
+        timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
         maximum_output=MAX_SIMCTL_BYTES,
     )
     if output.stderr:
@@ -2081,6 +2085,7 @@ def _verify_simulator_arm64(identity: SimulatorIdentity) -> dict[str, object]:
                 "hw.optional.arm64",
             ),
             operation="simulator arm64 capability check",
+            timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
             maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         ),
         "simulator arm64 capability",
@@ -2102,6 +2107,7 @@ def _verify_simulator_arm64(identity: SimulatorIdentity) -> dict[str, object]:
                 "-m",
             ),
             operation="explicit simulator arm64 process check",
+            timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
             maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         ),
         "explicit simulator arm64 process",
@@ -2417,6 +2423,7 @@ def _installed_application_path(
             "app",
         ),
         operation="installed simulator application lookup",
+        timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     installed = Path(_single_line(output, "installed simulator application lookup"))
@@ -2501,6 +2508,7 @@ def _simulator_data_container(
             "data",
         ),
         operation="simulator data-container lookup",
+        timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     raw_path = Path(_single_line(output, "simulator data-container lookup"))
@@ -2682,6 +2690,7 @@ def _launch_simulator_application(
         ),
         environment=_reference_environment(challenge),
         operation="simulator reference-app launch",
+        timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     if output.stderr:
@@ -2722,6 +2731,7 @@ def _simulator_process_is_live(
     status = _run_status(
         command,
         operation="simulator process settlement probe",
+        timeout_seconds=PROCESS_PROBE_TIMEOUT_SECONDS,
         maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
     )
     if status.return_code == 1 and not status.stdout and not status.stderr:
@@ -2773,6 +2783,7 @@ def _terminate_simulator_application(identity: SimulatorIdentity, pid: int) -> N
                 APPLICATION_BUNDLE_IDENTIFIER,
             ),
             operation="simulator reference-app termination",
+            timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
             maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         )
     except IosReferenceAppGateError as termination_error:
@@ -2842,6 +2853,7 @@ def _cleanup_simulator(
                     APPLICATION_BUNDLE_IDENTIFIER,
                 ),
                 operation="simulator reference-app uninstall",
+                timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
                 maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
             )
             _require_package_absent(identity)
@@ -2852,6 +2864,7 @@ def _cleanup_simulator(
             _run(
                 ("/usr/bin/xcrun", "simctl", "shutdown", identity.udid),
                 operation="simulator shutdown",
+                timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
                 maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
             )
         except BaseException as error:
@@ -3089,6 +3102,8 @@ def run_gate(
         ),
         cwd=device_work,
         operation="unsigned iOS arm64 device Release build",
+        timeout_seconds=APPLICATION_BUILD_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     device_application = _directory(
         device_work / "build/ios/iphoneos" / APPLICATION_BUNDLE_NAME,
@@ -3117,6 +3132,8 @@ def run_gate(
         ),
         cwd=simulator_work,
         operation="iOS arm64 simulator Debug build",
+        timeout_seconds=APPLICATION_BUILD_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     _run(
         (
@@ -3129,6 +3146,8 @@ def run_gate(
         ),
         cwd=simulator_work,
         operation="incremental iOS arm64 simulator Debug rebuild",
+        timeout_seconds=APPLICATION_BUILD_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
     )
     simulator_application = _directory(
         simulator_work / "build/ios/iphonesimulator" / APPLICATION_BUNDLE_NAME,
@@ -3196,6 +3215,7 @@ def run_gate(
             _run(
                 ("/usr/bin/xcrun", "simctl", "boot", simulator.udid),
                 operation="simulator boot",
+                timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
                 maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
             )
             # Ownership begins only after simctl confirms that this invocation
@@ -3210,6 +3230,7 @@ def run_gate(
                     "-b",
                 ),
                 operation="simulator boot settlement",
+                timeout_seconds=SIMULATOR_BOOT_TIMEOUT_SECONDS,
                 maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
             )
         arm64_probe = _verify_simulator_arm64(simulator)
@@ -3237,6 +3258,7 @@ def run_gate(
                 str(simulator_application),
             ),
             operation="simulator reference-app install",
+            timeout_seconds=SIMULATOR_COMMAND_TIMEOUT_SECONDS,
             maximum_output=MAX_REFERENCE_OUTPUT_BYTES,
         )
         install_succeeded = True

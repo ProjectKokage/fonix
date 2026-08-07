@@ -324,7 +324,7 @@ For a final Flutter macOS application, run the loader, deployment, identity,
 notice, and CPU-inference gate against the `.app` bytes:
 
 ```bash
-python3 tool/ci/audit_apple_application.py \
+python3 -B tool/ci/audit_apple_application.py \
   --app build/macos/Build/Products/Release/example.app \
   --platform macos \
   --application-minimum-os 14.0 \
@@ -345,7 +345,7 @@ hook, app-floor, arm64-only, and asset configuration above, builds Release, and
 runs the same final audit and CPU probe:
 
 ```bash
-python3 tool/ci/run_macos_application_gate.py \
+python3 -B tool/ci/run_macos_application_gate.py \
   --flutter /absolute/flutter/bin/flutter \
   --artifact-cache /absolute/offline/cache \
   --reference-runtime /absolute/verified/libonnxruntime.1.27.1.dylib \

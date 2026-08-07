@@ -309,12 +309,12 @@ class TreeIdentityTests(unittest.TestCase):
 
 
 class EnvironmentAndReceiptTests(unittest.TestCase):
-    def test_build_and_auditor_environments_are_positive_allowlists(self) -> None:
+    def test_build_environment_is_a_positive_allowlist(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             directories = {
                 name: root / name
-                for name in ("home", "tmp", "pub-cache", "tool-bin", "audit-home", "audit-tmp")
+                for name in ("home", "tmp", "pub-cache", "tool-bin")
             }
             for directory in directories.values():
                 directory.mkdir(mode=0o700)
@@ -338,10 +338,6 @@ class EnvironmentAndReceiptTests(unittest.TestCase):
                     archiver=root / "llvm-ar",
                     linker=root / "ld.lld",
                 )
-                auditor = gate._auditor_environment(
-                    home=directories["audit-home"],
-                    temporary=directories["audit-tmp"],
-                )
             for forbidden in (
                 "PYTHONPATH",
                 "PYTHONHOME",
@@ -349,11 +345,9 @@ class EnvironmentAndReceiptTests(unittest.TestCase):
                 "CMAKE_TOOLCHAIN_FILE",
             ):
                 self.assertNotIn(forbidden, environment)
-                self.assertNotIn(forbidden, auditor)
             self.assertEqual(
                 environment["PATH"], f'{directories["tool-bin"]}:/usr/bin:/bin'
             )
-            self.assertEqual(auditor["PATH"], "/usr/bin:/bin")
 
     def test_multicall_tools_keep_distinct_compiler_and_linker_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -704,7 +698,28 @@ class HookAndAuditBindingTests(unittest.TestCase):
             provenance = gate._discover_hook_provenance(work, application)
             self.assertEqual(provenance.input_path.parent.name, "123456789a")
 
-    def test_auditor_command_wires_every_provenance_and_compiler_argument(self) -> None:
+    def test_frozen_auditor_loader_uses_exact_source_epoch_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "source-epoch"
+            auditor_path = repository / "tool/ci/audit_linux_application.py"
+            auditor_path.parent.mkdir(parents=True)
+            auditor_path.write_text("# frozen auditor fixture\n", encoding="utf-8")
+            sentinel = object()
+            with mock.patch.object(
+                gate, "_load_module", return_value=sentinel
+            ) as load_module:
+                result = gate._load_frozen_linux_auditor(repository)
+
+        self.assertIs(result, sentinel)
+        load_module.assert_called_once_with(
+            "_fonix_linux_gate_frozen_auditor",
+            auditor_path,
+        )
+
+    def test_auditor_runs_in_process_with_exact_closed_arguments(self) -> None:
+        class FakeAuditError(RuntimeError):
+            pass
+
         base = Path("/closed")
         provenance = gate.HookProvenance(
             base / "input.json",
@@ -713,28 +728,131 @@ class HookAndAuditBindingTests(unittest.TestCase):
             base / "provider.so",
             base / "staging",
         )
-        command = gate._audit_command(
+        tree = gate.TreeIdentity(21, 12345, "a" * 64)
+        report = _audit_report(tree)
+        auditor = mock.Mock()
+        auditor.LinuxApplicationAuditError = FakeAuditError
+        bytecode_modes: list[bool] = []
+
+        def audit_application(**_: object) -> dict[str, object]:
+            bytecode_modes.append(sys.dont_write_bytecode)
+            return report
+
+        auditor.audit_application.side_effect = audit_application
+        former_cli = json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n"
+        original_strict_json = gate._strict_json
+        with (
+            mock.patch.object(sys, "dont_write_bytecode", False),
+            mock.patch.object(
+                gate, "_load_frozen_linux_auditor", return_value=auditor
+            ),
+            mock.patch.object(gate, "_run") as outer_runner,
+            mock.patch.object(
+                gate, "_strict_json", wraps=original_strict_json
+            ) as strict_json,
+        ):
+            result = gate._run_linux_application_audit(
+                repository=base / "repository",
+                application=base / "bundle",
+                provenance=provenance,
+                readelf=base / "readelf",
+                clang=base / "clang",
+                archiver=base / "llvm-ar",
+                linker=base / "ld.lld",
+                tree=tree,
+            )
+            restored_bytecode_mode = sys.dont_write_bytecode
+
+        self.assertEqual(result, report)
+        self.assertEqual(bytecode_modes, [True])
+        self.assertFalse(restored_bytecode_mode)
+        auditor.audit_application.assert_called_once_with(
             repository=base / "repository",
             application=base / "bundle",
-            provenance=provenance,
+            hook_input=provenance.input_path,
+            reference_shim=provenance.shim,
+            reference_runtime=provenance.runtime,
+            reference_provider=provenance.provider,
+            staging_directory=provenance.staging,
             readelf=base / "readelf",
-            clang=base / "clang",
-            archiver=base / "llvm-ar",
-            linker=base / "ld.lld",
+            expected_cc=base / "clang",
+            expected_ar=base / "llvm-ar",
+            expected_ld=base / "ld.lld",
         )
-        self.assertEqual(command[:4], (sys.executable, "-I", "-S", "-B"))
-        for flag in (
-            "--hook-input",
-            "--reference-shim",
-            "--reference-runtime",
-            "--reference-provider",
-            "--staging-directory",
-            "--readelf",
-            "--expected-cc",
-            "--expected-ar",
-            "--expected-ld",
+        strict_json.assert_called_once_with(
+            former_cli,
+            "Linux application audit report",
+            maximum=gate.MAX_COMMAND_OUTPUT_BYTES,
+        )
+        outer_runner.assert_not_called()
+
+    def test_in_process_audit_preserves_former_output_bound(self) -> None:
+        class FakeAuditError(RuntimeError):
+            pass
+
+        auditor = mock.Mock()
+        auditor.LinuxApplicationAuditError = FakeAuditError
+        auditor.audit_application.return_value = {
+            "payload": "x" * gate.MAX_COMMAND_OUTPUT_BYTES
+        }
+        with (
+            mock.patch.object(
+                gate, "_load_frozen_linux_auditor", return_value=auditor
+            ),
+            mock.patch.object(gate, "_validate_audit_report") as validate,
+            self.assertRaisesRegex(
+                gate.LinuxReferenceAppGateError,
+                "exceeds",
+            ),
         ):
-            self.assertEqual(command.count(flag), 1)
+            gate._run_linux_application_audit(
+                repository=Path("/closed/repository"),
+                application=Path("/closed/bundle"),
+                provenance=gate.HookProvenance(
+                    Path("/closed/input.json"),
+                    Path("/closed/shim.so"),
+                    Path("/closed/runtime.so"),
+                    Path("/closed/provider.so"),
+                    Path("/closed/staging"),
+                ),
+                readelf=Path("/closed/readelf"),
+                clang=Path("/closed/clang"),
+                archiver=Path("/closed/llvm-ar"),
+                linker=Path("/closed/ld.lld"),
+                tree=gate.TreeIdentity(21, 12345, "a" * 64),
+            )
+
+        validate.assert_not_called()
+
+    def test_in_process_audit_still_validates_the_closed_report(self) -> None:
+        class FakeAuditError(RuntimeError):
+            pass
+
+        auditor = mock.Mock()
+        auditor.LinuxApplicationAuditError = FakeAuditError
+        auditor.audit_application.return_value = {}
+        with (
+            mock.patch.object(
+                gate, "_load_frozen_linux_auditor", return_value=auditor
+            ),
+            self.assertRaises(gate.LinuxReferenceAppGateError),
+        ):
+            gate._run_linux_application_audit(
+                repository=Path("/closed/repository"),
+                application=Path("/closed/bundle"),
+                provenance=gate.HookProvenance(
+                    Path("/closed/input.json"),
+                    Path("/closed/shim.so"),
+                    Path("/closed/runtime.so"),
+                    Path("/closed/provider.so"),
+                    Path("/closed/staging"),
+                ),
+                readelf=Path("/closed/readelf"),
+                clang=Path("/closed/clang"),
+                archiver=Path("/closed/llvm-ar"),
+                linker=Path("/closed/ld.lld"),
+                tree=gate.TreeIdentity(21, 12345, "a" * 64),
+            )
 
     def test_audit_report_binds_exact_prelaunch_tree(self) -> None:
         tree = gate.TreeIdentity(21, 12345, "a" * 64)

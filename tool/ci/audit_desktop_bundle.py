@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -112,6 +113,25 @@ WINDOWS_PROVIDER_IMPORTS = frozenset(
 
 class DesktopBundleAuditError(RuntimeError):
     """The extracted desktop native bundle violates its closed contract."""
+
+
+_BOUNDED_PROCESS_HELPER: Any | None = None
+
+
+def _bounded_process_helper() -> Any:
+    global _BOUNDED_PROCESS_HELPER
+    if _BOUNDED_PROCESS_HELPER is None:
+        path = Path(__file__).resolve().with_name("bounded_process.py")
+        specification = importlib.util.spec_from_file_location(
+            "_fonix_desktop_bounded_process",
+            path,
+        )
+        if specification is None or specification.loader is None:
+            raise DesktopBundleAuditError("could not load bounded process helper")
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        _BOUNDED_PROCESS_HELPER = module
+    return _BOUNDED_PROCESS_HELPER
 
 
 @dataclass(frozen=True)
@@ -618,6 +638,38 @@ def _objdump(executable: Path, binary: Path) -> str:
     _bounded_regular_file(
         binary, label=f"native binary {binary}", maximum=MAX_NATIVE_LIBRARY_BYTES
     )
+    if os.name == "posix":
+        helper = _bounded_process_helper()
+        try:
+            result = helper.run_bounded(
+                [str(executable), "-p", str(binary)],
+                operation=f"objdump inspection for {binary.name}",
+                environment={
+                    "PATH": "/usr/bin:/bin",
+                    "LC_ALL": "C",
+                    "LANG": "C",
+                },
+                timeout_seconds=OBJDUMP_TIMEOUT_SECONDS,
+                maximum_stdout_bytes=MAX_OBJDUMP_OUTPUT_BYTES,
+                maximum_stderr_bytes=MAX_OBJDUMP_OUTPUT_BYTES,
+            )
+        except helper.BoundedProcessError as error:
+            raise DesktopBundleAuditError(
+                f"bounded objdump failed for {binary}: {error}"
+            ) from error
+        if (
+            len(result.stdout.encode("utf-8"))
+            + len(result.stderr.encode("utf-8"))
+            > MAX_OBJDUMP_OUTPUT_BYTES
+        ):
+            raise DesktopBundleAuditError(
+                f"objdump output is oversized for {binary}"
+            )
+        return result.stdout
+
+    # Windows target-host process ownership is deferred. Preserve the source
+    # and cross-build lane with its direct-child timeout, without claiming Job
+    # Object or inherited-subprocess cleanup.
     try:
         result = subprocess.run(
             [str(executable), "-p", str(binary)],

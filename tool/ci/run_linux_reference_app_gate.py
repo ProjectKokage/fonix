@@ -866,18 +866,6 @@ def _probe_environment() -> dict[str, str]:
     }
 
 
-def _auditor_environment(*, home: Path, temporary: Path) -> dict[str, str]:
-    home = _directory(home, "gate-owned auditor home")
-    temporary = _directory(temporary, "gate-owned auditor temporary directory")
-    return {
-        **_probe_environment(),
-        "HOME": str(home),
-        "TMPDIR": str(temporary),
-        "TMP": str(temporary),
-        "TEMP": str(temporary),
-    }
-
-
 def _discover_hook_provenance(work: Path, application: Path) -> HookProvenance:
     hook_root = _directory(work / ".dart_tool/hooks_runner/fonix", "Fonix hook invocation root")
     inputs = sorted(hook_root.glob("*/input.json"))
@@ -1203,7 +1191,19 @@ def _validate_audit_report(value: Any, tree: TreeIdentity) -> dict[str, object]:
     return value
 
 
-def _audit_command(
+def _load_frozen_linux_auditor(repository: Path) -> Any:
+    auditor_path = _regular_file(
+        repository / "tool/ci/audit_linux_application.py",
+        "frozen Linux application auditor",
+        maximum=_SOURCE_MANIFEST.MAX_FILE_BYTES,
+    )
+    return _load_module(
+        "_fonix_linux_gate_frozen_auditor",
+        auditor_path,
+    )
+
+
+def _run_linux_application_audit(
     *,
     repository: Path,
     application: Path,
@@ -1212,36 +1212,44 @@ def _audit_command(
     clang: Path,
     archiver: Path,
     linker: Path,
-) -> tuple[str, ...]:
-    return (
-        sys.executable,
-        "-I",
-        "-S",
-        "-B",
-        str(repository / "tool/ci/audit_linux_application.py"),
-        "--repository",
-        str(repository),
-        "--application",
-        str(application),
-        "--hook-input",
-        str(provenance.input_path),
-        "--reference-shim",
-        str(provenance.shim),
-        "--reference-runtime",
-        str(provenance.runtime),
-        "--reference-provider",
-        str(provenance.provider),
-        "--staging-directory",
-        str(provenance.staging),
-        "--readelf",
-        str(readelf),
-        "--expected-cc",
-        str(clang),
-        "--expected-ar",
-        str(archiver),
-        "--expected-ld",
-        str(linker),
+    tree: TreeIdentity,
+) -> dict[str, object]:
+    auditor = _load_frozen_linux_auditor(repository)
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        raw_report = auditor.audit_application(
+            repository=repository,
+            application=application,
+            hook_input=provenance.input_path,
+            reference_shim=provenance.shim,
+            reference_runtime=provenance.runtime,
+            reference_provider=provenance.provider,
+            staging_directory=provenance.staging,
+            readelf=readelf,
+            expected_cc=clang,
+            expected_ar=archiver,
+            expected_ld=linker,
+        )
+        serialized = (
+            json.dumps(raw_report, sort_keys=True, separators=(",", ":")) + "\n"
+        )
+    except (auditor.LinuxApplicationAuditError, OSError, ValueError) as error:
+        raise LinuxReferenceAppGateError(
+            f"independent Linux application audit failed: {error}"
+        ) from error
+    except (KeyError, TypeError, IndexError) as error:
+        raise LinuxReferenceAppGateError(
+            "independent Linux application audit returned malformed closed-contract input"
+        ) from error
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    report = _strict_json(
+        serialized,
+        "Linux application audit report",
+        maximum=MAX_COMMAND_OUTPUT_BYTES,
     )
+    return _validate_audit_report(report, tree)
 
 
 def _parse_reference_receipt(stdout: str) -> dict[str, object]:
@@ -1657,13 +1665,9 @@ def run_gate(
     work_directory.mkdir(mode=0o700)
     build_home = work_directory / "build-home"
     build_temporary = work_directory / "build-tmp"
-    auditor_home = work_directory / "auditor-home"
-    auditor_temporary = work_directory / "auditor-tmp"
     for private_directory in (
         build_home,
         build_temporary,
-        auditor_home,
-        auditor_temporary,
     ):
         private_directory.mkdir(mode=0o700)
     tool_bin = _prepare_tool_bin(
@@ -1790,27 +1794,15 @@ def run_gate(
     executable = _regular_file(application / APPLICATION_EXECUTABLE, "final Linux executable")
     before = _tree_identity(application, "final Linux application")
     provenance = _discover_hook_provenance(application_work, application)
-    audit_output = _run(
-        _audit_command(
-            repository=source_epoch,
-            application=application,
-            provenance=provenance,
-            readelf=readelf,
-            clang=clang,
-            archiver=archiver,
-            linker=linker,
-        ),
-        environment=_auditor_environment(
-            home=auditor_home, temporary=auditor_temporary
-        ),
-        operation="independent final Linux application audit",
-    )
-    if audit_output.stderr:
-        raise LinuxReferenceAppGateError(
-            "independent Linux application auditor emitted unexpected stderr"
-        )
-    audit = _validate_audit_report(
-        _strict_json(audit_output.stdout, "Linux application audit report"), before
+    audit = _run_linux_application_audit(
+        repository=source_epoch,
+        application=application,
+        provenance=provenance,
+        readelf=readelf,
+        clang=clang,
+        archiver=archiver,
+        linker=linker,
+        tree=before,
     )
     receipt = _launch_reference(
         executable=executable, xvfb=xvfb, work_root=work_directory
