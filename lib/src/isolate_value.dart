@@ -336,8 +336,14 @@ final class OrtIsolateTensor extends OrtIsolateValue {
 /// A copied, bounded ONNX sequence.
 final class OrtIsolateSequence extends OrtIsolateValue {
   factory OrtIsolateSequence(Iterable<OrtIsolateValue> elements) {
-    final List<OrtIsolateValue> copied = List<OrtIsolateValue>.of(elements);
-    if (copied.isEmpty || copied.length > _isolateMaximumCompositeChildren) {
+    final List<OrtIsolateValue> copied = <OrtIsolateValue>[];
+    for (final OrtIsolateValue element in elements) {
+      if (copied.length == _isolateMaximumCompositeChildren) {
+        throw RangeError('An isolate sequence must contain 1..1024 elements.');
+      }
+      copied.add(element);
+    }
+    if (copied.isEmpty) {
       throw RangeError('An isolate sequence must contain 1..1024 elements.');
     }
     final OrtTypeInfo elementType = copied.first.type;

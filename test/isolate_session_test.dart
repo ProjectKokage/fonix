@@ -123,6 +123,25 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('bounds lazy sequence elements before materializing them', () {
+      final OrtIsolateTensor element = _tensor(<double>[1]);
+      final OrtIsolateSequence maximum = OrtIsolateSequence(
+        List<OrtIsolateValue>.filled(1024, element),
+      );
+      expect(maximum.elements, hasLength(1024));
+
+      var observations = 0;
+      Iterable<OrtIsolateValue> endlessElements() sync* {
+        while (true) {
+          observations += 1;
+          yield element;
+        }
+      }
+
+      expect(() => OrtIsolateSequence(endlessElements()), throwsRangeError);
+      expect(observations, 1025);
+    });
   });
 
   group('real isolate protocol controller', () {
