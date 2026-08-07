@@ -32,6 +32,13 @@ sandbox: deliberate `setsid`/`setpgid` escape is outside the contract. Native
 and Phase-3 CTest calls have an exact 300-second per-test timeout inside a
 1,800-second suite deadline.
 
+Darwin can briefly return `EPERM` for a process-group record with no signalable
+non-zombie member during post-exit teardown. Only that post-exit Darwin state
+receives a 50-millisecond monotonic drain-and-recheck window. Success still
+requires `ESRCH`. Persistent permission failure or a group that becomes
+signalable fails closed; after permission made the reaped group's numeric
+identity ambiguous, cleanup does not signal that number.
+
 The Apple, Linux, and Android reference gates call their final-application
 auditors in-process so the auditors' bounded tool groups are not nested beneath
 an outer session owner. Their former closed serialized-report boundaries are
@@ -145,8 +152,8 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 585/585 passed |
-| POSIX bounded-process helper | 14/14 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 585-test Python suite |
+| Python CI-script tests | 588/588 passed |
+| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 588-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |

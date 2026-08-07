@@ -499,6 +499,15 @@ group member or output pipe remains is rejected. The boundary owns only the
 spawned process group inherited by ordinary tool subprocesses. It is not a
 sandbox, and deliberate `setsid` or `setpgid` escape is outside its contract.
 
+On Darwin, XNU can retain a process-group record with no signalable non-zombie
+member briefly after direct-child exit and report `EPERM` instead of `ESRCH`.
+Only this post-exit permission state receives a 50-millisecond monotonic
+settlement window; output continues draining at one-millisecond rechecks, and
+success requires a later `ESRCH`. Persistent permission failure or a transition
+to a signalable numeric group fails closed. Because post-reap permission made
+that number's ownership ambiguous, the failure path drains and reaps without
+signaling the possibly reused group ID.
+
 The native and Phase-3 configure, build, and inventory deadlines are five,
 twenty, and two minutes respectively; the Phase-3 byte check is also limited to
 two minutes. General command output is limited to 16 MiB per stream and CTest

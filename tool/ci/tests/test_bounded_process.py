@@ -52,6 +52,104 @@ class BoundedProcessPosixTests(unittest.TestCase):
         self.assertEqual(result.stdout, "stdin=0 café\n")
         self.assertEqual(result.stderr, "warning Δ\n")
 
+    def test_darwin_post_exit_permission_then_missing_settles_while_draining(
+        self,
+    ) -> None:
+        permission = (True, bounded_process.PROCESS_GROUP_PERMISSION_ERROR)
+        missing = (False, None)
+        states = iter((permission, missing))
+        drain_count = 0
+        permission_drain_count: int | None = None
+        real_drain = bounded_process._drain_ready
+
+        def group_state(_process_group_id: int) -> tuple[bool, str | None]:
+            nonlocal permission_drain_count
+            state = next(states)
+            if state == permission:
+                permission_drain_count = drain_count
+            else:
+                self.assertIsNotNone(permission_drain_count)
+                self.assertGreater(drain_count, permission_drain_count)
+            return state
+
+        def drain(*arguments: object, **options: object) -> str | None:
+            nonlocal drain_count
+            drain_count += 1
+            return real_drain(*arguments, **options)  # type: ignore[arg-type]
+
+        with (
+            mock.patch.object(bounded_process.sys, "platform", "darwin"),
+            mock.patch.object(
+                bounded_process,
+                "_owned_group_state",
+                side_effect=group_state,
+            ) as inspect_group,
+            mock.patch.object(
+                bounded_process,
+                "_drain_ready",
+                side_effect=drain,
+            ),
+            mock.patch.object(bounded_process, "_signal_owned_group") as signal_group,
+        ):
+            result = self._run_python("print('settled')\n")
+
+        self.assertEqual(result.stdout, "settled\n")
+        self.assertEqual(inspect_group.call_count, 2)
+        signal_group.assert_not_called()
+
+    def test_darwin_post_exit_permission_then_signalable_fails_without_signal(
+        self,
+    ) -> None:
+        permission = (True, bounded_process.PROCESS_GROUP_PERMISSION_ERROR)
+        with (
+            mock.patch.object(bounded_process.sys, "platform", "darwin"),
+            mock.patch.object(
+                bounded_process,
+                "_owned_group_state",
+                side_effect=(permission, (True, None)),
+            ) as inspect_group,
+            mock.patch.object(bounded_process, "_signal_owned_group") as signal_group,
+            self.assertRaises(bounded_process.BoundedProcessCleanupError) as raised,
+        ):
+            self._run_python("print('ambiguous')\n")
+
+        self.assertIn("became signalable", str(raised.exception))
+        self.assertEqual(inspect_group.call_count, 2)
+        signal_group.assert_not_called()
+
+    def test_darwin_persistent_post_exit_permission_fails_without_signal(self) -> None:
+        permission = (True, bounded_process.PROCESS_GROUP_PERMISSION_ERROR)
+        real_monotonic = bounded_process.time.monotonic
+        permission_observed = False
+
+        def group_state(_process_group_id: int) -> tuple[bool, str | None]:
+            nonlocal permission_observed
+            permission_observed = True
+            return permission
+
+        def monotonic() -> float:
+            return real_monotonic() + (1.0 if permission_observed else 0.0)
+
+        with (
+            mock.patch.object(bounded_process.sys, "platform", "darwin"),
+            mock.patch.object(
+                bounded_process,
+                "_owned_group_state",
+                side_effect=group_state,
+            ) as inspect_group,
+            mock.patch.object(bounded_process.time, "monotonic", side_effect=monotonic),
+            mock.patch.object(bounded_process, "_signal_owned_group") as signal_group,
+            self.assertRaises(bounded_process.BoundedProcessCleanupError) as raised,
+        ):
+            self._run_python("print('persistent')\n")
+
+        self.assertIn(
+            bounded_process.PROCESS_GROUP_PERMISSION_ERROR,
+            str(raised.exception),
+        )
+        self.assertEqual(inspect_group.call_count, 2)
+        signal_group.assert_not_called()
+
     def test_incremental_utf8_decoder_accepts_a_split_code_point(self) -> None:
         result = self._run_python(
             "import os, time\n"

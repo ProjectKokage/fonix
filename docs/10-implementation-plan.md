@@ -54,7 +54,10 @@ monotonic deadlines, and bounded TERM/KILL/direct-child-reap cleanup for their
 spawned process groups. Native and Phase-3 CTest execution has a 300-second
 per-test timeout inside a separate 1,800-second suite deadline. Residual
 inherited group members or output pipes after direct-child exit fail the
-operation. Apple, Linux, and Android reference gates invoke their final
+operation. A Darwin-only 50-millisecond post-exit settlement window drains and
+rechecks transient process-group `EPERM`, accepts only later `ESRCH`, and avoids
+signaling a numeric group after permission made its post-reap identity
+ambiguous. Apple, Linux, and Android reference gates invoke their final
 auditors in-process to avoid nested session owners while preserving closed
 serialized-report bounds and the former no-bytecode-write contract. Apple
 paths scrub loader-injection variables; binding tools also scrub POSIX dynamic

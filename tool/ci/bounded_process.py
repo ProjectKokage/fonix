@@ -18,6 +18,7 @@ from pathlib import Path
 import selectors
 import signal
 import subprocess
+import sys
 import time
 from typing import Any, Mapping, NamedTuple, Sequence
 
@@ -30,7 +31,12 @@ POLL_INTERVAL_SECONDS = 0.05
 TERMINATION_GRACE_SECONDS = 1.0
 KILL_GRACE_SECONDS = 1.0
 OUTPUT_DRAIN_GRACE_SECONDS = 1.0
+DARWIN_PERMISSION_RECHECK_SECONDS = 0.05
+DARWIN_PERMISSION_RECHECK_INTERVAL_SECONDS = 0.001
 DIAGNOSTIC_TAIL_CHARACTERS = 2048
+PROCESS_GROUP_PERMISSION_ERROR = (
+    "permission was denied while inspecting the process group"
+)
 
 
 class CommandOutput(NamedTuple):
@@ -389,7 +395,7 @@ def _owned_group_state(process_group_id: int) -> tuple[bool, str | None]:
     except ProcessLookupError:
         return False, None
     except PermissionError:
-        return True, "permission was denied while inspecting the process group"
+        return True, PROCESS_GROUP_PERMISSION_ERROR
     except OSError as error:
         return True, f"process-group inspection failed with errno {error.errno}"
     return True, None
@@ -440,26 +446,21 @@ def _terminate_and_reap(
     process_group_id: int,
     selector: selectors.BaseSelector,
     captures: Sequence[_StreamCapture],
+    *,
+    permit_group_signals: bool = True,
 ) -> tuple[str, ...]:
     failures: list[str] = []
     process.poll()
-    group_exists, group_error = _owned_group_state(process_group_id)
-    if process.returncode is None or group_exists:
-        signal_error = _signal_owned_group(process_group_id, signal.SIGTERM)
-        if signal_error is not None:
-            failures.append(signal_error)
-        settled, wait_failures = _wait_for_process_group(
-            process,
-            process_group_id,
-            selector,
-            captures,
-            time.monotonic() + TERMINATION_GRACE_SECONDS,
-        )
-        failures.extend(
-            failure for failure in wait_failures if failure not in failures
-        )
-        if not settled:
-            signal_error = _signal_owned_group(process_group_id, signal.SIGKILL)
+    if not permit_group_signals:
+        if process.returncode is None:
+            failures.append(
+                "direct child was not reaped after process-group identity "
+                "became ambiguous"
+            )
+    else:
+        group_exists, group_error = _owned_group_state(process_group_id)
+        if process.returncode is None or group_exists:
+            signal_error = _signal_owned_group(process_group_id, signal.SIGTERM)
             if signal_error is not None:
                 failures.append(signal_error)
             settled, wait_failures = _wait_for_process_group(
@@ -467,20 +468,34 @@ def _terminate_and_reap(
                 process_group_id,
                 selector,
                 captures,
-                time.monotonic() + KILL_GRACE_SECONDS,
+                time.monotonic() + TERMINATION_GRACE_SECONDS,
             )
             failures.extend(
                 failure for failure in wait_failures if failure not in failures
             )
             if not settled:
-                process.poll()
-                group_exists, group_error = _owned_group_state(process_group_id)
-                if process.returncode is None:
-                    failures.append("direct child was not reaped after SIGKILL")
-                if group_exists:
-                    failures.append("owned process group remained after SIGKILL")
-                if group_error is not None and group_error not in failures:
-                    failures.append(group_error)
+                signal_error = _signal_owned_group(process_group_id, signal.SIGKILL)
+                if signal_error is not None:
+                    failures.append(signal_error)
+                settled, wait_failures = _wait_for_process_group(
+                    process,
+                    process_group_id,
+                    selector,
+                    captures,
+                    time.monotonic() + KILL_GRACE_SECONDS,
+                )
+                failures.extend(
+                    failure for failure in wait_failures if failure not in failures
+                )
+                if not settled:
+                    process.poll()
+                    group_exists, group_error = _owned_group_state(process_group_id)
+                    if process.returncode is None:
+                        failures.append("direct child was not reaped after SIGKILL")
+                    if group_exists:
+                        failures.append("owned process group remained after SIGKILL")
+                    if group_error is not None and group_error not in failures:
+                        failures.append(group_error)
 
     drain_deadline = time.monotonic() + OUTPUT_DRAIN_GRACE_SECONDS
     while any(not capture.closed for capture in captures):
@@ -656,6 +671,8 @@ def run_bounded(
         return_code: int | None = None
         residual_group_members = False
         exit_observed_at: float | None = None
+        darwin_permission_deadline: float | None = None
+        group_identity_ambiguous = False
 
         while failure_kind is None:
             now = time.monotonic()
@@ -665,22 +682,56 @@ def run_bounded(
                     exit_observed_at = now
                 group_exists, group_error = _owned_group_state(process_group_id)
                 if group_error is not None:
+                    if group_error == PROCESS_GROUP_PERMISSION_ERROR:
+                        group_identity_ambiguous = True
+                    if (
+                        sys.platform == "darwin"
+                        and group_error == PROCESS_GROUP_PERMISSION_ERROR
+                    ):
+                        # XNU can retain a process-group record with no
+                        # signalable non-zombie member briefly during teardown.
+                        # Continue draining while accepting only ESRCH as proof
+                        # that the original group settled.
+                        if darwin_permission_deadline is None:
+                            darwin_permission_deadline = (
+                                now + DARWIN_PERMISSION_RECHECK_SECONDS
+                            )
+                        if now >= darwin_permission_deadline:
+                            failure_kind = "cleanup"
+                            failure_reason = group_error
+                            break
+                        wait_deadline = min(
+                            darwin_permission_deadline,
+                            now + DARWIN_PERMISSION_RECHECK_INTERVAL_SECONDS,
+                        )
+                    else:
+                        failure_kind = "cleanup"
+                        failure_reason = group_error
+                        break
+                elif group_exists and group_identity_ambiguous:
                     failure_kind = "cleanup"
-                    failure_reason = group_error
+                    failure_reason = (
+                        "process-group identity became signalable after an "
+                        "indeterminate permission state"
+                    )
                     break
-                if group_exists:
+                elif group_exists:
                     residual_group_members = True
                     failure_kind = "residual" if return_code == 0 else "exit"
                     break
-                if all(capture.closed for capture in captures):
-                    if return_code != 0:
-                        failure_kind = "exit"
-                    break
-                if now >= exit_observed_at + OUTPUT_DRAIN_GRACE_SECONDS:
-                    failure_kind = "residual" if return_code == 0 else "exit"
-                    failure_reason = "an output pipe remained open after direct exit"
-                    break
-                wait_deadline = exit_observed_at + OUTPUT_DRAIN_GRACE_SECONDS
+                else:
+                    group_identity_ambiguous = False
+                    if all(capture.closed for capture in captures):
+                        if return_code != 0:
+                            failure_kind = "exit"
+                        break
+                    if now >= exit_observed_at + OUTPUT_DRAIN_GRACE_SECONDS:
+                        failure_kind = "residual" if return_code == 0 else "exit"
+                        failure_reason = (
+                            "an output pipe remained open after direct exit"
+                        )
+                        break
+                    wait_deadline = exit_observed_at + OUTPUT_DRAIN_GRACE_SECONDS
             else:
                 if now >= deadline:
                     failure_kind = "timeout"
@@ -720,6 +771,7 @@ def run_bounded(
                 process_group_id,
                 selector,
                 captures,
+                permit_group_signals=not group_identity_ambiguous,
             )
         )
         cleanup_performed = True
