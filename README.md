@@ -135,6 +135,26 @@ platform, architecture, deployment floor, and notices. Build-time artifact
 resolution accepts an explicitly provisioned cache or mirror, rehashes the
 archive and staged bytes, and does not fall back to an unpinned download.
 
+The standalone and sherpa-owned Android reference projects each commit Gradle
+dependency-verification metadata for their exact macOS-hosted Release graph.
+Their controlled gates require strict SHA-256 verification of Gradle/Maven
+inputs. They remove the named inherited JVM-option variables and
+verification-specific Gradle project-property override before setting a
+gate-owned strict system property. The gates assume a non-hostile local Gradle
+user home and init-script environment. The same exact Release graphs have a
+separate disposable staged-copy replay, performed only after cache
+provisioning with
+`./gradlew --offline --no-daemon --dependency-verification strict assembleRelease bundleRelease`.
+Gradle-wrapper/bootstrap resolution was not offline, and the Flutter build
+invocations are not claimed offline. The committed metadata currently selects
+macOS AAPT2 artifacts only; another build host needs separately generated,
+reviewed metadata and evidence.
+
+This checkpoint authenticates the pinned Gradle/Maven inputs consumed by those
+two graphs. It is not binary reproducibility, signing or distribution
+approval, Dart hosted-cache authentication, or API 24, physical-device,
+installed-AAB-split, performance, or QNN evidence.
+
 Apple applications must declare their own deployment floor and package the
 generated manifest and `ThirdPartyNotices.txt`. See
 [Build and Packaging](docs/05-build-and-packaging.md) for the hook settings and

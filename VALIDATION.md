@@ -1,6 +1,6 @@
 # Validation Report
 
-- Validation date: 2026-08-07
+- Validation date: 2026-08-08
 - Package: `fonix 0.1.0-dev.1`
 - Host: macOS 26.5.2 (25F84), arm64
 
@@ -152,8 +152,8 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 591/591 passed |
-| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 591-test Python suite |
+| Python CI-script tests | 600/600 passed |
+| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 600-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -172,6 +172,8 @@ paths.
 | Five-artifact offline audit | 8/8 passed |
 | macOS/iOS build-hook suite with exact archives | 28/28 passed |
 | Android API-24 build/audit suite | 4/4 passed |
+| Android Gradle dependency-input metadata | Standalone and sherpa-owned macOS Release graphs regenerated identically from two independent fresh stages; strict offline `assembleRelease bundleRelease` replay passed after cache provisioning |
+| Android Gradle gate invariant | 105/105 focused common, standalone, and sherpa gate tests passed, including metadata policy/identity/tamper, guarded build/report orchestration, and hostile inherited JVM/Gradle environment overrides |
 | Linux x64/arm64 and Windows x64 Zig cross-build | 1/1 passed |
 | Flutter asset publication | 7/7 passed |
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
@@ -402,6 +404,87 @@ performance, memory, thermal, sustained-behavior, or provider-qualification
 evidence. The simulator receipt is exact Debug-tuple evidence and does not
 transfer to simulator Release or another device/runtime tuple.
 
+## Android Gradle dependency-input integrity evidence
+
+The standalone and sherpa-owned Android Release graphs now have separate
+Gradle dependency-verification metadata generated on the macOS arm64 host. The
+metadata enables Gradle metadata verification and contains only SHA-256
+checksums, exactly one per artifact, for its closed component/artifact
+inventory. The sherpa graph was generated with its current
+`noCompress += "bin"` Release configuration:
+
+- `example/android/gradle/verification-metadata.xml`: 261,471 bytes,
+  552 components, 1,000 artifacts, SHA-256
+  `607bf17e59fccff1efe6e763784b1c1f8a93a5d091b318df7e7a4afc5f239b28`;
+- `templates/android/sherpa_reference_app/android/gradle/verification-metadata.xml`:
+  311,562 bytes, 660 components, 1,197 artifacts, SHA-256
+  `8104e11722a14d5980075f417133b1ca30d822446cbb959dbae97df5b9749366`.
+
+Each graph was regenerated from two independent fresh external stages and
+produced identical metadata bytes. After its Gradle cache was provisioned, a
+separate disposable staged copy of each graph passed:
+
+```bash
+./gradlew --offline --no-daemon --dependency-verification strict \
+  assembleRelease bundleRelease
+```
+
+Clean strict direct-Gradle rebuilds in both fresh stages also passed on this
+same host and cache. The standalone AAB reproduced at 27,296,845 bytes with
+SHA-256
+`5ff43b422d9642714bf615929de684562ddc320448e76d1b8146fddf1f4a8a88`;
+the sherpa-owned AAB reproduced at 26,411,976 bytes with SHA-256
+`a82b690fb029123b4b54d71abf8a36a57cbd37798581026b7e54c0d93ee88f7c`.
+The corresponding APKs did not reproduce byte-for-byte. Each A/B pair had the
+same size and identical ZIP member names and contents—70 entries for the
+44,863,501-byte standalone pair and 60 for the 43,119,633-byte sherpa pair—but
+bytes within the 8,192-byte APK Signing Block differed. The standalone A/B
+SHA-256 values were
+`d87fc3f6bc32a33e2a87549640f340fdb368cb59e750afe4791bc915ba6562e9` and
+`43c696ff7461396e1dd05ba92aedb802feac6bc5f06ab9922ce9b8565ef7ae8c`;
+the sherpa A/B values were
+`6ddc8f895282ee15ea175546c9adf34d381294180f3ba12d8f7462f0aead2842` and
+`efe45412e3b98423fe65bda4e7994f693aaceed2f47ebb1cb101996ae8521735`.
+This is a bounded same-host observation, not a signed-APK reproducibility
+claim or a substitute for release-signing evidence.
+
+Gradle-wrapper/bootstrap resolution was not offline. The Flutter APK/AAB build
+commands are not claimed offline. The controlled gate source now requires the
+closed metadata in strict mode, removes the named inherited JVM-option
+variables and verification-specific Gradle project-property override, then
+sets a gate-owned strict system property. It binds the exact metadata identity
+before and after both package builds and includes that identity in its report.
+The current gate assumes a non-hostile local Gradle user home and init-script
+environment; it does not claim to sandbox a hostile build host.
+
+A real tamper probe replaced the recorded Android Gradle Plugin 9.1.0 JAR
+checksum with an incorrect value. Strict mode rejected the build. An inherited
+`GRADLE_OPTS=-Dorg.gradle.dependency.verification=off` bypassed only the
+project property and allowed that tampered build, while the gate-owned strict
+`GRADLE_OPTS` restored rejection. The corresponding
+`ORG_GRADLE_PROJECT_...=off` environment override did not supersede the
+committed strict project property. The gate nevertheless removes both forms
+instead of relying on their current precedence.
+
+The focused gate contract passed 105/105 tests:
+
+```bash
+python3 -B -m unittest \
+  tool.ci.tests.test_android_gate_common \
+  tool.ci.tests.test_android_reference_app_gate \
+  tool.ci.tests.test_android_sherpa_reference_app_gate
+```
+
+The graph-specific AAPT2 executable recorded by both metadata files is the
+macOS artifact. Linux or Windows needs separately generated, reviewed
+metadata and target-host evidence. This checkpoint verifies the Gradle/Maven
+inputs of only these two graphs. The exact same-host AAB observation above is
+not a general APK/AAB reproducibility claim. This checkpoint provides no
+signing or distribution approval, Dart hosted-cache authentication, API 24 or
+physical-device execution, installed AAB-derived split, performance, or QNN
+evidence. It also does not retroactively bind the historical Android package
+and runtime receipts below to strict dependency verification.
+
 ## Android application evidence
 
 The final standalone gate used Flutter revision
@@ -569,8 +652,10 @@ emulator receipts, plus the source-final sherpa static gate, all four trusted
 4 KiB/16 KiB target captures, and the aggregate compatibility manifest, were
 run locally with explicitly provisioned revision-pinned, byte-pinned, and
 version-gated inputs described above. They are not yet hosted CI lanes or
-reproducible release builds, and Gradle dependency-verification metadata
-remains absent.
+reproducible release builds. The new graph-specific strict SHA-256 metadata,
+deterministic regeneration, and separately provisioned offline Gradle replays
+close the former metadata-absence gap but do not retroactively change those
+historical package/runtime records or establish binary reproducibility.
 
 The Apple auditor and iOS reference-gate unit/tamper suites also run in the
 ordinary Python collection. The full iOS build/audit/simulator gate is locally

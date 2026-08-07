@@ -101,6 +101,24 @@ The Fonix hook therefore emits only the process-resolving shim. It must not
 package `libonnxruntime.so`. There is no artifact cache or mirror in this
 composition and no Gradle `pickFirst`.
 
+`android/gradle/verification-metadata.xml` independently pins the exact
+macOS-hosted sherpa Release dependency graph with strict SHA-256 verification
+for its Gradle/Maven inputs. The repository gate removes the named inherited
+JVM-option variables and verification-specific Gradle project-property
+override before setting a gate-owned strict system property, and assumes a
+non-hostile local Gradle user home and init-script environment. A separate
+direct Gradle check uses a disposable staged copy after cache provisioning and
+runs
+`./gradlew --offline --no-daemon --dependency-verification strict assembleRelease bundleRelease`.
+Gradle-wrapper/bootstrap resolution was not offline; the Flutter build
+invocations are not claimed offline. The metadata currently selects macOS
+AAPT2 only and must be separately extended and reviewed for another build
+host.
+
+This checkpoint does not make the APK/AAB binary-reproducible, approve signing
+or distribution, authenticate the supplied Dart hosted cache, or add API 24,
+physical-device, installed AAB-derived split, performance, or QNN evidence.
+
 The Android project is closed to:
 
 - application ID and namespace `dev.fonix.sherpa_reference`;

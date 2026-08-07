@@ -29,10 +29,16 @@ sys.dont_write_bytecode = True
 from android_gate_common import (
     AndroidGateCommonError,
     CommandOutput,
+    GRADLE_VERIFICATION_METADATA_RELATIVE,
+    GradleVerificationMetadataIdentity,
     directory,
+    gradle_verification_metadata_identity,
+    gradle_verification_report,
     regular_file,
+    require_gradle_verification_metadata_identity,
     run_bounded,
     sha256_file,
+    strict_gradle_environment,
     strict_json,
     tool_environment,
 )
@@ -285,6 +291,38 @@ CommandRunner = Callable[..., CommandOutput]
 
 def _common(error: AndroidGateCommonError) -> AndroidSherpaReferenceAppGateError:
     return AndroidSherpaReferenceAppGateError(str(error))
+
+
+def _gradle_verification_metadata_identity(
+    path: Path,
+    label: str,
+) -> GradleVerificationMetadataIdentity:
+    try:
+        return gradle_verification_metadata_identity(path, label)
+    except AndroidGateCommonError as error:
+        raise _common(error) from error
+
+
+def _require_gradle_verification_inputs(
+    *,
+    committed: Path,
+    staged: Path,
+    expected: GradleVerificationMetadataIdentity,
+    phase: str,
+) -> None:
+    try:
+        require_gradle_verification_metadata_identity(
+            committed,
+            expected,
+            f"{phase} committed Gradle verification metadata",
+        )
+        require_gradle_verification_metadata_identity(
+            staged,
+            expected,
+            f"{phase} staged Gradle verification metadata",
+        )
+    except AndroidGateCommonError as error:
+        raise _common(error) from error
 
 
 def _run_command(
@@ -2490,7 +2528,7 @@ def _run_static_audits(
 
 
 def _build_environment(java_home: Path, android_sdk: Path) -> dict[str, str]:
-    environment = tool_environment()
+    environment = strict_gradle_environment()
     environment["JAVA_HOME"] = str(java_home)
     environment["ANDROID_HOME"] = str(android_sdk)
     environment["ANDROID_SDK_ROOT"] = str(android_sdk)
@@ -2510,11 +2548,27 @@ def _run_staged_gate(
     runner: CommandRunner,
     sherpa_model: tuple[Path, FileIdentity] | None,
 ) -> dict[str, object]:
+    committed_gradle_verification_metadata = (
+        repository / TEMPLATE / GRADLE_VERIFICATION_METADATA_RELATIVE
+    )
+    gradle_verification_identity = _gradle_verification_metadata_identity(
+        committed_gradle_verification_metadata,
+        "committed sherpa reference Gradle verification metadata",
+    )
     summary = _copy_template(repository / TEMPLATE, work_directory)
     if summary.file_count == 0:
         raise AndroidSherpaReferenceAppGateError(
             "sherpa reference source copy is empty"
         )
+    staged_gradle_verification_metadata = (
+        work_directory / GRADLE_VERIFICATION_METADATA_RELATIVE
+    )
+    _require_gradle_verification_inputs(
+        committed=committed_gradle_verification_metadata,
+        staged=staged_gradle_verification_metadata,
+        expected=gradle_verification_identity,
+        phase="copied source",
+    )
     committed_lock_identity = _file_identity(
         repository / TEMPLATE / "pubspec.lock",
         "committed sherpa reference pubspec lock",
@@ -2649,6 +2703,12 @@ def _run_staged_gate(
             expected_hosted_graph=android_package_graph,
         )
     finally:
+        _require_gradle_verification_inputs(
+            committed=committed_gradle_verification_metadata,
+            staged=staged_gradle_verification_metadata,
+            expected=gradle_verification_identity,
+            phase="Release APK build output",
+        )
         _require_sherpa_native_inventory(
             sherpa_jni_root,
             sherpa_native,
@@ -2682,6 +2742,12 @@ def _run_staged_gate(
             expected_hosted_graph=android_package_graph,
         )
     finally:
+        _require_gradle_verification_inputs(
+            committed=committed_gradle_verification_metadata,
+            staged=staged_gradle_verification_metadata,
+            expected=gradle_verification_identity,
+            phase="Release AAB build output",
+        )
         _require_sherpa_native_inventory(
             sherpa_jni_root,
             sherpa_native,
@@ -2772,6 +2838,12 @@ def _run_staged_gate(
             work_directory / RUNTIME_ASSET_DIRECTORY,
             runtime_fixtures,
         )
+    _require_gradle_verification_inputs(
+        committed=committed_gradle_verification_metadata,
+        staged=staged_gradle_verification_metadata,
+        expected=gradle_verification_identity,
+        phase="final report",
+    )
 
     report: dict[str, object] = {
         "schemaVersion": 1,
@@ -2820,6 +2892,9 @@ def _run_staged_gate(
             "committedSha256": committed_lock_identity.sha256,
             "stagedSha256": staged_lock_identity.sha256,
         },
+        "gradleDependencyVerification": gradle_verification_report(
+            gradle_verification_identity
+        ),
         "sherpaOnnx": {
             "source": SHERPA_SOURCE,
             "revision": SHERPA_REVISION,
@@ -2885,14 +2960,18 @@ def _run_staged_gate(
         "targetEvidence": None,
         "claimBoundary": (
             "This gate proves the staged source, locked dependency graph, raw "
+            "identity-bound strict Gradle dependency-verification metadata, "
             "sherpa/Fonix native inputs, and the same selected arm64-v8a native "
             "graph and Flutter platform-library loaded identities in one Release "
-            "APK/base-only AAB pair. It does not prove application/version manifest "
-            "identity, signing, installation, runtime API/version negotiation, "
-            "inference, load order, lifecycle behavior, a delivered AAB split, a "
-            "4 KiB or 16 KiB target environment, or target compatibility. "
+            "APK/base-only AAB pair. It does not prove offline dependency resolution, "
+            "reproducible APK/AAB bytes, application/version manifest identity, "
+            "signing, installation, runtime API/version negotiation, inference, load "
+            "order, lifecycle behavior, a delivered AAB split, a 4 KiB or 16 KiB "
+            "target environment, or target compatibility. "
             "Hosted-package tree guards assume a non-hostile local build and do not "
-            "authenticate the host cache or defend against mutate-and-restore races."
+            "authenticate the host cache or defend against mutate-and-restore races; "
+            "the strict Gradle environment likewise assumes non-hostile local "
+            "Gradle user-home and init-script state."
         ),
     }
     if runtime_fixtures is not None:

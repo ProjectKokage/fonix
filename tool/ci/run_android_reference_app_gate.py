@@ -22,10 +22,16 @@ import zipfile
 
 from android_gate_common import (
     AndroidGateCommonError,
+    GRADLE_VERIFICATION_METADATA_RELATIVE,
+    GradleVerificationMetadataIdentity,
     directory,
+    gradle_verification_metadata_identity,
+    gradle_verification_report,
     regular_file,
+    require_gradle_verification_metadata_identity,
     run_bounded,
     sha256_file,
+    strict_gradle_environment,
     strict_json,
     tool_environment,
 )
@@ -278,6 +284,85 @@ class JavaTools(NamedTuple):
 
 def _common(error: AndroidGateCommonError) -> AndroidReferenceAppGateError:
     return AndroidReferenceAppGateError(str(error))
+
+
+def _gradle_verification_metadata_identity(
+    path: Path,
+    label: str,
+) -> GradleVerificationMetadataIdentity:
+    try:
+        return gradle_verification_metadata_identity(path, label)
+    except AndroidGateCommonError as error:
+        raise _common(error) from error
+
+
+def _require_gradle_verification_inputs(
+    *,
+    committed: Path,
+    staged: Path,
+    expected: GradleVerificationMetadataIdentity,
+    phase: str,
+) -> None:
+    try:
+        require_gradle_verification_metadata_identity(
+            committed,
+            expected,
+            f"{phase} committed Gradle verification metadata",
+        )
+        require_gradle_verification_metadata_identity(
+            staged,
+            expected,
+            f"{phase} staged Gradle verification metadata",
+        )
+    except AndroidGateCommonError as error:
+        raise _common(error) from error
+
+
+def _run_gradle_verified_build(
+    command: Sequence[str],
+    *,
+    operation: str,
+    cwd: Path,
+    environment: Mapping[str, str],
+    committed: Path,
+    staged: Path,
+    expected: GradleVerificationMetadataIdentity,
+) -> None:
+    _require_gradle_verification_inputs(
+        committed=committed,
+        staged=staged,
+        expected=expected,
+        phase=f"{operation} input",
+    )
+    try:
+        _run_command(
+            command,
+            operation=operation,
+            cwd=cwd,
+            environment=dict(environment),
+        )
+    finally:
+        _require_gradle_verification_inputs(
+            committed=committed,
+            staged=staged,
+            expected=expected,
+            phase=f"{operation} output",
+        )
+
+
+def _final_gradle_verification_report(
+    *,
+    committed: Path,
+    staged: Path,
+    expected: GradleVerificationMetadataIdentity,
+) -> dict[str, object]:
+    _require_gradle_verification_inputs(
+        committed=committed,
+        staged=staged,
+        expected=expected,
+        phase="final report",
+    )
+    return gradle_verification_report(expected)
 
 
 def _load_android_application_auditor(repository: Path) -> Any:
@@ -598,7 +683,7 @@ def _verify_android_local_properties(path: Path, android_sdk: Path) -> None:
 
 
 def _android_build_environment(java_home: Path, android_sdk: Path) -> dict[str, str]:
-    environment = tool_environment()
+    environment = strict_gradle_environment()
     environment["JAVA_HOME"] = str(java_home)
     environment["ANDROID_HOME"] = str(android_sdk)
     environment["ANDROID_SDK_ROOT"] = str(android_sdk)
@@ -1960,9 +2045,25 @@ def run_gate(
     flutter_version = _verify_flutter(flutter, build_environment)
     tools = _default_tools(android_sdk, include_device_tools=avd_name is not None)
     dart = _resolve_tool(flutter.parent / "cache/dart-sdk/bin/dart", "Flutter Dart")
+    committed_gradle_verification_metadata = (
+        repository / "example" / GRADLE_VERIFICATION_METADATA_RELATIVE
+    )
+    gradle_verification_identity = _gradle_verification_metadata_identity(
+        committed_gradle_verification_metadata,
+        "committed reference Gradle verification metadata",
+    )
     summary = _copy_example(repository / "example", work_directory)
     if summary.file_count == 0:
         raise AndroidReferenceAppGateError("reference source copy is empty")
+    staged_gradle_verification_metadata = (
+        work_directory / GRADLE_VERIFICATION_METADATA_RELATIVE
+    )
+    _require_gradle_verification_inputs(
+        committed=committed_gradle_verification_metadata,
+        staged=staged_gradle_verification_metadata,
+        expected=gradle_verification_identity,
+        phase="copied source",
+    )
     committed_lock_identity = _file_identity(
         repository / "example/pubspec.lock",
         "committed reference pubspec lock",
@@ -2071,22 +2172,28 @@ def run_gate(
         "android-arm64",
         *_smoke_dart_defines(smoke_profile),
     )
-    _run_command(
+    _run_gradle_verified_build(
         (str(flutter), "build", "apk", *build_common),
         operation="reference Release APK build",
         cwd=work_directory,
         environment=build_environment,
+        committed=committed_gradle_verification_metadata,
+        staged=staged_gradle_verification_metadata,
+        expected=gradle_verification_identity,
     )
     apk = work_directory / "build/app/outputs/flutter-apk/app-release.apk"
     try:
         apk = regular_file(apk, "Release APK", maximum=MAX_ARCHIVE_BYTES)
     except AndroidGateCommonError as error:
         raise _common(error) from error
-    _run_command(
+    _run_gradle_verified_build(
         (str(flutter), "build", "appbundle", *build_common),
         operation="reference Release AAB build",
         cwd=work_directory,
         environment=build_environment,
+        committed=committed_gradle_verification_metadata,
+        staged=staged_gradle_verification_metadata,
+        expected=gradle_verification_identity,
     )
     aab = work_directory / "build/app/outputs/bundle/release/app-release.aab"
     try:
@@ -2175,6 +2282,11 @@ def run_gate(
         "bundletool": bundletool_identity,
         "androidAssetSha256": asset_identities,
         "pubspecLockSha256": working_lock_identity.sha256,
+        "gradleDependencyVerification": _final_gradle_verification_report(
+            committed=committed_gradle_verification_metadata,
+            staged=staged_gradle_verification_metadata,
+            expected=gradle_verification_identity,
+        ),
         "signingCertificateSha256": signer_sha256,
         "analysis": "passed",
         "tests": "passed",
@@ -2183,9 +2295,13 @@ def run_gate(
         "deviceEvidence": device_evidence,
         "claimBoundary": (
             "This is a CI release-mode package gate, not a reproducible or "
-            "distribution release build; Gradle dependency verification metadata "
-            "is absent. Static package evidence and optional runtime evidence remain "
-            "separate. "
+            "distribution release build. Both Flutter package builds enforce the "
+            "same committed, identity-bound Gradle dependency-verification metadata "
+            "in strict mode; this does not prove offline resolution or reproducible "
+            "APK/AAB bytes. The gate sanitizes its named inherited JVM/Gradle "
+            "environment overrides but assumes non-hostile local Gradle user-home "
+            "and init-script state. Static package evidence and optional runtime "
+            "evidence remain separate. "
             "A missing device receipt, a 4 KiB page-size receipt, or an API-35-only "
             "receipt does not prove another device, 16 KiB runtime, or API-24 execution."
         ),

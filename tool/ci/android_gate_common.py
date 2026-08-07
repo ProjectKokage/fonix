@@ -12,13 +12,42 @@ import stat
 import subprocess
 import threading
 from typing import Any, Mapping, NamedTuple, Sequence
+import xml.etree.ElementTree as ElementTree
 
 
 MAX_PATH_BYTES = 4096
 MAX_COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024
+MAX_GRADLE_VERIFICATION_METADATA_BYTES = 4 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
 PROCESS_TERMINATION_GRACE_SECONDS = 1.0
 OUTPUT_DRAIN_GRACE_SECONDS = 5.0
+GRADLE_VERIFICATION_MODE = "strict"
+GRADLE_VERIFICATION_METADATA_RELATIVE = Path(
+    "android/gradle/verification-metadata.xml"
+)
+
+_INHERITED_JVM_OPTION_VARIABLES = (
+    "GRADLE_OPTS",
+    "JAVA_OPTS",
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+)
+_GRADLE_PROJECT_PREFIX = "org_gradle_project_"
+_GRADLE_VERIFICATION_PROPERTY_NORMALIZED = "org_gradle_dependency_verification"
+_GRADLE_VERIFICATION_NAMESPACE = (
+    "https://schema.gradle.org/dependency-verification"
+)
+_XML_SCHEMA_INSTANCE_NAMESPACE = "http://www.w3.org/2001/XMLSchema-instance"
+_GRADLE_VERIFICATION_SCHEMA_LOCATION = (
+    "https://schema.gradle.org/dependency-verification "
+    "https://schema.gradle.org/dependency-verification/"
+    "dependency-verification-1.3.xsd"
+)
+_MAX_GRADLE_VERIFICATION_COMPONENTS = 4096
+_MAX_GRADLE_VERIFICATION_ARTIFACTS = 16384
+_MAX_GRADLE_VERIFICATION_CHECKSUMS = 32768
+_MAX_GRADLE_VERIFICATION_ATTRIBUTE_BYTES = 1024
 
 
 class AndroidGateCommonError(RuntimeError):
@@ -28,6 +57,11 @@ class AndroidGateCommonError(RuntimeError):
 class CommandOutput(NamedTuple):
     stdout: str
     stderr: str
+
+
+class GradleVerificationMetadataIdentity(NamedTuple):
+    size_bytes: int
+    sha256: str
 
 
 def _signal_owned_process_group(
@@ -164,6 +198,258 @@ def sha256_file(path: Path, label: str, *, maximum: int) -> tuple[int, str]:
                 raise AndroidGateCommonError(f"{label} exceeds {maximum} bytes")
             digest.update(chunk)
     return size, digest.hexdigest()
+
+
+def gradle_verification_metadata_identity(
+    path: Path,
+    label: str,
+) -> GradleVerificationMetadataIdentity:
+    path = regular_file(
+        path,
+        label,
+        maximum=MAX_GRADLE_VERIFICATION_METADATA_BYTES,
+    )
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_GRADLE_VERIFICATION_METADATA_BYTES + 1)
+    if len(raw) > MAX_GRADLE_VERIFICATION_METADATA_BYTES:
+        raise AndroidGateCommonError(
+            f"{label} exceeds {MAX_GRADLE_VERIFICATION_METADATA_BYTES} bytes"
+        )
+    _validate_gradle_verification_metadata(raw, label)
+    return GradleVerificationMetadataIdentity(
+        len(raw),
+        hashlib.sha256(raw).hexdigest(),
+    )
+
+
+def _gradle_tag(local_name: str) -> str:
+    return f"{{{_GRADLE_VERIFICATION_NAMESPACE}}}{local_name}"
+
+
+def _require_bounded_xml_attribute(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise AndroidGateCommonError(f"{label} is not text")
+    encoded = value.encode("utf-8")
+    if (
+        not encoded
+        or len(encoded) > _MAX_GRADLE_VERIFICATION_ATTRIBUTE_BYTES
+        or any(byte < 0x20 for byte in encoded)
+    ):
+        raise AndroidGateCommonError(f"{label} is outside its bound")
+    return value
+
+
+def _validate_gradle_verification_metadata(raw: bytes, label: str) -> None:
+    lowered = raw.lower()
+    xml_declaration = b'<?xml version="1.0" encoding="UTF-8"?>\n'
+    if (
+        not raw.startswith(xml_declaration)
+        or b"<!" in lowered
+        or b"<?" in raw[len(xml_declaration) :]
+    ):
+        raise AndroidGateCommonError(f"{label} contains an unsafe XML declaration")
+    try:
+        root = ElementTree.fromstring(raw)
+    except (ElementTree.ParseError, UnicodeDecodeError) as error:
+        raise AndroidGateCommonError(f"{label} is not strict XML") from error
+
+    expected_root_attributes = {
+        f"{{{_XML_SCHEMA_INSTANCE_NAMESPACE}}}schemaLocation": (
+            _GRADLE_VERIFICATION_SCHEMA_LOCATION
+        )
+    }
+    if (
+        root.tag != _gradle_tag("verification-metadata")
+        or root.attrib != expected_root_attributes
+    ):
+        raise AndroidGateCommonError(
+            f"{label} does not use the closed Gradle verification schema"
+        )
+    text_elements = {
+        _gradle_tag("verify-metadata"),
+        _gradle_tag("verify-signatures"),
+    }
+    for element in root.iter():
+        if (
+            (element.tag not in text_elements and (element.text or "").strip())
+            or (element.tail or "").strip()
+        ):
+            raise AndroidGateCommonError(f"{label} contains unexpected XML text")
+
+    root_children = list(root)
+    if [child.tag for child in root_children] != [
+        _gradle_tag("configuration"),
+        _gradle_tag("components"),
+    ]:
+        raise AndroidGateCommonError(
+            f"{label} has unsafe or unknown top-level policy"
+        )
+    configuration, components = root_children
+    if configuration.attrib or components.attrib:
+        raise AndroidGateCommonError(f"{label} has unexpected policy attributes")
+
+    configuration_children = list(configuration)
+    if [child.tag for child in configuration_children] != [
+        _gradle_tag("verify-metadata"),
+        _gradle_tag("verify-signatures"),
+    ]:
+        raise AndroidGateCommonError(
+            f"{label} contains a dependency-verification bypass policy"
+        )
+    verify_metadata, verify_signatures = configuration_children
+    if (
+        verify_metadata.attrib
+        or verify_signatures.attrib
+        or list(verify_metadata)
+        or list(verify_signatures)
+        or (verify_metadata.text or "").strip() != "true"
+        or (verify_signatures.text or "").strip() != "false"
+    ):
+        raise AndroidGateCommonError(
+            f"{label} does not use the required verification configuration"
+        )
+
+    component_elements = list(components)
+    if (
+        not component_elements
+        or len(component_elements) > _MAX_GRADLE_VERIFICATION_COMPONENTS
+    ):
+        raise AndroidGateCommonError(f"{label} component count is outside its bound")
+    component_keys: set[tuple[str, str, str]] = set()
+    artifact_count = 0
+    checksum_count = 0
+    for component in component_elements:
+        if component.tag != _gradle_tag("component") or set(component.attrib) != {
+            "group",
+            "name",
+            "version",
+        }:
+            raise AndroidGateCommonError(
+                f"{label} contains an invalid component policy"
+            )
+        component_key = tuple(
+            _require_bounded_xml_attribute(
+                component.attrib[name],
+                f"{label} component {name}",
+            )
+            for name in ("group", "name", "version")
+        )
+        if component_key in component_keys:
+            raise AndroidGateCommonError(f"{label} contains a duplicate component")
+        component_keys.add(component_key)
+
+        artifacts = list(component)
+        if not artifacts:
+            raise AndroidGateCommonError(f"{label} component has no artifacts")
+        artifact_names: set[str] = set()
+        for artifact in artifacts:
+            artifact_count += 1
+            if artifact_count > _MAX_GRADLE_VERIFICATION_ARTIFACTS:
+                raise AndroidGateCommonError(
+                    f"{label} artifact count exceeds its bound"
+                )
+            if artifact.tag != _gradle_tag("artifact") or set(artifact.attrib) != {
+                "name"
+            }:
+                raise AndroidGateCommonError(
+                    f"{label} contains an invalid artifact policy"
+                )
+            artifact_name = _require_bounded_xml_attribute(
+                artifact.attrib["name"],
+                f"{label} artifact name",
+            )
+            if artifact_name in artifact_names:
+                raise AndroidGateCommonError(
+                    f"{label} contains a duplicate component artifact"
+                )
+            artifact_names.add(artifact_name)
+
+            checksums = list(artifact)
+            if len(checksums) != 1:
+                raise AndroidGateCommonError(
+                    f"{label} artifact must have exactly one SHA-256"
+                )
+            for checksum in checksums:
+                checksum_count += 1
+                if checksum_count > _MAX_GRADLE_VERIFICATION_CHECKSUMS:
+                    raise AndroidGateCommonError(
+                        f"{label} checksum count exceeds its bound"
+                    )
+                if checksum.tag != _gradle_tag("sha256") or not (
+                    {"value"} <= set(checksum.attrib)
+                    <= {"value", "origin", "reason"}
+                ) or list(checksum):
+                    raise AndroidGateCommonError(
+                        f"{label} contains a non-SHA-256 or bypass checksum policy"
+                    )
+                value = _require_bounded_xml_attribute(
+                    checksum.attrib["value"],
+                    f"{label} SHA-256",
+                )
+                if len(value) != 64 or any(
+                    character not in "0123456789abcdef" for character in value
+                ):
+                    raise AndroidGateCommonError(
+                        f"{label} contains an invalid SHA-256"
+                    )
+                for attribute_name in ("origin", "reason"):
+                    if attribute_name in checksum.attrib:
+                        _require_bounded_xml_attribute(
+                            checksum.attrib[attribute_name],
+                            f"{label} SHA-256 {attribute_name}",
+                        )
+
+
+def require_gradle_verification_metadata_identity(
+    path: Path,
+    expected: GradleVerificationMetadataIdentity,
+    label: str,
+) -> None:
+    if gradle_verification_metadata_identity(path, label) != expected:
+        raise AndroidGateCommonError(f"{label} identity changed")
+
+
+def gradle_verification_report(
+    identity: GradleVerificationMetadataIdentity,
+) -> dict[str, object]:
+    return {
+        "mode": GRADLE_VERIFICATION_MODE,
+        "sizeBytes": identity.size_bytes,
+        "sha256": identity.sha256,
+    }
+
+
+def _is_gradle_verification_project_override(name: str) -> bool:
+    """Recognize the Gradle project-property spellings this gate rejects."""
+
+    normalized_name = name.casefold().replace(".", "_")
+    return normalized_name == (
+        _GRADLE_PROJECT_PREFIX + _GRADLE_VERIFICATION_PROPERTY_NORMALIZED
+    )
+
+
+def strict_gradle_environment(
+    base: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build a strict Gradle environment without inherited JVM-option bypasses.
+
+    The gate intentionally drops the complete inherited JVM option variables
+    rather than attempting to interpret their JVM/shell quoting. Other
+    controlled variables (including JAVA_HOME and Android SDK selection) are
+    retained. A gate-owned system property then selects strict dependency
+    verification and outranks a user Gradle property file.
+    """
+
+    environment = tool_environment(base)
+    for name in tuple(environment):
+        if name.upper() in _INHERITED_JVM_OPTION_VARIABLES:
+            environment.pop(name, None)
+        elif _is_gradle_verification_project_override(name):
+            environment.pop(name, None)
+    environment["GRADLE_OPTS"] = (
+        f"-Dorg.gradle.dependency.verification={GRADLE_VERIFICATION_MODE}"
+    )
+    return environment
 
 
 def tool_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:

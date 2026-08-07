@@ -577,11 +577,25 @@ receipt validator, schema-1 validation-record ingestion, four-record
 compatibility aggregation, Android reference-gate orchestration, and the
 trusted one-tuple target-runner contract. The complete iOS gate, full Gradle
 package gates, and standalone Android CPU/XNNPACK emulator runs are explicitly
-provisioned local evidence, not hosted CI lanes. The Android Gradle dependency
-graphs also lack dependency-verification metadata, so those remain CI
-Release-mode package gates rather than reproducible release builds. The sherpa
-runner's four 4 KiB/16 KiB captures and aggregate are local provisioned
-evidence, not hosted CI runs.
+provisioned local evidence, not hosted CI lanes. The standalone and
+sherpa-owned Android projects now carry separate strict SHA-256 Gradle
+dependency-verification metadata for their exact macOS-hosted Release graphs.
+Their controlled gates remove the named inherited JVM-option variables and
+verification-specific Gradle project-property override before setting a
+gate-owned strict system property. They assume a non-hostile local Gradle user
+home and init-script environment. A separate disposable staged copy replays
+each exact Release graph after cache provisioning with
+`./gradlew --offline --no-daemon --dependency-verification strict assembleRelease bundleRelease`.
+Gradle-wrapper/bootstrap resolution was not offline, the Flutter build
+invocations are not claimed offline, and the current metadata selects macOS
+AAPT2 only.
+
+That checkpoint verifies Gradle/Maven input bytes; it does not make either
+APK/AAB graph binary-reproducible. It also proves no signing/distribution
+approval, Dart hosted-cache authentication, API 24 or physical-device run,
+installed AAB-derived split, performance result, or QNN path. The sherpa
+runner's four 4 KiB/16 KiB captures and aggregate remain local provisioned
+evidence rather than hosted CI runs.
 
 The inexpensive C source-quality lane is deliberately offline and
 toolchain-independent. `tool/ci/check_c_source_quality.py` walks the closed

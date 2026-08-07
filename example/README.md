@@ -224,6 +224,25 @@ python3 -B tool/ci/run_android_reference_app_gate.py \
   --smoke-profile xnnpack
 ```
 
+The clean copy retains
+`android/gradle/verification-metadata.xml`. The gate requires strict SHA-256
+dependency verification for both Flutter package builds. It removes the named
+inherited JVM-option variables and verification-specific Gradle
+project-property override before setting a gate-owned strict system property,
+and assumes a non-hostile local Gradle user home and init-script environment.
+A separate direct Gradle check uses a disposable staged copy after cache
+provisioning and runs
+`./gradlew --offline --no-daemon --dependency-verification strict assembleRelease bundleRelease`.
+Gradle-wrapper/bootstrap resolution was not offline, and the Flutter build
+invocations are not claimed offline. The committed graph currently includes
+only the macOS AAPT2 artifact; it is not valid evidence for a different build
+host.
+
+This verifies Gradle/Maven dependency inputs only. It is not binary
+reproducibility, distribution signing or approval, Dart hosted-cache
+authentication, API 24 or physical-device execution, an installed
+AAB-derived split, performance, or QNN evidence.
+
 The gate is pinned to the same Flutter revision as the macOS gate. It analyzes
 and tests the app, builds R8-minified Release APK and AAB bytes for arm64-v8a,
 and independently audits both packages before installation. The audit verifies

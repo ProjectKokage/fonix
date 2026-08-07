@@ -448,6 +448,52 @@ app, builds an R8-minified development-signed Release APK and AAB, and invokes
 `tool/ci/audit_android_application.py` on both final artifacts before any
 install.
 
+### Gradle dependency-input integrity
+
+The standalone project commits
+[`verification-metadata.xml`](../example/android/gradle/verification-metadata.xml),
+and the sherpa-owned project commits its independent
+[`verification-metadata.xml`](../templates/android/sherpa_reference_app/android/gradle/verification-metadata.xml).
+These are two distinct macOS-hosted Release graphs. Each file carries strict
+SHA-256 verification for the Gradle/Maven metadata and artifacts selected by
+that graph; neither file is substituted for the other.
+
+Before either file reaches Gradle, the gate performs a bounded semantic parse
+of the dependency-verification 1.3 shape. It requires
+`verify-metadata=true`, `verify-signatures=false`, a non-empty closed
+component/artifact inventory, and exactly one lowercase SHA-256 checksum per
+artifact; broad trust, ignored-component, unknown-policy, nonregular, and
+symlink inputs fail closed. The exact metadata identity is checked after the
+external copy, after each Flutter package build even when that build fails,
+and before reporting.
+
+The controlled Android gates remove the named inherited JVM-option variables
+and verification-specific Gradle project-property override before setting a
+gate-owned strict system property. They assume a non-hostile local Gradle user
+home and init-script environment. Separately, each exact Release graph has a
+disposable staged-copy replay after its Gradle cache is provisioned:
+
+```bash
+./gradlew --offline --no-daemon --dependency-verification strict \
+  assembleRelease bundleRelease
+```
+
+Gradle-wrapper/bootstrap resolution may contact the configured repositories
+and was not offline; after bootstrap, a Gradle dependency-cache miss fails
+rather than returning to the network. Do not describe the Flutter build
+invocations themselves as offline.
+
+The committed graphs currently contain the macOS AAPT2 artifacts selected by
+the pinned Android Gradle Plugin. They do not authorize a Linux or Windows
+host to substitute its platform AAPT2 executable; add separately reviewed
+metadata and target-host evidence before moving either gate.
+
+This is dependency-input integrity, not a bit-for-bit APK/AAB reproducibility
+claim. It does not approve signing or distribution, authenticate Dart hosted
+packages already present in the supplied pub cache, or add Android API 24,
+physical-device, installed AAB-derived split, performance, or QNN evidence.
+Final-package audits and target runs remain separate mandatory gates.
+
 The auditor and gate require only the `base` AAB module, the exact manifest and
 permission/component allowlist, the exact two models and their manifests plus
 the notices, four arm64

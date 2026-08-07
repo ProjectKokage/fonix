@@ -240,7 +240,10 @@ contracts. `android_runtime_owner` is rejected outside Android.
 
 ## 7.6 Runtime negotiation
 
-The wrapper cannot rely on Maven/Gradle metadata to know the actual native library selected. At runtime:
+The wrapper cannot rely on Maven/Gradle metadata to know the actual native
+library selected. Gradle dependency verification can authenticate selected
+dependency inputs against committed hashes, but it does not prove which native
+bytes survived merging, stripping, and packaging. At runtime:
 
 1. Open/resolve `libonnxruntime.so`.
 2. Resolve `OrtGetApiBase`.
@@ -385,6 +388,27 @@ android {
 Prefer selecting the wrapper's external flavor so there is nothing to exclude. Excluding an ORT from a generic wrapper AAR can be a temporary application-level bridge only if the wrapper's shim was built for runtime resolution and CI verifies the result.
 
 Add a Gradle/CI task that consumes `MERGED_NATIVE_LIBS` or inspects final outputs. Dependency declarations alone are not evidence.
+
+The current standalone and sherpa-owned reference projects add a narrower
+dependency-input checkpoint on top of that final-package rule. They commit
+separate `gradle/verification-metadata.xml` files for the exact Release graphs
+selected on the macOS gate host. Both gates require strict SHA-256 verification
+of Gradle/Maven inputs. They remove the named inherited JVM-option variables
+and verification-specific Gradle project-property override before setting a
+gate-owned strict system property. They assume a non-hostile local Gradle user
+home and init-script environment. A separate disposable staged copy replays
+each exact Release graph, only after cache provisioning, with
+`./gradlew --offline --no-daemon --dependency-verification strict assembleRelease bundleRelease`.
+Gradle-wrapper/bootstrap resolution may contact configured repositories and
+was not offline; the Flutter build invocations are not claimed offline.
+
+The current metadata selects macOS AAPT2 artifacts only. A Linux or Windows
+host needs a separately generated and reviewed metadata extension rather than
+an unverified platform-executable substitution. This checkpoint is not binary
+reproducibility, signing or distribution approval, Dart hosted-cache
+authentication, or API 24, physical-device, installed AAB-split, performance,
+or QNN evidence. It also does not weaken the final single-ORT and source-to-
+final byte-binding gates below.
 
 Use generic or `sherpa-audit` mode for intermediate/input inventories. A final APK/AAB command in either mode must add `--require-final-single-ort`, `--require-16k-page-alignment`, and the delivered ABI list. The standalone policy implies the single-ORT rule but still requires the explicit alignment switch and ABI list.
 
