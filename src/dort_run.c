@@ -2244,14 +2244,18 @@ dort_status_t* DORT_CALL dort_run_result_get(const dort_run_result_t* result,
                                              dort_string_t* out_name,
                                              dort_value_t** out_value) {
   dort_status_t* status = NULL;
+  if (out_name != NULL) {
+    memset(out_name, 0, sizeof(*out_name));
+    out_name->struct_size = (uint32_t)sizeof(*out_name);
+  }
+  if (out_value != NULL) {
+    *out_value = NULL;
+  }
   if (out_name == NULL || out_value == NULL) {
     return dort_status_create(DORT_ERROR_DOMAIN_SHIM,
                               DORT_ERROR_INVALID_ARGUMENT, 0, "run_result_get",
                               "The output name or value pointer is null.");
   }
-  memset(out_name, 0, sizeof(*out_name));
-  out_name->struct_size = (uint32_t)sizeof(*out_name);
-  *out_value = NULL;
   if (!dort_run_result_is_valid(result) || index >= result->count) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_INVALID_ARGUMENT, 0,

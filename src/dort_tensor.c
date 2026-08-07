@@ -363,6 +363,15 @@ dort_status_t* DORT_CALL dort_buffer_data_acquire(
     size_t* out_byte_length) {
   dort_data_lease_t* lease = NULL;
   dort_status_t* status = NULL;
+  if (out_lease != NULL) {
+    *out_lease = NULL;
+  }
+  if (out_data != NULL) {
+    *out_data = NULL;
+  }
+  if (out_byte_length != NULL) {
+    *out_byte_length = 0u;
+  }
   if (out_lease == NULL || out_data == NULL || out_byte_length == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM,
@@ -371,9 +380,6 @@ dort_status_t* DORT_CALL dort_buffer_data_acquire(
         "buffer_data_acquire",
         "All buffer data-acquisition output pointers are required.");
   }
-  *out_lease = NULL;
-  *out_data = NULL;
-  *out_byte_length = 0u;
   if (!dort_buffer_is_valid(buffer)) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM,
@@ -2884,6 +2890,15 @@ dort_status_t* DORT_CALL dort_tensor_data_acquire(
   size_t dimension_count = 0u;
   size_t byte_length = 0u;
   size_t element_width = 0u;
+  if (out_lease != NULL) {
+    *out_lease = NULL;
+  }
+  if (out_data != NULL) {
+    *out_data = NULL;
+  }
+  if (out_byte_length != NULL) {
+    *out_byte_length = 0u;
+  }
   if (out_lease == NULL || out_data == NULL || out_byte_length == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM,
@@ -2892,9 +2907,6 @@ dort_status_t* DORT_CALL dort_tensor_data_acquire(
         "tensor_data_acquire",
         "All tensor data-acquisition output pointers are required.");
   }
-  *out_lease = NULL;
-  *out_data = NULL;
-  *out_byte_length = 0u;
   if (!dort_value_is_valid(value) ||
       value->kind != DORT_VALUE_KIND_TENSOR || value->value == NULL) {
     return dort_status_create(

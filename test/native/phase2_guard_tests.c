@@ -50,6 +50,79 @@ static int expect_code(dort_status_t* status, int32_t code) {
   return 0;
 }
 
+static int test_partial_output_neutralization(void) {
+  dort_data_lease_t* lease = NULL;
+  void* mutable_data = NULL;
+  const void* const_data = NULL;
+  size_t byte_length = 0u;
+  dort_string_t name;
+  dort_value_t* value = NULL;
+  dort_status_t* status = NULL;
+
+  mutable_data = (void*)(uintptr_t)1u;
+  byte_length = 1u;
+  status = dort_buffer_data_acquire(NULL, NULL, &mutable_data, &byte_length);
+  CHECK(mutable_data == NULL && byte_length == 0u,
+        "buffer acquire did not neutralize data outputs");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "buffer acquire null-lease assertion failed");
+
+  lease = (dort_data_lease_t*)(uintptr_t)1u;
+  byte_length = 1u;
+  status = dort_buffer_data_acquire(NULL, &lease, NULL, &byte_length);
+  CHECK(lease == NULL && byte_length == 0u,
+        "buffer acquire did not neutralize lease/length outputs");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "buffer acquire null-data assertion failed");
+
+  lease = (dort_data_lease_t*)(uintptr_t)1u;
+  mutable_data = (void*)(uintptr_t)1u;
+  status = dort_buffer_data_acquire(NULL, &lease, &mutable_data, NULL);
+  CHECK(lease == NULL && mutable_data == NULL,
+        "buffer acquire did not neutralize lease/data outputs");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "buffer acquire null-length assertion failed");
+
+  const_data = (const void*)(uintptr_t)1u;
+  byte_length = 1u;
+  status = dort_tensor_data_acquire(NULL, NULL, &const_data, &byte_length);
+  CHECK(const_data == NULL && byte_length == 0u,
+        "tensor acquire did not neutralize data outputs");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "tensor acquire null-lease assertion failed");
+
+  lease = (dort_data_lease_t*)(uintptr_t)1u;
+  byte_length = 1u;
+  status = dort_tensor_data_acquire(NULL, &lease, NULL, &byte_length);
+  CHECK(lease == NULL && byte_length == 0u,
+        "tensor acquire did not neutralize lease/length outputs");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "tensor acquire null-data assertion failed");
+
+  lease = (dort_data_lease_t*)(uintptr_t)1u;
+  const_data = (const void*)(uintptr_t)1u;
+  status = dort_tensor_data_acquire(NULL, &lease, &const_data, NULL);
+  CHECK(lease == NULL && const_data == NULL,
+        "tensor acquire did not neutralize lease/data outputs");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "tensor acquire null-length assertion failed");
+
+  value = (dort_value_t*)(uintptr_t)1u;
+  status = dort_run_result_get(NULL, 0u, NULL, &value);
+  CHECK(value == NULL, "run-result get did not neutralize the value output");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "run-result get null-name assertion failed");
+
+  memset(&name, 0xff, sizeof(name));
+  status = dort_run_result_get(NULL, 0u, &name, NULL);
+  CHECK(name.struct_size == (uint32_t)sizeof(name) && name.data == NULL &&
+            name.length == 0u && name.private_owner == NULL,
+        "run-result get did not neutralize the name output");
+  CHECK(expect_code(status, DORT_ERROR_INVALID_ARGUMENT) == 0,
+        "run-result get null-value assertion failed");
+  return 0;
+}
+
 int main(int argc, char** argv) {
   dort_runtime_t* first = NULL;
   dort_runtime_t* second = NULL;
@@ -66,6 +139,8 @@ int main(int argc, char** argv) {
   uint8_t bytes[16] = {0u};
 
   CHECK(argc == 3, "expected fake runtime library and root paths");
+  CHECK(test_partial_output_neutralization() == 0,
+        "partial output neutralization assertions failed");
   first_config = runtime_config(argv[1], argv[2], "phase2-identity-a");
   second_config = runtime_config(argv[1], argv[2], "phase2-identity-b");
   status = dort_runtime_open(&first_config, &first);
