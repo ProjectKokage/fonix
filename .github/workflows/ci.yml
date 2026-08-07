@@ -103,9 +103,19 @@ jobs:
         with:
           python-version: "3.12.10"
       - name: Test offline release metadata, SPDX, and tamper rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover \
+            -s tool/ci/tests -p 'test_release_evidence.py' -v
+          python -B -m unittest discover \
+            -s tool/ci/tests -p 'test_scoped_release_scope.py' -v
+      - name: Validate the committed scoped pre-1.0 policy
         run: >-
-          python -B -m unittest discover
-          -s tool/ci/tests -p 'test_release_evidence.py' -v
+          python -B tool/ci/validate_scoped_release_scope.py
+          --repository .
+          --scope release/scoped-pre-1.0-v1.json
+          --output ${{ runner.temp }}/fonix-scoped-scope-validation.json
       - name: Verify the deterministic closed source manifest
         run: >-
           python -B tool/ci/source_checksum_manifest.py check

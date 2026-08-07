@@ -337,6 +337,8 @@ def _json_file(path: Path, *, label: str, maximum: int) -> tuple[dict[str, Any],
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ReleaseEvidenceError(f"{label} is not strict UTF-8 JSON") from error
+    except RecursionError as error:
+        raise ReleaseEvidenceError(f"{label} nesting exceeds the accepted bound") from error
     if not isinstance(value, dict):
         raise ReleaseEvidenceError(f"{label} root must be an object")
     return value, raw
@@ -374,10 +376,16 @@ def _exact_keys(value: dict[str, Any], keys: frozenset[str], label: str) -> None
 
 
 def _string(value: Any, label: str, *, maximum: int = 4096) -> str:
+    if not isinstance(value, str) or not value:
+        raise ReleaseEvidenceError(f"{label} must be a bounded non-empty string")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ReleaseEvidenceError(
+            f"{label} must contain well-formed Unicode text"
+        ) from error
     if (
-        not isinstance(value, str)
-        or not value
-        or len(value.encode("utf-8")) > maximum
+        len(encoded) > maximum
         or "\x00" in value
         or any(ord(character) < 0x20 for character in value)
     ):
@@ -618,11 +626,27 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
         _validate_artifact_source(artifact["source"], f"{label}.source")
 
         containers = _array(artifact["containers"], f"{label}.containers", maximum=8)
+        selected_members: dict[int, set[str]] = {}
+
+        def add_selected_member(depth: int, path: str, value_label: str) -> None:
+            members = selected_members.setdefault(depth, set())
+            if path in members:
+                raise ReleaseEvidenceError(
+                    f"{value_label} overlaps another selected member at "
+                    f"container depth {depth}"
+                )
+            members.add(path)
+
         for container_index, raw_container in enumerate(containers):
             container_label = f"{label}.containers[{container_index}]"
             container = _object(raw_container, container_label)
             _exact_keys(container, _CONTAINER_KEYS, container_label)
-            _relative_path(container["path"], f"{container_label}.path")
+            container_path = _relative_path(
+                container["path"], f"{container_label}.path"
+            )
+            add_selected_member(
+                container_index, container_path, f"{container_label}.path"
+            )
             _digest(container["sha256"], f"{container_label}.sha256")
             _integer(
                 container["size_bytes"],
@@ -635,6 +659,7 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
         staged_paths: set[str] = set()
         staged_paths_casefolded: set[str] = set()
+        expected_file_paths: set[str] = set()
         expected_files = _array(
             artifact["expected_files"],
             f"{label}.expected_files",
@@ -645,7 +670,13 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
             file_label = f"{label}.expected_files[{file_index}]"
             entry = _object(raw_file, file_label)
             _exact_keys(entry, _EXPECTED_FILE_KEYS, file_label)
-            _relative_path(entry["path"], f"{file_label}.path")
+            file_path = _relative_path(entry["path"], f"{file_label}.path")
+            if file_path in expected_file_paths:
+                raise ReleaseEvidenceError(
+                    f"{file_label}.path duplicates expected path {file_path}"
+                )
+            expected_file_paths.add(file_path)
+            add_selected_member(len(containers), file_path, f"{file_label}.path")
             staged_path = _relative_path(entry["staged_path"], f"{file_label}.staged_path")
             if (
                 staged_path in staged_paths
@@ -665,16 +696,37 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
         symlinks = _array(
             artifact["expected_symlinks"], f"{label}.expected_symlinks", maximum=256
         )
-        symlink_paths: set[str] = set()
+        symlink_targets: dict[str, str] = {}
         for symlink_index, raw_symlink in enumerate(symlinks):
             symlink_label = f"{label}.expected_symlinks[{symlink_index}]"
             entry = _object(raw_symlink, symlink_label)
             _exact_keys(entry, _SYMLINK_KEYS, symlink_label)
             link_path = _relative_path(entry["path"], f"{symlink_label}.path")
-            _relative_path(entry["target"], f"{symlink_label}.target")
-            if link_path in symlink_paths:
+            target_path = _relative_path(entry["target"], f"{symlink_label}.target")
+            if link_path in symlink_targets:
                 raise ReleaseEvidenceError(f"{label} duplicates expected symlink path")
-            symlink_paths.add(link_path)
+            symlink_targets[link_path] = target_path
+            add_selected_member(
+                len(containers), link_path, f"{symlink_label}.path"
+            )
+
+        for link_path, target_path in symlink_targets.items():
+            resolved_target = (
+                PurePosixPath(link_path).parent / PurePosixPath(target_path)
+            ).as_posix()
+            visited = {link_path}
+            while resolved_target not in expected_file_paths:
+                next_target = symlink_targets.get(resolved_target)
+                if next_target is None or resolved_target in visited:
+                    raise ReleaseEvidenceError(
+                        f"{label} expected symlink {link_path} must resolve through "
+                        "an acyclic declared chain to an expected regular file"
+                    )
+                visited.add(resolved_target)
+                resolved_target = (
+                    PurePosixPath(resolved_target).parent
+                    / PurePosixPath(next_target)
+                ).as_posix()
 
         notices = _array(
             artifact["notices"], f"{label}.notices", minimum=1, maximum=32
@@ -684,12 +736,15 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
             entry = _object(raw_notice, notice_label)
             _exact_keys(entry, _NOTICE_KEYS, notice_label)
             _string(entry["id"], f"{notice_label}.id", maximum=128)
-            _integer(
+            container_depth = _integer(
                 entry["container_depth"],
                 f"{notice_label}.container_depth",
-                maximum=8,
+                maximum=len(containers),
             )
-            _relative_path(entry["path"], f"{notice_label}.path")
+            notice_path = _relative_path(entry["path"], f"{notice_label}.path")
+            add_selected_member(
+                container_depth, notice_path, f"{notice_label}.path"
+            )
             staged_path = _relative_path(entry["staged_path"], f"{notice_label}.staged_path")
             if (
                 staged_path in staged_paths
@@ -752,11 +807,19 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
         licenses = _array(
             artifact["licenses"], f"{label}.licenses", minimum=1, maximum=128
         )
+        license_ids: set[str] = set()
         for license_index, raw_license in enumerate(licenses):
             license_label = f"{label}.licenses[{license_index}]"
             license_entry = _object(raw_license, license_label)
             _exact_keys(license_entry, _LICENSE_KEYS, license_label)
-            _string(license_entry["id"], f"{license_label}.id", maximum=128)
+            license_id = _string(
+                license_entry["id"], f"{license_label}.id", maximum=128
+            )
+            if license_id in license_ids:
+                raise ReleaseEvidenceError(
+                    f"{license_label}.id duplicates license ID {license_id}"
+                )
+            license_ids.add(license_id)
             _relative_path(license_entry["notice_path"], f"{license_label}.notice_path")
             _digest(license_entry["sha256"], f"{license_label}.sha256")
             _integer(

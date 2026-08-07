@@ -213,6 +213,16 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
 
 ## 13.7 Scoped exclusions and release blockers in this snapshot
 
+The committed
+[`release/scoped-pre-1.0-v1.json`](../release/scoped-pre-1.0-v1.json) policy
+is the authoritative scope-only selection record. It selects the exact iOS
+device arm64, macOS arm64, Android arm64-v8a, and Linux x86_64 CPU candidates
+and classifies the other four global baseline rows as unsupported. Its Android
+row keeps application-owned ORT 1.27.1 separate from the sherpa-owned ORT
+1.27.0 process composition. Selection does not change any row in the evidence
+matrix and does not establish support or readiness; the external evidence and
+approval gate remains required.
+
 For the planned scoped pre-1.0 release, a missing gate is a blocker only when
 its exact tuple is selected for advertising. Deferred Android QNN, every
 Windows target-host/provider/package/install path, and other unadvertised rows

@@ -34,6 +34,7 @@ SOURCE_DIRECTORIES = frozenset(
         "hook",
         "lib",
         "native",
+        "release",
         "src",
         "templates",
         "test",

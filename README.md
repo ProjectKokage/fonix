@@ -346,10 +346,14 @@ device, an AAB-derived installation, another ABI/build, performance, signing,
 distribution, or general Android support.
 
 The next target-evidence step is executing and calibrating the Linux x86_64
-gate on its exact target host. Local development can proceed in parallel with
-lifecycle/performance stabilization and scoped pre-1.0 release engineering
-for only the exact macOS, iOS, Linux, and Android-without-QNN tuples that the
-support matrix explicitly advertises. Android
+gate on its exact target host. The committed
+[`scoped-pre-1.0-v1.json`](release/scoped-pre-1.0-v1.json) policy records the
+exact CPU-only candidate and unsupported rows for scoped release work. A
+`selected` row is a development target, not a support, readiness, signing, or
+publication claim; every selected composition still needs its owning evidence
+and external approval bundle. Local development can proceed in parallel with
+lifecycle/performance stabilization for those exact macOS, iOS-device, Linux,
+and Android-without-QNN candidates. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

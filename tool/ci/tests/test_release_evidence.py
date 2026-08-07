@@ -354,8 +354,10 @@ class SourceChecksumManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
             (repository / "docs").mkdir()
+            (repository / "release").mkdir()
             (repository / "docs" / "z.md").write_bytes(b"z\n")
             (repository / "docs" / "a.md").write_bytes(b"a\n")
+            (repository / "release" / "scope.json").write_bytes(b"{}\n")
             (repository / ".gitattributes").write_bytes(b"*.onnx binary\n")
             (repository / "pubspec.yaml").write_bytes(b"name: fonix\n")
             output = repository / "MANIFEST.sha256"
@@ -368,7 +370,13 @@ class SourceChecksumManifestTests(unittest.TestCase):
             self.assertEqual(first_bytes, output.read_bytes())
             self.assertEqual(
                 [path for path, _ in source_checksum_manifest.parse_manifest(first_bytes)],
-                [".gitattributes", "docs/a.md", "docs/z.md", "pubspec.yaml"],
+                [
+                    ".gitattributes",
+                    "docs/a.md",
+                    "docs/z.md",
+                    "pubspec.yaml",
+                    "release/scope.json",
+                ],
             )
             self.assertEqual(first, source_checksum_manifest.check_manifest(repository, output))
 
@@ -817,6 +825,15 @@ class ReleaseEvidenceTests(unittest.TestCase):
         ):
             self.generate()
 
+        self.fixture._write_stage()
+        with mock.patch.object(
+            release_evidence.json, "loads", side_effect=RecursionError
+        ):
+            with self.assertRaisesRegex(
+                release_evidence.ReleaseEvidenceError, "nesting exceeds"
+            ):
+                self.generate()
+
     def test_same_size_hash_tamper_and_size_tamper_are_rejected(self) -> None:
         payload = self.fixture.stage / "runtime.bin"
         payload.write_bytes(b"x" * len(self.fixture.payload))
@@ -974,6 +991,13 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 "artifact target",
             )
 
+        self.fixture.selected_artifact["id"] = "\ud800"
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "must contain well-formed Unicode text",
+        ):
+            release_evidence._validate_lock(self.fixture.lock)
+
     def test_shim_api_must_match_the_compatibility_floor(self) -> None:
         self.fixture.lock["shim"]["required_ort_api"] = 26
         self.fixture.rewrite_lock()
@@ -1004,6 +1028,99 @@ class ReleaseEvidenceTests(unittest.TestCase):
             "reported_name is required for a release",
         ):
             self.generate()
+
+    def test_artifact_rejects_duplicate_expected_archive_paths(self) -> None:
+        duplicate = dict(self.fixture.selected_artifact["expected_files"][0])
+        duplicate["staged_path"] = "runtime-copy.bin"
+        self.fixture.selected_artifact["expected_files"].append(duplicate)
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "duplicates expected path archive/runtime.bin",
+        ):
+            release_evidence._validate_lock(self.fixture.lock)
+
+    def test_artifact_rejects_invalid_notice_depth_and_member_overlap(self) -> None:
+        self.fixture.selected_artifact["notices"][0]["container_depth"] = 1
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "container_depth is outside the accepted bound",
+        ):
+            release_evidence._validate_lock(self.fixture.lock)
+
+        overlap_fixture = _EvidenceFixture(Path(self.temporary.name) / "overlap")
+        overlap_fixture.selected_artifact["notices"][0]["path"] = (
+            overlap_fixture.selected_artifact["expected_files"][0]["path"]
+        )
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "overlaps another selected member at container depth 0",
+        ):
+            release_evidence._validate_lock(overlap_fixture.lock)
+
+        container_fixture = _EvidenceFixture(
+            Path(self.temporary.name) / "container-overlap"
+        )
+        container_fixture.selected_artifact["containers"].append(
+            {
+                "path": "archive/runtime.tgz",
+                "sha256": _sha256(self.fixture.archive),
+                "size_bytes": len(self.fixture.archive),
+                "archive": "tgz",
+            }
+        )
+        container_fixture.selected_artifact["notices"][0]["path"] = (
+            "archive/runtime.tgz"
+        )
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "overlaps another selected member at container depth 0",
+        ):
+            release_evidence._validate_lock(container_fixture.lock)
+
+    def test_artifact_symlinks_must_resolve_to_expected_regular_files(self) -> None:
+        self.fixture.selected_artifact["expected_symlinks"] = [
+            {"path": "a.so", "target": "b.so"},
+            {"path": "b.so", "target": "a.so"},
+        ]
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "acyclic declared chain to an expected regular file",
+        ):
+            release_evidence._validate_lock(self.fixture.lock)
+
+        unresolved_fixture = _EvidenceFixture(
+            Path(self.temporary.name) / "unresolved-symlink"
+        )
+        unresolved_fixture.selected_artifact["expected_symlinks"] = [
+            {"path": "runtime-link.so", "target": "absent-runtime.so"}
+        ]
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "acyclic declared chain to an expected regular file",
+        ):
+            release_evidence._validate_lock(unresolved_fixture.lock)
+
+        overlap_fixture = _EvidenceFixture(
+            Path(self.temporary.name) / "symlink-overlap"
+        )
+        overlap_fixture.selected_artifact["expected_symlinks"] = [
+            {"path": "archive/runtime.bin", "target": "archive/runtime.bin"}
+        ]
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "overlaps another selected member at container depth 0",
+        ):
+            release_evidence._validate_lock(overlap_fixture.lock)
+
+    def test_artifact_rejects_duplicate_license_ids(self) -> None:
+        duplicate = dict(self.fixture.selected_artifact["licenses"][0])
+        duplicate["notice_path"] = "third_party/onnxruntime/SECOND_LICENSE"
+        self.fixture.selected_artifact["licenses"].append(duplicate)
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "duplicates license ID MIT",
+        ):
+            release_evidence._validate_lock(self.fixture.lock)
 
     def test_pubspec_lock_unknown_field_is_rejected(self) -> None:
         lock_path = self.fixture.repository / "pubspec.lock"
@@ -1055,6 +1172,9 @@ class ReleaseEvidenceWorkflowTests(unittest.TestCase):
         )[0]
         self.assertIn("Offline deterministic release-evidence verification", section)
         self.assertIn("test_release_evidence.py", section)
+        self.assertIn("test_scoped_release_scope.py", section)
+        self.assertIn("validate_scoped_release_scope.py", section)
+        self.assertIn("release/scoped-pre-1.0-v1.json", section)
         self.assertIn("source_checksum_manifest.py check", section)
         self.assertIn("Verify the committed source archive manifest", section)
         self.assertIn("git archive --format=tar --output=\"$archive\" HEAD", section)

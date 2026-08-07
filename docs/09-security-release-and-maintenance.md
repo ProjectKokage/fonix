@@ -325,9 +325,13 @@ required ORT API and the compatibility floor. A lock marked `release` must
 cover every Tier-1 target with artifacts and record every provider's reported
 name. Replacing a baseline row, introducing a non-CPU release flavor, or using
 an architecture or variant from another platform is rejected before audit
-metadata is emitted. The generator records the locked Dart dependency graph,
-exact ORT source and compatibility inputs, selected artifact bytes, and notice
-identities without embedding checkout or staging paths.
+metadata is emitted. Artifact declarations also have a closed selected-member
+set at every archive depth: expected member paths and license IDs are unique,
+notice depths cannot exceed the declared container chain, and every declared
+symlink must resolve through an acyclic declared chain to an expected regular
+file. The generator records the locked Dart dependency graph, exact ORT source
+and compatibility inputs, selected artifact bytes, and notice identities
+without embedding checkout or staging paths.
 
 These files are unreleased audit metadata only. They are not release approval,
 signing evidence, provider qualification, or authorization to publish or
@@ -341,3 +345,42 @@ must never be used to invent or bypass those gates.
 `--require-release-ready` retains the unqualified Tier-1/five-platform meaning;
 a scoped release must use a separately explicit advertised-scope approval and
 must not reinterpret or weaken that flag.
+
+## 9.15 Scoped pre-1.0 policy boundary
+
+[`release/scoped-pre-1.0-v1.json`](../release/scoped-pre-1.0-v1.json) is the
+machine-readable scope-only policy for the current CPU pre-1.0 work. Validate
+it offline with:
+
+```bash
+python3 -B tool/ci/validate_scoped_release_scope.py \
+  --repository . \
+  --scope release/scoped-pre-1.0-v1.json \
+  --output /path/to/new/scoped-scope-validation.json
+```
+
+The validator binds the policy to the exact native-lock bytes, package version,
+shim ABI, required ORT API, all eight baseline targets, and each selected
+locked artifact. The schema embeds the exact policy as its top-level `const`,
+and the validator pins both the schema bytes and the two helper validators it
+uses for native-lock and sherpa-lock semantics. The target array is canonical
+and closed: iOS device, macOS
+arm64, Android arm64-v8a, and Linux x86_64 are selected CPU candidates; iOS
+simulator, Android x86_64, Linux arm64, and Windows x64 remain explicitly
+unsupported. Android arm64 has distinct application-owned ORT 1.27.1 and
+sherpa-owned process compositions; the latter binds `sherpa_onnx` 1.13.4 and
+ORT 1.27.0 rather than inheriting the application-owned baseline. Only CPU
+full-assignment may be advertised by this policy version. Android QNN and the
+complete Windows target-host-through-clean-machine path are separate exact
+deferred capabilities.
+
+The output is deterministic, path-free validation metadata with the policy,
+schema, validator, lock, package, exact selected-target, and five-composition
+identities. It says `scope-only`; neither
+the input nor output has a readiness, approval, signing, or publication field.
+Selection therefore creates a bounded evidence worklist and nothing more. A
+separate externally controlled candidate-approval manifest must bind the final
+packages, target/runtime receipts, SBOMs, shared gates, and independent
+licensing, security, signing, API/ABI, and publication approvals before a
+scoped release can be called ready. That approval gate is distinct from, and
+cannot weaken, global `--require-release-ready`.
