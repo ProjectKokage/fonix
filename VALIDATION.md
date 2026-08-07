@@ -78,7 +78,7 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 351/351 passed |
+| Python CI-script tests | 352/352 passed |
 | Standalone Python verifier tests | 54/54 passed |
 | C source quality | 34/34 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |

@@ -112,6 +112,7 @@ MAX_LOCAL_PROPERTIES_BYTES = 64 * 1024
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 100_000
 MAX_ARCHIVE_MEMBER_PATH_BYTES = 4_096
+MAX_ZIP_COMPRESSION_RATIO = 200
 MAX_RUNTIME_FIXTURE_FILE_BYTES = 16 * 1024 * 1024
 MAX_RUNTIME_FIXTURE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_SHIM_BYTES = 16 * 1024 * 1024
@@ -666,6 +667,12 @@ def _audit_runtime_fixture_archive(
                     or entry.file_size != identity.size_bytes
                     or entry.file_size > MAX_RUNTIME_FIXTURE_FILE_BYTES
                     or entry.compress_size > MAX_ARCHIVE_BYTES
+                    or (entry.compress_size == 0 and entry.file_size != 0)
+                    or (
+                        entry.compress_size > 0
+                        and entry.file_size
+                        > entry.compress_size * MAX_ZIP_COMPRESSION_RATIO
+                    )
                 ):
                     raise AndroidSherpaReferenceAppGateError(
                         f"runtime-provisioned Release {kind.upper()} qualification "

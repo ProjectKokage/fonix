@@ -55,6 +55,13 @@ android {
             )
         }
     }
+
+    androidResources {
+        // The generated cancellation input is intentionally repetitive. Keep
+        // .bin fixtures stored so the target gate's extraction-ratio bound is
+        // satisfied without weakening its archive-bomb defense.
+        noCompress += "bin"
+    }
 }
 
 kotlin {

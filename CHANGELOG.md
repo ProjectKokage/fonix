@@ -35,6 +35,9 @@
 - Added atomic opt-in publication of a successful Android sherpa static-gate
   report to a new private external evidence path, while preserving stdout JSON
   compatibility and failing closed on path, identity, or publication races.
+- Kept generated `.bin` qualification fixtures uncompressed and made the
+  static package gate enforce the target runner's closed archive expansion
+  ratio before an APK can reach installation.
 - Passed the runtime-provisioned static gate after implementation commit
   `635e97d` and staged-build stabilization commit `eaa195a` on macOS arm64
   with Flutter revision

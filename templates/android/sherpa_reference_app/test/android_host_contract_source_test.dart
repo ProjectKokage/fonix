@@ -35,6 +35,7 @@ void main() {
       expect(source, contains('"**/$library"'));
     }
     expect(source, contains('keepDebugSymbols += setOf('));
+    expect(source, contains('noCompress += "bin"'));
     expect(source, isNot(contains('pickFirst')));
   });
 

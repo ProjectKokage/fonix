@@ -1046,6 +1046,7 @@ class AndroidSherpaRuntimeFixtureArchiveTest(unittest.TestCase):
         wrong_path: str | None = None,
         duplicate: str | None = None,
         unexpected: tuple[str, bytes] | None = None,
+        compression: int = zipfile.ZIP_STORED,
     ) -> Path:
         path = self.root / name
         prefix = (
@@ -1054,7 +1055,7 @@ class AndroidSherpaRuntimeFixtureArchiveTest(unittest.TestCase):
             else gate.AAB_RUNTIME_ASSET_PREFIX
         )
         values = {**self.contents, **(replacements or {})}
-        with zipfile.ZipFile(path, "w") as archive:
+        with zipfile.ZipFile(path, "w", compression=compression) as archive:
             for fixture_name, contents in values.items():
                 member = f"{prefix}{fixture_name}"
                 if fixture_name == wrong_path:
@@ -1178,6 +1179,30 @@ class AndroidSherpaRuntimeFixtureArchiveTest(unittest.TestCase):
                     self.expected,
                     kind="apk",
                 )
+
+    def test_excessive_fixture_compression_fails_closed(self) -> None:
+        fixture_name = gate.RUNTIME_FIXTURE_NAMES[0]
+        contents = b"\x00" * 100_000
+        self.contents[fixture_name] = contents
+        self.expected[fixture_name] = gate.FileIdentity(
+            len(contents),
+            hashlib.sha256(contents).hexdigest(),
+        )
+        archive = self._write_archive(
+            "over-compressed.apk",
+            kind="apk",
+            compression=zipfile.ZIP_DEFLATED,
+        )
+
+        with self.assertRaisesRegex(
+            gate.AndroidSherpaReferenceAppGateError,
+            "invalid metadata",
+        ):
+            gate._audit_runtime_fixture_archive(
+                archive,
+                self.expected,
+                kind="apk",
+            )
 
 
 class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
