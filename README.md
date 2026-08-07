@@ -160,12 +160,13 @@ base-only AAB to the same selected raw sherpa/Fonix inputs, complete dependency
 graph, and file-backed loaded segments. Its output is deliberately
 `static-package-only`. In addition to synthetic/tamper coverage, the staged
 runner has built and passed this gate for the committed arm64-v8a Release
-sherpa reference composition. The latest opt-in runtime-provisioned pass also
-packaged and audited the exact generated Fonix/VAD fixtures and externally
-provisioned Silero model for consumption by the implemented native adapters
-during a future target run. It did not install or launch the APK, so no
-product, target, load-order, or runtime coexistence claim follows. The
-asset-free committed template still emits
+sherpa reference composition. The latest runtime-provisioned pass also ran the
+exact audited APK through trusted `adb` capture for `dart-first` and
+`sherpa-first` on the same API 35 arm64 emulator with a queried 4096-byte page
+size. Both bounded runs passed; their validator records remain
+`offline-consistency-only`, and the missing 16 KiB pair still blocks matrix
+aggregation and a general coexistence claim. The asset-free committed template
+still emits
 `unavailable/native-fixtures-unprovisioned`, and no AAB runtime claim exists
 until an AAB-derived split is installed and exercised.
 
@@ -195,7 +196,8 @@ bindings, runs its host contract tests, builds an arm64-v8a R8 Release APK and
 base-only AAB, and applies the closed package-pair audit. The bounded real
 Fonix and sherpa qualification adapters, authoritative lifecycle publication
 path, deterministic fixture generator, and trusted one-tuple target runner are
-implemented. Executing that runner on the required targets remains the next
+implemented. Both 4 KiB load orders now pass against one exact Release APK;
+executing both load orders on a real 16 KiB environment is the next target
 layer.
 
 ## Verification
@@ -227,34 +229,56 @@ exact CPU parity, fallback report/rejection, recovery, and deterministic
 cleanup. This is a functional emulator checkpoint, not physical-device,
 performance, thermal, or provider-qualification evidence. API 24 execution, an
 actual 16 KiB runtime, physical-device behavior, AAB split installation,
-x86_64 execution, QNN, and sherpa coexistence remain unproved. iOS, Linux, and
-the deferred Windows target-host gaps remain explicit release gates.
+x86_64 execution, and QNN remain unproved. Sherpa coexistence now has the exact
+4 KiB Release pair below, but not the required 16 KiB pair or complete
+compatibility manifest. iOS, Linux, and the deferred Windows target-host gaps
+remain explicit release gates.
 
-The committed sherpa-owned arm64-v8a reference composition implemented in
-`635e97d` and stabilized in `eaa195a` also has an exact runtime-provisioned R8
-Release APK/base-only-AAB static package-pair record. On macOS arm64, Flutter
-revision
-`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12 produced a
-42,979,622-byte APK with SHA-256
-`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8` and a
-26,045,591-byte base-only AAB with SHA-256
-`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
-The record binds the locked hosted package trees, all eight qualification
-assets, raw sherpa/ORT/Fonix inputs, complete native dependency graph, matching
-Flutter platform-library loaded bytes, and static 16 KiB ELF compatibility.
-APK installation and launch were not authorized or executed; the queried API
-35 arm64 emulator's 4096-byte page size is environment inventory, not target
+The current sherpa-owned arm64-v8a checkpoint was built from source commit
+`0e4effef837352685ab5ac39cd28e017973fca70`; that tree's
+`MANIFEST.sha256` file has SHA-256
+`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+The static gate produced a 45,070,602-byte R8 Release APK with SHA-256
+`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`
+and a 26,045,592-byte base-only AAB with SHA-256
+`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`.
+The static package manifest and gate report have SHA-256 values
+`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
+and
+`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
+
+The same APK and harness contract
+(`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`)
+then passed two independent trusted-`adb` captures on one API 35 arm64 emulator
+with page size 4096 and fingerprint hash
+`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
+The runs used distinct launch challenges. Both completed two alternating
+cycles, native Fonix cancellation, between-frame sherpa cancellation, stale
+completion suppression, recovery, both disposal orders, double disposal, and
+zero pending work; the package was absent after each run. The `dart-first`
+capture-manifest/raw-receipt/validation hashes are respectively
+`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
+`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
+and `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`;
+the `sherpa-first` hashes are
+`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
+`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
+and `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
+The capture manifests record `trusted-adb-capture`; the schema-1 validation
+records remain `offline-consistency-only` and do not authenticate themselves.
+This is an exact 4 KiB emulator checkpoint, not API 24, 16 KiB, physical-device,
+AAB-derived-install, performance, distribution, or general Android support
 evidence.
 
-The next development slice is to run the trusted target gate for both
-`dart-first` and `sherpa-first` on that 4 KiB arm64 emulator, then repeat both
-load orders on a real 16 KiB Android environment. After that come the iOS
-arm64 reference app, Linux x86_64 target-host package, and cross-platform
-lifecycle/performance and release stabilization. Android QNN/aligned-runtime
-device qualification and all Windows target-host, final-package, installer,
-and clean-machine work are deferred until their required SDK/hardware or
-Windows environment exists. Their existing static, source, tamper,
-cross-build, and loader-security gates remain required.
+The next development slice is both load orders on a real 16 KiB Android
+environment, followed by four-record compatibility aggregation. After that
+come the iOS arm64 reference app, Linux x86_64 target-host package, and
+cross-platform lifecycle/performance and release stabilization. Android
+QNN/aligned-runtime device qualification and all Windows target-host,
+provider, final-app/package, installer, and clean-machine work are deferred
+until their required SDK/hardware or Windows environment exists. Their
+existing portable, static, source, tamper, cross-build, and loader-security
+gates remain required.
 
 ## Documentation
 

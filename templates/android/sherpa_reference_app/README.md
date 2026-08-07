@@ -7,31 +7,56 @@ single ONNX Runtime packaged by sherpa-onnx.
 
 ## Current evidence status
 
-This checkpoint includes the real bounded qualification path and an exact
-runtime-provisioned arm64-v8a R8 Release APK/base-only-AAB static package audit.
-The implementation landed in commit `635e97d` and its staged build was
-stabilized in `eaa195a`. It contains no target execution evidence yet.
+This checkpoint includes the real bounded qualification path, an exact
+source-final arm64-v8a R8 Release APK/base-only-AAB static package audit, and
+trusted `dart-first` and `sherpa-first` captures on an API 35 arm64-v8a/4 KiB
+emulator. The source-final build and captures bind implementation commit
+`0e4effef837352685ab5ac39cd28e017973fca70`.
 
 The passing gate ran on macOS arm64 with Flutter revision
-`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It produced:
+`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It bound the
+source `MANIFEST.sha256` file with SHA-256
+`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`
+and produced:
 
-- a 42,979,622-byte APK with SHA-256
-  `d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
-- a 26,045,591-byte base-only AAB with SHA-256
-  `fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`;
+- a 45,070,602-byte APK with SHA-256
+  `93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`;
+- a 26,045,592-byte base-only AAB with SHA-256
+  `ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`;
 - a 16,118-byte static manifest with SHA-256
-  `8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`;
+  `a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`;
+- a 25,308-byte persisted gate report with SHA-256
+  `b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`;
   and
-- a gate report with SHA-256
-  `17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`.
+- a 1,552-byte harness contract with SHA-256
+  `963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`.
 
-The gate verified the `eaa195a` implementation tree's `MANIFEST.sha256`, whose
-SHA-256 was
-`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`
-and passed 50 staged Flutter tests plus analysis. An API 35 arm64 emulator was
-queried with a 4096-byte page size, but installation, launch, and target-runner
-execution were not authorized and did not occur. That query is not target
-evidence.
+The exact APK was installed independently for both load orders on an emulator
+reporting API 35, `arm64-v8a`, a 4096-byte page size, model token
+`Android-SDK-built-for-arm64`, and fingerprint SHA-256
+`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
+Both runs reported sherpa-owned process mode, ONNX Runtime 1.27.0, and API 27,
+and passed two alternating cycles plus the complete cancellation, stale,
+recovery, disposal, and zero-pending-work contract. The package was
+force-stopped, uninstalled, and verified absent after each run.
+
+- `dart-first`: trusted capture manifest
+  `6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
+  raw receipt
+  `fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
+  validation record
+  `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`;
+- `sherpa-first`: trusted capture manifest
+  `2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
+  raw receipt
+  `414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
+  validation record
+  `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
+
+Both capture manifests claim `trusted-adb-capture`; both validator records
+remain `offline-consistency-only`. This does not prove API 24, a 16 KiB
+runtime, a physical device, an installed AAB-derived split, performance,
+signing, or distribution.
 
 - The committed template declares no qualification assets. `main.dart`
   validates the trusted-runner launch envelope and emits
@@ -55,8 +80,8 @@ evidence.
   are not Android, ONNX Runtime, Fonix, sherpa, VAD, APK, or device evidence.
 - The trusted one-tuple target runner owns installation, a fresh challenge,
   queried device/page-size facts, UID/PID-bound log framing, force-stop,
-  uninstall, schema-2 receipt assembly, and offline validation. A passing
-  runner test is still not a target run.
+  uninstall, schema-2 receipt assembly, and offline validation. Its two retained
+  4 KiB captures above are target runs; a passing runner unit test alone is not.
 
 ## Locked composition
 
@@ -444,14 +469,13 @@ The repository gate builds and statically audits both outputs. Passing
 the asset-free unavailable template. The separate trusted target runner
 installs one audited APK on one selected adb serial, captures one load order and
 queried page size, validates it, then force-stops and removes only the package
-installed by that invocation. Until that runner succeeds on a target, this
-source still carries no runtime coexistence claim.
+installed by that invocation. It has succeeded for both load orders on the
+exact 4 KiB tuple recorded above; that evidence does not transfer to 16 KiB or
+another target.
 
-The next target steps are both `dart-first` and `sherpa-first` against the exact
-audited APK on the available API 35 arm64/4 KiB emulator, followed by both load
-orders on a real 16 KiB Android environment. The repository roadmap then moves
-to iOS arm64 and Linux x86_64 target-host work. Android aligned-build/QNN
-target qualification and all Windows target-host, provider/DirectML,
-final-application/package, installer, and clean-machine qualification remain
-deferred; existing static, source, cross-build, and security checks remain
-mandatory.
+The next target steps are both `dart-first` and `sherpa-first` on a real
+16 KiB Android environment. The repository roadmap then moves to iOS arm64 and
+Linux x86_64 target-host work. Android aligned-build/QNN target qualification
+and all Windows target-host, provider/DirectML, final-application/package,
+installer, and clean-machine qualification remain deferred; existing static,
+source, cross-build, and security checks remain mandatory.

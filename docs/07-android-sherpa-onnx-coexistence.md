@@ -496,14 +496,15 @@ This is an offline consistency gate, not a device-attestation system. Supplied
 target and logcat JSON can be fabricated by an untrusted caller even when all
 hashes agree. A target compatibility claim therefore also requires trusted
 runner provenance for installation, `adb`/package-manager capture, the raw
-logs, and the exact installed APK. The one-tuple trusted target runner is now
-implemented, but it has not produced a target receipt. Validator and
-compatibility-generator output remains offline consistency evidence even after
-a trusted capture: both emitted layers carry
+logs, and the exact installed APK. The one-tuple trusted target runner has now
+produced independent `dart-first` and `sherpa-first` captures for the exact
+arm64-v8a Release APK on the named 4 KiB emulator. Validator and compatibility-
+generator output remains offline consistency evidence even after a trusted
+capture: both emitted layers carry
 `claimStatus: offline-consistency-only`, and the validator record carries
 `targetEvidenceProvenance: unverified`. Separately retained runner provenance
-is the additional target layer; no such evidence exists yet, and the runner
-does not rewrite either closed value in place.
+is the additional target layer; it exists for those two 4 KiB tuples only, and
+the runner does not rewrite either closed value in place.
 
 ### Raw target workload and lifecycle gate
 
@@ -593,30 +594,48 @@ not supersede the four-record APK runtime matrix. The preliminary
 `sherpa-audit` policy alone is not this gate, and no AAB runtime claim exists
 until a delivered split is installed and exercised.
 
-Runtime-provisioned static reference checkpoint (2026-08-07): commit `635e97d`
-implements real bounded application adapters for Fonix process-runtime
-inference and sherpa Silero VAD, the authoritative lifecycle publication sink,
-deterministic fixture generation and strict asset loading, and the trusted
-one-tuple target runner; commit `eaa195a` stabilizes the staged build and
-tests. On a macOS arm64 host, the locked Release gate provisioned and
-statically audited all eight exact qualification assets and the single-ORT
-native graph in an arm64-v8a R8 APK and matching base-only AAB. The path-free
-gate report has SHA-256
-`17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`,
-the gate-time `eaa195a` implementation tree's `MANIFEST.sha256` has SHA-256
-`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`,
-and the static package manifest SHA-256 is
-`8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`.
-The APK is 42,979,622 bytes with SHA-256
-`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
-the AAB is 26,045,591 bytes with SHA-256
-`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
-The report deliberately records `targetEvidence: null`. An API 35 arm64
-emulator with a queried 4096-byte page size was available, but the APK was not
-installed or executed and the target runner produced no receipt. This is
-static package and implemented-harness evidence, not load-order, API
-negotiation, inference, lifecycle, page-size runtime, or target compatibility
-evidence.
+Runtime-provisioned 4 KiB target checkpoint (2026-08-07): source commit
+`0e4effef837352685ab5ac39cd28e017973fca70` contains the real bounded Fonix
+process-runtime and sherpa Silero VAD adapters, authoritative lifecycle sink,
+deterministic fixtures, strict asset gate, and trusted one-tuple runner. Its
+`MANIFEST.sha256` file has SHA-256
+`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+On macOS arm64, the locked gate provisioned all eight exact qualification
+assets and audited the single-ORT graph in a 45,070,602-byte arm64-v8a R8
+Release APK with SHA-256
+`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`
+and a 26,045,592-byte base-only AAB with SHA-256
+`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`.
+The static package manifest and gate report have SHA-256 values
+`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
+and
+`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
+
+The same APK and harness contract with SHA-256
+`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`
+then passed two independent trusted-`adb` captures on the same API 35 arm64
+emulator with page size 4096 and fingerprint hash
+`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
+The launches used distinct challenges. Each run completed two alternating
+Fonix/Silero-VAD cycles and passed native Fonix cancellation, bounded between-
+frame sherpa cancellation, stale completion suppression, recovery, both
+disposal orders, double disposal, and zero pending work. The runner verified
+that the package was absent after each run.
+
+For `dart-first`, the capture-manifest, raw-receipt, and schema-1 validation
+SHA-256 values are
+`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
+`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
+and `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`.
+For `sherpa-first`, they are
+`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
+`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
+and `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
+Both capture manifests record `trusted-adb-capture`; both validation records
+remain `offline-consistency-only`. This proves only the exact APK's two 4 KiB
+tuples. It does not prove API 24, a real 16 KiB runtime, a physical device, an
+AAB-derived installation, performance, distribution, or a complete Android
+compatibility matrix.
 
 ### Static-to-final binding and matrix aggregation
 
@@ -689,7 +708,7 @@ first development slice is arm64-v8a Release:
 | Runtime mode | sherpa-owned Flutter FFI shared runtime; aligned custom deferred |
 | ORT compatibility | supported API, intentionally unsupported API |
 | Provider | sherpa-owned CPU baseline; QNN aligned qualification deferred |
-| Packaging | exact APK runtime validation plus the implemented matching APK/base-only-AAB static gate; the runtime-provisioned reference composition passed statically with `targetEvidence: null`, while target execution must first cover both load orders on 4 KiB and then both on 16 KiB; delivered-split runtime later |
+| Packaging | exact APK runtime validation plus the matching APK/base-only-AAB static gate; both 4 KiB load orders passed against one exact audited Release APK, while both real 16 KiB load orders and four-record aggregation remain open; delivered-split runtime later |
 | Page size | 4 KB and 16 KB environment |
 | Workload | 2--64 strict Fonix-reference/Silero-VAD cycles, starting with Fonix |
 | Lifecycle | native Fonix cancellation settlement, between-frame VAD cancellation, stale suppression, recovery, both disposal orders, double disposal, zero pending work |

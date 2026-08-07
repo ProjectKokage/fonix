@@ -28,7 +28,7 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 | macOS arm64, minimum 14.0 | bundled CPU | Final-app tested with both a freshly generated gate app and the committed public-API reference `.app`, exact packaged bytes, and numeric CPU inference | Consistent distribution signing, removal/review of the local ad-hoc library-validation exception, notarization, and release approval |
 | iOS arm64 device, minimum 15.1 | linked CPU | Shim/runtime source resolution and device-target compilation | Signed final app, physical-device load/inference, lifecycle, and packaging audit |
 | iOS arm64 simulator, minimum 15.1 | linked CPU | Shim/runtime source resolution and simulator-target compilation | Final simulator app load/inference and packaging audit |
-| Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64 emulator with a queried 4096-byte page size; the sherpa-owned path has implemented real bounded adapters and a trusted target runner, plus a runtime-provisioned R8 Release APK/base-only-AAB static gate with all eight exact assets and one ORT graph, but its report has `targetEvidence: null` | API 24 execution, actual 16 KiB runtime, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, execution of the trusted sherpa target runner for both 4 KiB load orders and then both 16 KiB load orders against the exact statically audited APK, four validated records and compatibility aggregation, approved distribution signing, and release approval; QNN is deferred |
+| Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64/4096-byte emulator. The sherpa-owned path has an exact R8 Release APK/base-only-AAB static audit plus independent trusted-`adb` `dart-first` and `sherpa-first` runs of that same APK on the same emulator; both bounded two-cycle lifecycle contracts passed | API 24 execution, actual 16 KiB runtime, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, both 16 KiB sherpa load orders, four-record compatibility aggregation, approved distribution signing, and release approval; QNN is deferred |
 | Android x86_64, API 24 | application-owned CPU or sherpa-owned process shim | NDK cross-build, ELF/16 KiB static audit, and synthetic final native inventory | Flutter APK/AAB, emulator runtime/inference, sherpa coexistence, and release/R8 |
 | Linux x86_64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
 | Linux arm64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
@@ -82,9 +82,10 @@ delivered split. These offline tools establish internal contract and byte
 consistency, not target/log origin; trusted runner capture is required before
 promotion. Application-owned
 standalone CPU and XNNPACK functional emulator receipts now exist, but neither
-contains sherpa and no final product composition or Dart-first/sherpa-first
-receipt exists, so Android
-coexistence remains unqualified. The XNNPACK receipt also remains below
+contains sherpa. The exact sherpa-owned Release APK now has trusted captures for
+both 4 KiB load orders, but the two real 16 KiB records and four-record
+aggregation remain absent, so Android coexistence remains unqualified. The
+XNNPACK receipt also remains below
 `Provider-qualified` because it has no physical-device or benchmark evidence.
 
 The static compatibility tooling now has separate closed `jni` and
@@ -92,27 +93,42 @@ The static compatibility tooling now has separate closed `jni` and
 native inputs pass their C API/C++ API dependency and 16 KiB ELF checks, and
 schema-2 records can bind repeatable raw `jniLibs`/Native Assets inventories to
 every final loaded segment. The static package-pair path has deterministic
-synthetic and tamper coverage. Commit `635e97d` adds the real bounded Fonix
-process-runtime and sherpa Silero VAD adapters, authoritative lifecycle
-publication sink, deterministic fixture and asset gate, and trusted one-tuple
-target runner; commit `eaa195a` stabilizes the staged build and tests. The
-runtime-provisioned arm64-v8a R8 Release gate statically audited all eight
-exact assets and the single-ORT graph. Its report
-SHA-256 is
-`17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`;
-the gate-time `eaa195a` implementation tree's `MANIFEST.sha256` and the static
-package manifest have respective SHA-256 values
-`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`
-and `8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`.
-The resulting 42,979,622-byte APK has SHA-256
-`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
-the 26,045,591-byte base-only AAB has SHA-256
-`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
-The report has `targetEvidence: null`: the queried API 35 arm64/4096-byte
-emulator was not used to install or run the APK, and the target runner produced
-no receipt. This implementation and static package evidence does not promote
-the Android row without both 4 KiB load orders followed by both 16 KiB load
-orders and the required validation/aggregation.
+synthetic and tamper coverage. Source commit
+`0e4effef837352685ab5ac39cd28e017973fca70` contains the bounded real
+adapters, lifecycle sink, fixtures, and trusted runner; its `MANIFEST.sha256`
+file has SHA-256
+`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+The runtime-provisioned arm64-v8a R8 Release gate statically audited all eight
+assets and the single-ORT graph. The resulting 45,070,602-byte APK has SHA-256
+`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`;
+the 26,045,592-byte base-only AAB has SHA-256
+`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`.
+The static package manifest/report hashes are
+`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
+and
+`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
+
+That exact APK and harness contract
+(`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`)
+passed `dart-first` and `sherpa-first` under distinct challenges on one API 35
+arm64 emulator with page size 4096 and fingerprint hash
+`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
+Both two-cycle trusted-`adb` captures passed cancellation, stale suppression,
+recovery, both disposal orders, double disposal, and zero pending work, and the
+package was absent afterward. The `dart-first` capture/receipt/validation
+hashes are
+`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
+`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
+and `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`;
+the `sherpa-first` hashes are
+`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
+`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
+and `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
+Capture provenance is `trusted-adb-capture`; validation remains
+`offline-consistency-only`. This does not promote the Android row without both
+real 16 KiB load orders and required four-record aggregation, and it is not API
+24, physical-device, AAB-derived-install, performance, or distribution
+evidence.
 
 The runtime receipt validator currently accepts only the sherpa-owned process
 mode with the Flutter FFI C API/C++ API topology in an APK. Although the
@@ -193,11 +209,10 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
   listed above.
 - No non-CPU provider has the complete advertised hardware qualification
   matrix. The macOS CoreML receipt is intentionally limited to `CPUOnly`.
-- The Android sherpa runtime-provisioned composition, exact harness/fixtures,
-  lifecycle sink, and trusted target runner are implemented and the Release
-  APK/AAB pair passed static audit, but the report has `targetEvidence: null`.
-  Product receipts still require both 4 KiB load orders and then both 16 KiB
-  load orders for each claimed ABI/build, using the exact audited APK.
+- The Android sherpa runtime-provisioned composition and exact Release APK/AAB
+  passed static audit, and both 4 KiB load orders passed trusted target capture.
+  Product compatibility still requires both real 16 KiB load orders and the
+  complete four-record aggregation for each claimed ABI/build.
 - Android QNN product receipts require an exact SDK/license, aligned build,
   selected device/firmware, and redistribution decision that are not present.
 - Android QNN qualification and Windows target-host/package work are explicitly

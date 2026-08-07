@@ -7,30 +7,28 @@ The coding agent should implement vertical slices that produce runnable packaged
 The current development sequence is narrower than the phase inventory below:
 
 The completed macOS arm64 CPU, Android arm64 CPU, Android arm64 XNNPACK
-functional emulator, and Android sherpa runtime-provisioned static gates are
-standing regressions and must stay green. The XNNPACK checkpoint is not
-provider qualification, and the sherpa static gate is not target evidence.
+functional emulator, and Android sherpa exact Release static plus two-load-
+order 4 KiB gates are standing regressions and must stay green. The XNNPACK
+checkpoint is not provider qualification, and the sherpa checkpoint is limited
+to its exact API 35 arm64/4096-byte emulator tuple.
 
-1. run the trusted one-tuple Android sherpa target gate for `dart-first` and
-   `sherpa-first` on the queried 4 KiB arm64 emulator, retaining exact
-   installed-APK, package-manager, `adb`, and logcat provenance;
-2. repeat both load orders on an actual 16 KiB environment, validate the four
-   independent raw schema-2 receipts into schema-1 records, and aggregate only
-   those records into the schema-2 compatibility manifest; offline record
-   validation does not authenticate target origin, so only trusted-runner
-   captures qualify;
-3. produce the iOS arm64 CPU/CoreML reference application; verify final
+1. run the same exact Android sherpa APK through `dart-first` and
+   `sherpa-first` on an actual 16 KiB environment, retain trusted-runner
+   provenance, validate those two raw schema-2 receipts into schema-1 records,
+   and aggregate all four 4 KiB/16 KiB records into the schema-2 compatibility
+   manifest; offline record validation does not authenticate target origin;
+2. produce the iOS arm64 CPU/CoreML reference application; verify final
    simulator packaging/inference first, then physical-device lifecycle,
    assignment, parity, and fallback evidence when hardware/signing are
    available;
-4. produce and exercise the Linux x86_64 CPU reference package on a clean
+3. produce and exercise the Linux x86_64 CPU reference package on a clean
    target host, then cover Linux arm64 or accelerated flavors only on matching
    target hardware;
-5. finish cross-platform correctness and performance stabilization:
+4. finish cross-platform correctness and performance stabilization:
    cancellation/stale-work suppression, repeated initialization/disposal,
    bounded queues/profiles, public API/shim ABI review, representative model
    corpus, and measured baselines for rows intended to be advertised; and
-6. finish release engineering for the qualified targets: hosted target lanes
+5. finish release engineering for the qualified targets: hosted target lanes
    where feasible, artifact reproducibility, final-package audits,
    SBOM/notices/checksums, security policy, licensing, signing, clean-machine
    installation, and explicit support-matrix promotion. This can close the
@@ -186,8 +184,8 @@ two sessions, exact CPU parity, fallback report/rejection, recovery, five-
 session cleanup, and double close. This closes the macOS and Android standalone
 development reference slices only. Android API 24 execution, an actual 16 KiB
 runtime, physical-device/x86_64 execution, XNNPACK performance/thermal/provider
-qualification, sherpa coexistence, iOS, Linux, and the deferred Windows target-
-host gates remain open.
+qualification, the complete 4 KiB/16 KiB sherpa coexistence matrix, iOS,
+Linux, and the deferred Windows target-host gates remain open.
 
 ## Phase 5: async worker and throughput primitives
 
@@ -306,31 +304,38 @@ binds the exact sherpa-owned Flutter FFI APK, evidence process, fixtures,
 alternating workload, and lifecycle, emits schema-1 validation records, and
 requires four current records before schema-2 aggregation.
 
-Commit `635e97d` implements the real bounded Fonix process-runtime and sherpa
-Silero VAD application adapters, authoritative lifecycle publication sink,
-deterministic fixture generator and strict asset gate, plus the trusted
-one-tuple target runner; commit `eaa195a` stabilizes the staged build and
-tests. On a macOS arm64 host, the runtime-provisioned Release gate passed for
-an arm64-v8a R8 APK and matching base-only AAB, statically auditing all eight
-exact assets and the single-ORT graph. Its report SHA-256 is
-`17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`,
-the gate-time `eaa195a` implementation tree's `MANIFEST.sha256` has SHA-256
-`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`,
-and the static package manifest SHA-256 is
-`8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`.
-The 42,979,622-byte APK has SHA-256
-`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
-the 26,045,591-byte AAB has SHA-256
-`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
+Source commit `0e4effef837352685ab5ac39cd28e017973fca70` contains the real
+bounded Fonix/Silero-VAD adapters, lifecycle sink, deterministic assets, and
+trusted runner; its `MANIFEST.sha256` file has SHA-256
+`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
+The macOS arm64 gate produced a 45,070,602-byte arm64-v8a R8 Release APK
+(`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`)
+and 26,045,592-byte base-only AAB
+(`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`).
+The static manifest/report hashes are
+`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
+and
+`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
 
-The report has `targetEvidence: null`. Although an API 35 arm64 emulator with
-a queried 4096-byte page size was available, the APK was not installed or run
-and the target runner emitted no receipt. Separate application-owned CPU and
-XNNPACK APKs retain their earlier 4 KiB emulator evidence, but neither contains
-sherpa. Phase 7 therefore remains partially complete: next run both load
-orders on 4 KiB, then both on an actual 16 KiB environment; no target,
-load-order, inference, lifecycle, or page-size runtime claim follows from the
-static checkpoint.
+That exact APK and harness
+(`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`)
+passed `dart-first` and `sherpa-first` with distinct challenges on one API 35
+arm64 emulator with page size 4096 and fingerprint hash
+`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
+Both two-cycle trusted-`adb` captures passed cancellation, stale suppression,
+recovery, both disposal orders, double disposal, and zero pending work, and
+left the package absent. The respective capture/receipt/validation hashes are
+`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
+`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
+`44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`
+and
+`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
+`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
+`72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
+Capture provenance is `trusted-adb-capture`; schema-1 validation remains
+`offline-consistency-only`. Phase 7 is still partial: both real 16 KiB load
+orders and four-record aggregation are next. API 24, physical-device,
+AAB-derived-install, performance, and distribution evidence remain open.
 
 ## Phase 8: desktop accelerated flavors
 
