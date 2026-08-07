@@ -1180,7 +1180,7 @@ class AndroidSherpaRuntimeFixtureArchiveTest(unittest.TestCase):
                     kind="apk",
                 )
 
-    def test_excessive_fixture_compression_fails_closed(self) -> None:
+    def test_excessive_apk_fixture_compression_fails_closed(self) -> None:
         fixture_name = gate.RUNTIME_FIXTURE_NAMES[0]
         contents = b"\x00" * 100_000
         self.contents[fixture_name] = contents
@@ -1203,6 +1203,26 @@ class AndroidSherpaRuntimeFixtureArchiveTest(unittest.TestCase):
                 self.expected,
                 kind="apk",
             )
+
+    def test_exact_aab_fixture_may_use_transport_compression(self) -> None:
+        fixture_name = gate.RUNTIME_FIXTURE_NAMES[0]
+        contents = b"\x00" * 100_000
+        self.contents[fixture_name] = contents
+        self.expected[fixture_name] = gate.FileIdentity(
+            len(contents),
+            hashlib.sha256(contents).hexdigest(),
+        )
+        archive = self._write_archive(
+            "transport-compressed.aab",
+            kind="aab",
+            compression=zipfile.ZIP_DEFLATED,
+        )
+
+        gate._audit_runtime_fixture_archive(
+            archive,
+            self.expected,
+            kind="aab",
+        )
 
 
 class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
