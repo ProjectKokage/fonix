@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 import unittest
 import warnings
 import zipfile
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 
@@ -1539,6 +1542,7 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
         self.assertFalse(hasattr(arguments, "avd_name"))
         self.assertFalse(hasattr(arguments, "load_order_validation_record"))
         self.assertIsNone(arguments.sherpa_model)
+        self.assertIsNone(arguments.report)
 
         provisioned = parser.parse_args(
             (
@@ -1552,12 +1556,619 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
                 "/java",
                 "--sherpa-model",
                 "/fixtures/silero_vad.int8.onnx",
+                "--report",
+                "/reports/static-report.json",
             )
         )
         self.assertEqual(
             provisioned.sherpa_model,
             Path("/fixtures/silero_vad.int8.onnx"),
         )
+        self.assertEqual(
+            provisioned.report,
+            Path("/reports/static-report.json"),
+        )
+
+
+class AndroidSherpaReferenceReportOutputTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="fonix-sherpa-report-"
+        )
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.report = {
+            "schemaVersion": 1,
+            "result": "passed",
+            "nested": {"value": 3},
+        }
+
+    @staticmethod
+    def _arguments(*extra: str) -> tuple[str, ...]:
+        return (
+            "--flutter",
+            "/flutter",
+            "--work-dir",
+            "/work",
+            "--android-sdk",
+            "/sdk",
+            "--java-home",
+            "/java",
+            *extra,
+        )
+
+    def _main(
+        self,
+        *extra: str,
+        result: object | None = None,
+        error: Exception | None = None,
+    ) -> tuple[int, str, str, mock.Mock]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        runner = mock.Mock(
+            side_effect=error,
+            return_value=self.report if result is None else result,
+        )
+        with (
+            mock.patch.object(gate, "run_gate", runner),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            status = gate.main(self._arguments(*extra))
+        return status, stdout.getvalue(), stderr.getvalue(), runner
+
+    def test_stdout_json_is_unchanged_without_report(self) -> None:
+        status, stdout, stderr, runner = self._main()
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            stdout,
+            json.dumps(self.report, indent=2, sort_keys=True) + "\n",
+        )
+        self.assertEqual(stderr, "")
+        runner.assert_called_once()
+
+    def test_report_is_canonical_private_json_with_one_lf(self) -> None:
+        destination = self.root / "gate-report.json"
+
+        status, stdout, stderr, runner = self._main(
+            "--report",
+            str(destination),
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            destination.read_bytes(),
+            (
+                json.dumps(
+                    self.report,
+                    ensure_ascii=True,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            ).encode("utf-8"),
+        )
+        self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o600)
+        self.assertEqual(
+            stdout,
+            f"Wrote Android sherpa reference app gate report: {destination}\n",
+        )
+        self.assertEqual(stderr, "")
+        runner.assert_called_once()
+
+    def test_invalid_report_locations_fail_before_gate(self) -> None:
+        existing = self.root / "existing.json"
+        existing.write_text("preserve\n", encoding="utf-8")
+        real_parent = self.root / "real-parent"
+        real_parent.mkdir()
+        linked_parent = self.root / "linked-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        invalid_paths = (
+            Path("relative-report.json"),
+            self.root / "missing-parent" / "report.json",
+            linked_parent / "report.json",
+            existing,
+        )
+
+        for destination in invalid_paths:
+            with self.subTest(destination=destination):
+                status, stdout, stderr, runner = self._main(
+                    "--report",
+                    str(destination),
+                )
+                self.assertEqual(status, 1)
+                self.assertEqual(stdout, "")
+                self.assertIn("--report", stderr)
+                runner.assert_not_called()
+        self.assertEqual(existing.read_text(encoding="utf-8"), "preserve\n")
+
+    def test_report_inside_repository_fails_before_gate(self) -> None:
+        repository = self.root / "repository"
+        repository.mkdir()
+        destination = repository / "report.json"
+
+        status, stdout, stderr, runner = self._main(
+            "--repository",
+            str(repository),
+            "--report",
+            str(destination),
+        )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("outside the source repository", stderr)
+        self.assertFalse(destination.exists())
+        runner.assert_not_called()
+
+    def test_group_writable_report_parent_fails_before_gate(self) -> None:
+        shared_parent = self.root / "shared-parent"
+        shared_parent.mkdir()
+        shared_parent.chmod(0o770)
+        destination = shared_parent / "report.json"
+
+        status, stdout, stderr, runner = self._main(
+            "--report",
+            str(destination),
+        )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("not group- or world-writable", stderr)
+        self.assertFalse(destination.exists())
+        runner.assert_not_called()
+
+    def test_unsupported_report_publication_fails_before_gate(self) -> None:
+        destination = self.root / "unsupported.json"
+        error = gate.AndroidSherpaReferenceAppGateError(
+            "--report requires POSIX support"
+        )
+
+        with mock.patch.object(
+            gate,
+            "_require_report_output_capabilities",
+            side_effect=error,
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("requires POSIX support", stderr)
+        self.assertFalse(destination.exists())
+        runner.assert_not_called()
+
+    def test_missing_no_follow_capability_fails_before_gate(self) -> None:
+        destination = self.root / "missing-no-follow.json"
+
+        with mock.patch.object(
+            gate.os,
+            "supports_follow_symlinks",
+            set(),
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("directory-descriptor publication", stderr)
+        self.assertFalse(destination.exists())
+        runner.assert_not_called()
+
+    def test_gate_failure_does_not_create_report(self) -> None:
+        destination = self.root / "failed-report.json"
+
+        status, stdout, stderr, runner = self._main(
+            "--report",
+            str(destination),
+            error=gate.AndroidSherpaReferenceAppGateError("postflight failed"),
+        )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("postflight failed", stderr)
+        self.assertFalse(destination.exists())
+        runner.assert_called_once()
+
+    def test_parent_replacement_during_gate_cannot_redirect_report(self) -> None:
+        parent = self.root / "report-parent"
+        parent.mkdir()
+        displaced = self.root / "displaced-parent"
+        destination = parent / "report.json"
+
+        def replace_parent(**_kwargs: object) -> dict[str, object]:
+            parent.rename(displaced)
+            parent.mkdir()
+            return self.report
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(gate, "run_gate", side_effect=replace_parent),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            status = gate.main(
+                self._arguments("--report", str(destination))
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("parent changed", stderr.getvalue())
+        self.assertFalse(destination.exists())
+        self.assertFalse((displaced / destination.name).exists())
+
+    def test_partial_write_failure_removes_owned_temporary(self) -> None:
+        destination = self.root / "partial-write.json"
+        real_write = os.write
+        calls = 0
+
+        def fail_after_partial_write(
+            descriptor: int, data: bytes | bytearray | memoryview
+        ) -> int:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                view = memoryview(data)
+                return real_write(descriptor, view[:7])
+            raise OSError("injected write failure")
+
+        with mock.patch.object(
+            gate.os,
+            "write",
+            side_effect=fail_after_partial_write,
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("could not publish", stderr)
+        self.assertFalse(destination.exists())
+        self.assertEqual(list(self.root.glob(".fonix-sherpa-report-*.tmp")), [])
+        runner.assert_called_once()
+
+    def test_fsync_failure_removes_owned_temporary(self) -> None:
+        destination = self.root / "fsync-failure.json"
+
+        with mock.patch.object(
+            gate.os,
+            "fsync",
+            side_effect=OSError("injected fsync failure"),
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("could not publish", stderr)
+        self.assertFalse(destination.exists())
+        self.assertEqual(list(self.root.glob(".fonix-sherpa-report-*.tmp")), [])
+        runner.assert_called_once()
+
+    def test_temporary_fstat_failure_leaves_only_zero_byte_orphan(self) -> None:
+        destination = self.root / "fstat-failure.json"
+        real_fstat = os.fstat
+        real_close = os.close
+        fstat_calls = 0
+        failed_descriptor: list[int] = []
+        closed_descriptors: list[int] = []
+
+        def fail_temporary_fstat(descriptor: int) -> os.stat_result:
+            nonlocal fstat_calls
+            fstat_calls += 1
+            if fstat_calls == 3:
+                failed_descriptor.append(descriptor)
+                raise OSError("injected fstat failure")
+            return real_fstat(descriptor)
+
+        def record_close(descriptor: int) -> None:
+            closed_descriptors.append(descriptor)
+            real_close(descriptor)
+
+        with (
+            mock.patch.object(
+                gate, "_require_report_output_capabilities"
+            ),
+            mock.patch.object(
+                gate.os,
+                "fstat",
+                side_effect=fail_temporary_fstat,
+            ),
+            mock.patch.object(gate.os, "close", side_effect=record_close),
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("no report bytes were written", stderr)
+        self.assertEqual(len(failed_descriptor), 1)
+        self.assertIn(failed_descriptor[0], closed_descriptors)
+        self.assertFalse(destination.exists())
+        temporary_paths = list(
+            self.root.glob(".fonix-sherpa-report-*.tmp")
+        )
+        self.assertEqual(len(temporary_paths), 1)
+        self.assertEqual(temporary_paths[0].read_bytes(), b"")
+        self.assertEqual(
+            stat.S_IMODE(temporary_paths[0].stat().st_mode) & ~0o600,
+            0,
+        )
+        runner.assert_called_once()
+
+    def test_temporary_fstat_failure_preserves_raced_replacement(self) -> None:
+        destination = self.root / "fstat-race.json"
+        real_fstat = os.fstat
+        real_stat = os.stat
+        real_close = os.close
+        fstat_calls = 0
+        failed_descriptor: list[int] = []
+        closed_descriptors: list[int] = []
+        replacement_paths: list[Path] = []
+
+        def replace_then_fail(descriptor: int) -> os.stat_result:
+            nonlocal fstat_calls
+            fstat_calls += 1
+            if fstat_calls == 3:
+                candidates = list(
+                    self.root.glob(".fonix-sherpa-report-*.tmp")
+                )
+                self.assertEqual(len(candidates), 1)
+                replacement = candidates[0]
+                replacement.unlink()
+                replacement.write_bytes(b"attacker-owned\n")
+                replacement_paths.append(replacement)
+                failed_descriptor.append(descriptor)
+                raise OSError("injected fstat race")
+            return real_fstat(descriptor)
+
+        def reject_descriptor_stat(
+            path: str | bytes | int,
+            *args: object,
+            **kwargs: object,
+        ) -> os.stat_result:
+            if isinstance(path, int):
+                raise AssertionError("descriptor stat fallback is unsafe")
+            return real_stat(path, *args, **kwargs)
+
+        def record_close(descriptor: int) -> None:
+            closed_descriptors.append(descriptor)
+            real_close(descriptor)
+
+        with (
+            mock.patch.object(
+                gate, "_require_report_output_capabilities"
+            ),
+            mock.patch.object(
+                gate.os,
+                "fstat",
+                side_effect=replace_then_fail,
+            ),
+            mock.patch.object(
+                gate.os,
+                "stat",
+                side_effect=reject_descriptor_stat,
+            ),
+            mock.patch.object(gate.os, "close", side_effect=record_close),
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("unverified path was left untouched", stderr)
+        self.assertEqual(len(failed_descriptor), 1)
+        self.assertIn(failed_descriptor[0], closed_descriptors)
+        self.assertFalse(destination.exists())
+        self.assertEqual(len(replacement_paths), 1)
+        self.assertEqual(
+            replacement_paths[0].read_bytes(),
+            b"attacker-owned\n",
+        )
+        runner.assert_called_once()
+
+    def test_temporary_close_failure_is_typed_without_double_close(self) -> None:
+        destination = self.root / "temporary-close-failure.json"
+        real_close = os.close
+        close_calls: list[int] = []
+
+        def fail_first_close_after_consuming(descriptor: int) -> None:
+            close_calls.append(descriptor)
+            real_close(descriptor)
+            if len(close_calls) == 1:
+                raise OSError("injected temporary close failure")
+
+        with mock.patch.object(
+            gate.os,
+            "close",
+            side_effect=fail_first_close_after_consuming,
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("completed --report temporary", stderr)
+        self.assertEqual(len(close_calls), 2)
+        self.assertNotEqual(close_calls[0], close_calls[1])
+        self.assertFalse(destination.exists())
+        runner.assert_called_once()
+
+    def test_parent_close_failure_does_not_revoke_published_report(self) -> None:
+        destination = self.root / "parent-close-failure.json"
+        real_close = os.close
+        close_calls: list[int] = []
+
+        def fail_second_close_after_consuming(descriptor: int) -> None:
+            close_calls.append(descriptor)
+            real_close(descriptor)
+            if len(close_calls) == 2:
+                raise OSError("injected parent close failure")
+
+        with mock.patch.object(
+            gate.os,
+            "close",
+            side_effect=fail_second_close_after_consuming,
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 0)
+        self.assertIn("Wrote Android sherpa", stdout)
+        self.assertEqual(stderr, "")
+        self.assertEqual(len(close_calls), 2)
+        self.assertTrue(destination.is_file())
+        runner.assert_called_once()
+
+    def test_final_name_is_linked_only_after_complete_bytes(self) -> None:
+        destination = self.root / "atomic-report.json"
+        expected = (
+            json.dumps(
+                self.report,
+                ensure_ascii=True,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        real_link = os.link
+        observed_at_link: list[bytes] = []
+
+        def inspect_link(
+            source: str,
+            target: str,
+            *,
+            src_dir_fd: int | None = None,
+            dst_dir_fd: int | None = None,
+            follow_symlinks: bool = True,
+        ) -> None:
+            self.assertFalse(destination.exists())
+            self.assertIsNotNone(src_dir_fd)
+            descriptor = os.open(
+                source,
+                os.O_RDONLY,
+                dir_fd=src_dir_fd,
+            )
+            try:
+                observed_at_link.append(os.read(descriptor, len(expected) + 1))
+            finally:
+                os.close(descriptor)
+            real_link(
+                source,
+                target,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+                follow_symlinks=follow_symlinks,
+            )
+
+        with (
+            mock.patch.object(
+                gate, "_require_report_output_capabilities"
+            ),
+            mock.patch.object(gate.os, "link", side_effect=inspect_link),
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(observed_at_link, [expected])
+        self.assertEqual(destination.read_bytes(), expected)
+        self.assertNotEqual(stdout, "")
+        self.assertEqual(stderr, "")
+        runner.assert_called_once()
+
+    def test_parent_replacement_after_link_removes_owned_output(self) -> None:
+        parent = self.root / "publication-parent"
+        parent.mkdir()
+        displaced = self.root / "publication-parent-displaced"
+        destination = parent / "report.json"
+        real_link = os.link
+
+        def link_then_replace_parent(
+            source: str,
+            target: str,
+            *,
+            src_dir_fd: int | None = None,
+            dst_dir_fd: int | None = None,
+            follow_symlinks: bool = True,
+        ) -> None:
+            real_link(
+                source,
+                target,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+                follow_symlinks=follow_symlinks,
+            )
+            parent.rename(displaced)
+            parent.mkdir()
+
+        with (
+            mock.patch.object(
+                gate, "_require_report_output_capabilities"
+            ),
+            mock.patch.object(
+                gate.os,
+                "link",
+                side_effect=link_then_replace_parent,
+            ),
+        ):
+            status, stdout, stderr, runner = self._main(
+                "--report",
+                str(destination),
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("parent changed", stderr)
+        self.assertFalse(destination.exists())
+        self.assertFalse((displaced / destination.name).exists())
+        self.assertEqual(
+            list(displaced.glob(".fonix-sherpa-report-*.tmp")),
+            [],
+        )
+        runner.assert_called_once()
+
+    def test_report_race_preserves_existing_file(self) -> None:
+        destination = self.root / "raced-report.json"
+
+        def occupy_destination(**_kwargs: object) -> dict[str, object]:
+            destination.write_bytes(b"occupied\n")
+            return self.report
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(gate, "run_gate", side_effect=occupy_destination),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            status = gate.main(
+                self._arguments("--report", str(destination))
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("already exists", stderr.getvalue())
+        self.assertEqual(destination.read_bytes(), b"occupied\n")
 
 
 if __name__ == "__main__":

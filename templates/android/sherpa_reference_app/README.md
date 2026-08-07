@@ -419,12 +419,25 @@ python3 -B tool/ci/run_android_sherpa_reference_app_gate.py \
   --work-dir /absolute/new/path/fonix-sherpa-runtime \
   --android-sdk /absolute/path/to/android-sdk \
   --java-home /absolute/path/to/jdk-21.0.12 \
-  --sherpa-model /absolute/path/to/silero_vad.int8.onnx
+  --sherpa-model /absolute/path/to/silero_vad.int8.onnx \
+  --report /absolute/new/path/fonix-sherpa-runtime-report.json
 ```
 
 The model is an external build input and must match the gate's exact size and
 SHA-256. It is copied only into the new staged build and must not be added to
-this repository.
+this repository. The optional report path must be absolute and new, with an
+existing non-symlink directory owned by the current user and not writable by
+group or other users as its parent, and it must remain outside the source
+repository. Use a dedicated mode-`0700` evidence directory rather than a
+shared temporary directory. File publication requires a POSIX host with
+directory-descriptor and hard-link support. The gate retains the verified
+parent across the build, writes and verifies a private temporary inode, and
+publishes only the complete canonical pretty-printed JSON report with mode
+`0600`, after the complete gate and postflight checks pass. If the first inode
+identity read fails, no report bytes are written and the gate leaves the
+unverified zero-byte temporary path untouched instead of risking deletion of a
+raced replacement. Without `--report`, the same JSON remains on stdout on
+every supported gate host.
 
 The repository gate builds and statically audits both outputs. Passing
 `--sherpa-model` opts into the exact runtime fixture set; omitting it preserves

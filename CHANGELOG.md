@@ -32,6 +32,9 @@
   Fonix/VAD fixtures, process-runtime Fonix and sherpa adapters, authoritative
   cancellation/stale-result publication, recovery and disposal checks, and a
   trusted UID/PID-bound one-tuple target runner.
+- Added atomic opt-in publication of a successful Android sherpa static-gate
+  report to a new private external evidence path, while preserving stdout JSON
+  compatibility and failing closed on path, identity, or publication races.
 - Passed the runtime-provisioned static gate after implementation commit
   `635e97d` and staged-build stabilization commit `eaa195a` on macOS arm64
   with Flutter revision

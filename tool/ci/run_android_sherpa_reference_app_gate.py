@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import sys
 from typing import Any, Callable, Mapping, NamedTuple, Sequence
@@ -189,6 +190,14 @@ class AndroidSherpaReferenceAppGateError(RuntimeError):
 class FileIdentity(NamedTuple):
     size_bytes: int
     sha256: str
+
+
+class ReportDestination(NamedTuple):
+    path: Path
+    parent: Path
+    name: str
+    directory_descriptor: int
+    parent_identity: tuple[int, int]
 
 
 class CopySummary(NamedTuple):
@@ -2995,6 +3004,360 @@ def run_gate(
             )
 
 
+def _require_report_output_capabilities() -> None:
+    required_dir_fd_functions = (os.open, os.stat, os.unlink, os.link)
+    required_no_follow_functions = (os.stat, os.link)
+    if (
+        os.name != "posix"
+        or not hasattr(os, "O_DIRECTORY")
+        or not hasattr(os, "O_NOFOLLOW")
+        or not hasattr(os, "fchmod")
+        or any(
+            function not in os.supports_dir_fd
+            for function in required_dir_fd_functions
+        )
+        or any(
+            function not in os.supports_follow_symlinks
+            for function in required_no_follow_functions
+        )
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "--report requires POSIX directory-descriptor publication support"
+        )
+
+
+def _status_identity(metadata: os.stat_result) -> tuple[int, int]:
+    return metadata.st_dev, metadata.st_ino
+
+
+def _report_entry_status(
+    destination: ReportDestination, name: str
+) -> os.stat_result | None:
+    try:
+        return os.stat(
+            name,
+            dir_fd=destination.directory_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return None
+
+
+def _verify_report_parent(destination: ReportDestination) -> None:
+    try:
+        linked = destination.parent.lstat()
+        opened = os.fstat(destination.directory_descriptor)
+    except OSError as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "--report parent changed during the gate"
+        ) from error
+    if (
+        not stat.S_ISDIR(linked.st_mode)
+        or not stat.S_ISDIR(opened.st_mode)
+        or _status_identity(linked) != destination.parent_identity
+        or _status_identity(opened) != destination.parent_identity
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "--report parent changed during the gate"
+        )
+
+
+def _prepare_report_destination(
+    path: Path, repository: Path
+) -> ReportDestination:
+    _require_report_output_capabilities()
+    if not path.is_absolute() or path.name in {"", ".", ".."}:
+        raise AndroidSherpaReferenceAppGateError(
+            "--report must be an absolute file path"
+        )
+    try:
+        encoded_name = path.name.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "--report file name must be valid UTF-8"
+        ) from error
+    if len(encoded_name) > 240 or b"\x00" in encoded_name:
+        raise AndroidSherpaReferenceAppGateError(
+            "--report file name is outside its byte bound"
+        )
+    try:
+        repository_root = repository.resolve(strict=True)
+        repository_metadata = repository_root.lstat()
+        parent_metadata = path.parent.lstat()
+        if stat.S_ISLNK(parent_metadata.st_mode) or not stat.S_ISDIR(
+            parent_metadata.st_mode
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                "--report parent must be a non-symlink directory"
+            )
+        parent = path.parent.resolve(strict=True)
+        resolved_metadata = parent.lstat()
+    except (OSError, ValueError) as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "--report repository and parent must already exist"
+        ) from error
+    if not stat.S_ISDIR(repository_metadata.st_mode):
+        raise AndroidSherpaReferenceAppGateError(
+            "--repository must resolve to a directory"
+        )
+    if (
+        not stat.S_ISDIR(resolved_metadata.st_mode)
+        or _status_identity(parent_metadata) != _status_identity(resolved_metadata)
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "--report parent must be a stable non-symlink directory"
+        )
+    if (
+        resolved_metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(resolved_metadata.st_mode) & 0o022
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "--report parent must be owned by the current user and not "
+            "group- or world-writable"
+        )
+    destination_path = parent / path.name
+    if (
+        destination_path == repository_root
+        or repository_root in destination_path.parents
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "--report must be outside the source repository"
+        )
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(parent, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or _status_identity(opened) != _status_identity(resolved_metadata)
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                "--report parent changed while being opened"
+            )
+        destination = ReportDestination(
+            destination_path,
+            parent,
+            path.name,
+            descriptor,
+            _status_identity(opened),
+        )
+        if _report_entry_status(destination, destination.name) is not None:
+            raise AndroidSherpaReferenceAppGateError(
+                "--report must name a new path"
+            )
+        descriptor = None
+        return destination
+    except OSError as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "could not safely open --report parent"
+        ) from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _unlink_owned_report_entry(
+    destination: ReportDestination,
+    name: str | None,
+    identity: tuple[int, int] | None,
+) -> None:
+    if name is None or identity is None:
+        return
+    try:
+        metadata = _report_entry_status(destination, name)
+        if metadata is not None and _status_identity(metadata) == identity:
+            os.unlink(name, dir_fd=destination.directory_descriptor)
+    except OSError:
+        pass
+
+
+def _create_report_temporary(
+    destination: ReportDestination,
+) -> tuple[str, int, tuple[int, int]]:
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    for _attempt in range(16):
+        name = f".fonix-sherpa-report-{secrets.token_hex(16)}.tmp"
+        try:
+            descriptor = os.open(
+                name,
+                flags,
+                0o600,
+                dir_fd=destination.directory_descriptor,
+            )
+        except FileExistsError:
+            continue
+        try:
+            metadata = os.fstat(descriptor)
+        except OSError as error:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise AndroidSherpaReferenceAppGateError(
+                "--report temporary identity could not be verified before "
+                "writing; no report bytes were written and the unverified "
+                f"path was left untouched: {destination.parent / name}"
+            ) from error
+        owned_identity = _status_identity(metadata)
+        try:
+            if not stat.S_ISREG(metadata.st_mode):
+                raise AndroidSherpaReferenceAppGateError(
+                    "--report temporary output is not a regular file"
+                )
+            return name, descriptor, owned_identity
+        except BaseException:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            _unlink_owned_report_entry(destination, name, owned_identity)
+            raise
+    raise AndroidSherpaReferenceAppGateError(
+        "could not allocate a private --report temporary output"
+    )
+
+
+def _write_new_report(
+    destination: ReportDestination, report: Mapping[str, object]
+) -> None:
+    encoded = (
+        json.dumps(report, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if len(encoded) > MAX_REPORT_BYTES:
+        raise AndroidSherpaReferenceAppGateError(
+            "Android sherpa reference gate report exceeds its bound"
+        )
+    temporary_name: str | None = None
+    descriptor: int | None = None
+    owned_identity: tuple[int, int] | None = None
+    published = False
+    succeeded = False
+    try:
+        _verify_report_parent(destination)
+        if _report_entry_status(destination, destination.name) is not None:
+            raise AndroidSherpaReferenceAppGateError(
+                "--report output already exists"
+            )
+        temporary_name, descriptor, owned_identity = _create_report_temporary(
+            destination
+        )
+        os.fchmod(descriptor, 0o600)
+        view = memoryview(encoded)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise AndroidSherpaReferenceAppGateError(
+                    "could not write --report output"
+                )
+            view = view[written:]
+        os.fsync(descriptor)
+        opened = os.fstat(descriptor)
+        temporary = _report_entry_status(destination, temporary_name)
+        if (
+            temporary is None
+            or not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(temporary.st_mode)
+            or _status_identity(opened) != owned_identity
+            or _status_identity(temporary) != owned_identity
+            or opened.st_size != len(encoded)
+            or temporary.st_size != len(encoded)
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or stat.S_IMODE(temporary.st_mode) != 0o600
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                "--report temporary output changed before publication"
+            )
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        observed = bytearray()
+        while len(observed) <= len(encoded):
+            chunk = os.read(
+                descriptor,
+                min(1024 * 1024, len(encoded) + 1 - len(observed)),
+            )
+            if not chunk:
+                break
+            observed.extend(chunk)
+        if (
+            bytes(observed) != encoded
+            or _status_identity(os.fstat(descriptor)) != owned_identity
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                "--report temporary bytes changed before publication"
+            )
+        _verify_report_parent(destination)
+        os.link(
+            temporary_name,
+            destination.name,
+            src_dir_fd=destination.directory_descriptor,
+            dst_dir_fd=destination.directory_descriptor,
+            follow_symlinks=False,
+        )
+        published = True
+        final_metadata = _report_entry_status(destination, destination.name)
+        if (
+            final_metadata is None
+            or _status_identity(final_metadata) != owned_identity
+            or final_metadata.st_size != len(encoded)
+            or stat.S_IMODE(final_metadata.st_mode) != 0o600
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                "--report publication does not reference the completed output"
+            )
+        _verify_report_parent(destination)
+        _unlink_owned_report_entry(
+            destination, temporary_name, owned_identity
+        )
+        if _report_entry_status(destination, temporary_name) is not None:
+            raise AndroidSherpaReferenceAppGateError(
+                "--report temporary output could not be retired"
+            )
+        temporary_name = None
+        os.fsync(destination.directory_descriptor)
+        _verify_report_parent(destination)
+        final_metadata = _report_entry_status(destination, destination.name)
+        if (
+            final_metadata is None
+            or _status_identity(final_metadata) != owned_identity
+            or final_metadata.st_size != len(encoded)
+        ):
+            raise AndroidSherpaReferenceAppGateError(
+                "--report output changed during publication"
+            )
+        closing_descriptor = descriptor
+        descriptor = None
+        try:
+            os.close(closing_descriptor)
+        except OSError as error:
+            raise AndroidSherpaReferenceAppGateError(
+                "could not close the completed --report temporary output"
+            ) from error
+        succeeded = True
+    except OSError as error:
+        raise AndroidSherpaReferenceAppGateError(
+            "could not publish the new --report output"
+        ) from error
+    finally:
+        if descriptor is not None:
+            closing_descriptor = descriptor
+            descriptor = None
+            try:
+                os.close(closing_descriptor)
+            except OSError:
+                pass
+        if not succeeded and published:
+            _unlink_owned_report_entry(
+                destination, destination.name, owned_identity
+            )
+        _unlink_owned_report_entry(
+            destination, temporary_name, owned_identity
+        )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -3014,12 +3377,27 @@ def _parser() -> argparse.ArgumentParser:
             "runtime qualification build"
         ),
     )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="new absolute path for the successful gate report",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    report_destination: ReportDestination | None = None
+    report: dict[str, object] | None = None
+    failure: AndroidSherpaReferenceAppGateError | None = None
     try:
+        report_destination = (
+            None
+            if arguments.report is None
+            else _prepare_report_destination(
+                arguments.report, arguments.repository
+            )
+        )
         report = run_gate(
             repository=arguments.repository,
             flutter=arguments.flutter,
@@ -3028,10 +3406,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             java_home=arguments.java_home,
             sherpa_model=arguments.sherpa_model,
         )
+        if report_destination is not None:
+            _write_new_report(report_destination, report)
     except AndroidSherpaReferenceAppGateError as error:
-        print(f"android_sherpa_reference_app_gate: {error}", file=sys.stderr)
+        failure = error
+    except BaseException:
+        if report_destination is not None:
+            try:
+                os.close(report_destination.directory_descriptor)
+            except OSError:
+                pass
+        raise
+    if report_destination is not None:
+        try:
+            os.close(report_destination.directory_descriptor)
+        except OSError:
+            pass
+    if failure is not None:
+        print(f"android_sherpa_reference_app_gate: {failure}", file=sys.stderr)
         return 1
-    print(json.dumps(report, indent=2, sort_keys=True))
+    if report is None:
+        raise AssertionError("successful Android sherpa gate omitted its report")
+    if report_destination is None:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(
+            "Wrote Android sherpa reference app gate report: "
+            f"{report_destination.path}"
+        )
     return 0
 
 
