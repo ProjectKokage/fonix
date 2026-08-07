@@ -815,6 +815,50 @@ void main() {
       }
     });
 
+    test('rejects a future reply while that request is queued', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'futureReply',
+            maxPendingRuns: 2,
+          );
+      final OrtIsolateRun active = worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[1]),
+        },
+      );
+      final OrtIsolateRun queued = worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[2]),
+        },
+      );
+      try {
+        final Matcher terminalProtocolFailure =
+            isA<OrtWorkerProtocolException>().having(
+              (OrtWorkerProtocolException error) => error.message,
+              'message',
+              'The worker sent a malformed versioned message.',
+            );
+        final Future<void> activeFailure = expectLater(
+          active.result.timeout(const Duration(seconds: 2)),
+          throwsA(terminalProtocolFailure),
+        );
+        final Future<void> queuedFailure = expectLater(
+          queued.result.timeout(const Duration(seconds: 2)),
+          throwsA(terminalProtocolFailure),
+        );
+        await Future.wait<void>(<Future<void>>[activeFailure, queuedFailure]);
+        await expectLater(worker.close(), throwsA(terminalProtocolFailure));
+        expect(worker.outstandingInputBytes, 0);
+        expect(worker.isClosed, isTrue);
+      } finally {
+        try {
+          await worker.close();
+        } on OrtWorkerException {
+          // The fixed terminal protocol result remains authoritative.
+        }
+      }
+    });
+
     test('distinguishes startup, crash, and protocol failures', () async {
       await expectLater(
         spawnOrtIsolateProtocolHarnessForTesting(scenario: 'startupError'),

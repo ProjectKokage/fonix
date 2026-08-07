@@ -191,6 +191,7 @@ final class OrtIsolateSession {
 
   _PendingIsolateRun? _active;
   int _nextRequestId = 1;
+  int _lastSettledRequestId = 0;
   int _outstandingInputBytes = 0;
   bool _closing = false;
   bool _closeCommandSent = false;
@@ -523,7 +524,7 @@ final class OrtIsolateSession {
         return;
       }
       if (request == null || requestId != request.id) {
-        if (requestId < _nextRequestId) {
+        if (requestId <= _lastSettledRequestId) {
           return; // A stale reply cannot settle a newer request.
         }
         throw const FormatException('Worker reply has an unknown request ID.');
@@ -608,6 +609,8 @@ final class OrtIsolateSession {
 
   void _settleActive(_PendingIsolateRun request) {
     if (!identical(_active, request)) return;
+    assert(request.id > _lastSettledRequestId);
+    _lastSettledRequestId = request.id;
     request.cancelToken = null;
     _active = null;
     _releaseInputReservation(request);
@@ -3668,6 +3671,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     'delay',
     'crash',
     'stale',
+    'futureReply',
     'startupError',
     'startupExit',
     'startupGateReady',
@@ -4100,6 +4104,18 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'version': _ortWorkerProtocolVersion,
         'type': 'result',
         'requestId': priorRequestId,
+        'outputs': encodedOutput(),
+        'providerEvidence': null,
+        'providerDiagnostics': const <Object?>[],
+        'diagnostics': _syntheticWorkerDiagnostics(),
+        'wasTerminationRequested': false,
+      });
+    }
+    if (scenario == 'futureReply' && priorRequestId == 0) {
+      responsePort.send(<String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'result',
+        'requestId': requestId + 1,
         'outputs': encodedOutput(),
         'providerEvidence': null,
         'providerDiagnostics': const <Object?>[],
