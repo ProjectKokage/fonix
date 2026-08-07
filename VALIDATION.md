@@ -14,13 +14,14 @@ remains in this snapshot. The macOS gate applications and independently
 audited Android arm64-v8a Release APKs load and execute their exact packaged
 CPU paths. A separate Android profile build also passes the closed XNNPACK
 functional assignment/parity/fallback/recovery path on the named API 35
-arm64/4096-byte emulator. A historical sherpa-owned APK also passed trusted
-`dart-first` and `sherpa-first` captures on that exact emulator tuple, with
-runtime negotiation, two alternating cycles, cancellation, stale suppression,
-recovery, both disposal orders, and cleanup bound to the installed APK.
+arm64/4096-byte emulator. The source-final sherpa-owned APK passes the complete
+trusted four-record matrix: both load orders on named API 35 arm64-v8a/4 KiB
+and 16 KiB emulators, with runtime negotiation, two alternating cycles,
+cancellation, stale suppression, recovery, both disposal orders, and cleanup
+bound to the installed APK.
 
-This is not redistribution, five-platform release approval, Android 16 KiB
-coexistence evidence, or XNNPACK provider qualification. The package remains
+This is not redistribution, five-platform release approval, transfer to an
+untested Android tuple, or XNNPACK provider qualification. The package remains
 `publish_to: none`, and the external licensing, signing, target-host,
 physical-device, performance, and provider-qualification blockers listed below
 remain authoritative.
@@ -63,9 +64,10 @@ the active documentation:
   and a trusted UID/PID-bound one-tuple target runner. Its runtime-provisioned
   staged gate binds the complete hosted dependency trees, generated plugin
   graph, all eight qualification assets, raw native inputs, and one exact R8
-  Release APK/base-only-AAB static pair. That exact APK has separate
-  trusted 4 KiB captures for both load orders; the corresponding validator
-  records remain explicitly offline-consistency-only.
+  Release APK/base-only-AAB static pair. That exact APK has separate trusted
+  4 KiB and 16 KiB captures for both load orders and one aggregate
+  compatibility manifest; the validator and aggregate records remain
+  explicitly offline-consistency-only.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM remain explicitly outside this API rather than unfinished
@@ -101,8 +103,8 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Historical sherpa-owned Android arm64 package and 4 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures then passed on the exact API 35 arm64-v8a/4096-byte emulator, with verified uninstall after each run; source provenance was defective |
-| Closed source checksum manifest | Prior result invalidated; corrected committed-tree regeneration is required |
+| Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
+| Closed source checksum manifest | Corrected committed-tree manifest bound to the source-final sherpa package and every target record |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
 real-runtime, fake-runtime, exact-archive, cross-build, and CoreML cases were
@@ -182,14 +184,13 @@ inventories only. It does not prove which bytes Gradle selects, final-package
 coexistence, Bionic load order, or alternating inference.
 
 The accompanying schema-2 receipt validator and schema-2 compatibility
-generator retain synthetic contract/tamper coverage. Two real 4 KiB raw
-receipts now pass the validator, one for each load order. The emitted records
-remain `offline-consistency-only` with unverified target provenance: public
-tool hashes do not authenticate the source of target or logcat JSON. The
-separately retained trusted-runner capture manifests provide the target-capture
-provenance for these two tuples. A compatibility manifest cannot be generated
-until the two independent 16 KiB records complete the required four-record
-matrix.
+generator retain synthetic contract/tamper coverage. Four real raw receipts
+now pass the validator, covering both load orders on independent 4 KiB and
+16 KiB target runs, and they produce the required compatibility manifest. The
+validation and aggregate records remain `offline-consistency-only` with
+unverified target provenance: public tool hashes do not authenticate the
+source of target or logcat JSON. The separately retained trusted-runner capture
+manifests provide the target-capture provenance for all four exact tuples.
 
 ## macOS application and provider evidence
 
@@ -300,66 +301,72 @@ These are final-package functional emulator results only, not API 24, 16 KiB
 runtime, physical-device, performance, thermal, AAB-split-install, x86_64,
 sherpa-coexistence, QNN, or XNNPACK provider-qualification evidence.
 
-## Android sherpa 4 KiB target evidence
+## Android sherpa 4 KiB and 16 KiB target evidence
 
-The bounded qualification path landed in `635e97d`. The historical build ran
-while the checkout reported implementation commit
-`0e4effef837352685ab5ac39cd28e017973fca70`. Its
-`MANIFEST.sha256` file had SHA-256
-`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
-That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
-while the manifest included generated ignored state. The exact APK/static/4 KiB
-results below remain historical exact-artifact evidence, but establish no
-source-final, commit-bound, reproducibility, or support-promotion claim.
+The bounded qualification path landed in `635e97d`; implementation commit
+`8a9b6812c17237aeab7ec6d933f23932668c4b33` then corrected the source
+inventory and made the committed-tree evidence reproducible. The source-final
+`MANIFEST.sha256` is 36,887 bytes with SHA-256
+`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`.
 The runtime-provisioned gate copied the scaffold outside the checkout,
 resolved the exact lock offline, verified all five hosted sherpa package trees
 and generated four-plugin Android graph, passed 50 staged Flutter tests plus
 analysis, and produced this arm64-v8a R8 Release package pair:
 
 - APK: 45,070,602 bytes, SHA-256
-  `93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`;
+  `35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`;
 - base-only AAB: 26,045,592 bytes, SHA-256
   `ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`.
 
 The gate audited all eight qualification assets, the exact raw ORT, sherpa C
 API, sherpa C++ API, and Fonix shim bytes, matching `libapp.so` and
 `libflutter.so` loaded identities, the complete non-system dependency graph,
-and static 16 KiB ELF compatibility. Its 16,118-byte static package manifest
-has SHA-256
-`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`;
-the 25,308-byte persisted static report has SHA-256
-`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
-The 1,552-byte target harness contract has SHA-256
-`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`.
+and static 16 KiB ELF compatibility. Its retained bindings are:
 
-The same exact APK was then installed independently for both load orders on an
-emulator reporting Android API 35, `arm64-v8a`, a 4096-byte page size, model
-token `Android-SDK-built-for-arm64`, and fingerprint SHA-256
+- 16,118-byte static package manifest:
+  `99ccfb2f88eb16b9a7fdd3e03edf39c1529f771dedf210f5e481d85b3afd60e9`;
+- 25,308-byte persisted static report:
+  `6ad082a3cdf3a498f88504e24a47eb6e239a0d62f13ea02e11b7fbe202e4764e`;
+- 1,552-byte target harness contract:
+  `5460d723423515d519819e6e369646e6f6cd70edb89760c02da133da40cb7f23`;
+- staged `pubspec.lock`:
+  `c51a95db82b025011be6af9b93d02524bd10aae0cd9f051a1a86ed0b47e5ff76`.
+
+The exact APK was installed independently for both load orders on each of two
+API 35 arm64-v8a emulators. The 4 KiB target reported model token
+`Android-SDK-built-for-arm64`, a 4096-byte page size, and fingerprint SHA-256
 `acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
-Both captures reported sherpa-owned process runtime resolution, ONNX Runtime
-1.27.0, and negotiated API 27. Each completed two strict alternating cycles,
-accepted and settled native Fonix cancellation, retired the bounded sherpa
-detector after between-frame cancellation, suppressed the induced stale
+The 16 KiB target reported model token `sdk_gphone16k_arm64`, a 16384-byte page
+size, and fingerprint SHA-256
+`d4cb1bb60eaee567df547e52dfdbbd5a1898d186aa9aa64f09c9b62a962f01ee`.
+
+All four captures reported sherpa-owned process runtime resolution, ONNX
+Runtime 1.27.0, and negotiated API 27. Each completed two strict alternating
+cycles, accepted and settled native Fonix cancellation, retired the bounded
+sherpa detector after between-frame cancellation, suppressed the induced stale
 completion, recovered both engines, passed both disposal orders and double
 disposal, and settled with zero pending work. The package was force-stopped,
-uninstalled, and verified absent after each run.
+uninstalled, and verified absent after every run.
 
 The retained evidence hashes are:
 
-| Load order | Trusted capture manifest | Raw receipt | Validation record |
-| --- | --- | --- | --- |
-| `dart-first` | `6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40` | `fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8` | `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293` |
-| `sherpa-first` | `2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0` | `414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b` | `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd` |
+| Page size | Load order | Trusted capture manifest | Raw receipt | Validation record |
+| --- | --- | --- | --- | --- |
+| 4 KiB | `dart-first` | `d5cf010cb70782bb9d542b0d3b68e8272b676d127f3c72679ad24c21ebb40821` | `bfc81d2e02e88c0223687cde15bb0b1df91bb2feea37c912bd729092ffc29bce` | `8c9da03a622cd6e97883396d6a9a8ff9ca5ee01c0ec477aaff12f6caf319c4ff` |
+| 4 KiB | `sherpa-first` | `6ab621e2f11ed7e3ce3b08b1bb60c1b228dc5f6385f6cabdf1685474fdb06abe` | `224cded3e1070074b98e3ee8b9c3b1296699e7e3606b0bdc70bc290cfbadf2ef` | `fc0f89c630b4ace1517e59db70fce6771b57a65a5040e151624666a01c4d501a` |
+| 16 KiB | `dart-first` | `56f13fa49e079c60a3deec3da4ed2068a3abe7a9409fe23d099dd87fa0b14e9c` | `0ecd917d2d0fe2b1e93e570dd5c802878d4f638c7f64e61f09b5eb0345d91067` | `82b811ba6f7f51e3793a76b4816e1d41e909478c3c41e21a33c8f6088f2b855f` |
+| 16 KiB | `sherpa-first` | `2c3371ce831eaae566c8abda5a6da9fe46ee857a23b919a5c69a4304ed646764` | `145f1d98440b896adfda283e5a4dde8a943ac2fda3de5b5210ba9268e943147d` | `e7255259522aec2c1fd8342ea68e1796d9a961f339127fdfc394d371cb91aa63` |
 
-Each capture manifest records `trusted-adb-capture`; each validator record
-remains `offline-consistency-only`. This evidence is limited to the exact
-API 35 emulator, arm64-v8a, Release APK, and 4 KiB environment. It does not
-prove API 24 execution, an actual 16 KiB runtime, a physical device, an
-AAB-derived installed split, performance, signing, distribution, or another
-tuple. The next evidence slice is a corrected committed-tree rebuild and fresh
-`dart-first` and `sherpa-first` runs on both 4 KiB and 16 KiB, followed by
-four-record aggregation. Android QNN and Windows target-host work remain
-deferred.
+Each capture manifest records `trusted-adb-capture`. The four validation
+records and the aggregate compatibility manifest remain
+`offline-consistency-only`; the latter has SHA-256
+`0eb7fece2610b0225060696aa8599a960d01955cc1a7bc6f2ba8d7596964f504`.
+This evidence is limited to the exact API 35 emulator, arm64-v8a, Release APK,
+and named 4 KiB/16 KiB tuples. It does not prove API 24 execution, a physical
+device, an AAB-derived installed split, x86_64, performance, thermal behavior,
+signing, distribution, or another tuple. The roadmap now moves to iOS arm64
+and then Linux x86_64 target-host work. Android QNN and all Windows target-host
+work remain deferred.
 
 ## Required CI coverage
 
@@ -375,11 +382,12 @@ clean external copy after the independent bundle audit.
 
 Android auditor/orchestration/target-runner tamper tests run in the Python CI
 collection. The standalone Android Gradle package gates and CPU/XNNPACK
-emulator receipts, plus the historical sherpa static gate and both 4 KiB
-trusted target captures, were run locally with explicitly provisioned
-revision-pinned, byte-pinned, and version-gated inputs described above. They
-are not yet hosted CI lanes or reproducible release builds, and Gradle
-dependency-verification metadata remains absent.
+emulator receipts, plus the source-final sherpa static gate, all four trusted
+4 KiB/16 KiB target captures, and the aggregate compatibility manifest, were
+run locally with explicitly provisioned revision-pinned, byte-pinned, and
+version-gated inputs described above. They are not yet hosted CI lanes or
+reproducible release builds, and Gradle dependency-verification metadata
+remains absent.
 
 ## Evidence not produced and release blockers
 
@@ -387,10 +395,9 @@ The following are deliberately not claimed:
 
 - signed final iOS application packaging, simulator execution, or physical
   iOS CPU/CoreML/XNNPACK/ANE evidence;
-- Android API 24 execution, an actual 16 KiB Android runtime, physical-device
-  or x86_64 inference, an installed AAB-derived split, the complete four-record
-  sherpa matrix/compatibility manifest, or transfer of the exact 4 KiB emulator
-  result to another tuple;
+- Android API 24 execution, physical-device or x86_64 inference, an installed
+  AAB-derived split, or transfer of the exact 4 KiB/16 KiB emulator results to
+  another tuple;
 - physical-device XNNPACK assignment/parity, representative workloads,
   sustained performance, thermal behavior, and benchmark-backed provider
   qualification;

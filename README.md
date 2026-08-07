@@ -160,12 +160,14 @@ base-only AAB to the same selected raw sherpa/Fonix inputs, complete dependency
 graph, and file-backed loaded segments. Its output is deliberately
 `static-package-only`. In addition to synthetic/tamper coverage, the staged
 runner has built and passed this gate for the committed arm64-v8a Release
-sherpa reference composition. The latest runtime-provisioned pass also ran the
+sherpa reference composition. The corrected commit-bound pass also ran the
 exact audited APK through trusted `adb` capture for `dart-first` and
-`sherpa-first` on the same API 35 arm64 emulator with a queried 4096-byte page
-size. Both bounded runs passed; their validator records remain
-`offline-consistency-only`, and the missing 16 KiB pair still blocks matrix
-aggregation and a general coexistence claim. The asset-free committed template
+`sherpa-first` on separate API 35 arm64 emulators with queried 4096-byte and
+16384-byte page sizes. All four bounded runs passed and their schema-1 records
+produced the required schema-2 compatibility aggregate. The validator and
+aggregate remain `offline-consistency-only`; separately retained capture
+manifests are the trusted-`adb` provenance layer. This exact four-tuple result
+does not establish general Android support. The asset-free committed template
 still emits
 `unavailable/native-fixtures-unprovisioned`, and no AAB runtime claim exists
 until an AAB-derived split is installed and exercised.
@@ -196,9 +198,9 @@ bindings, runs its host contract tests, builds an arm64-v8a R8 Release APK and
 base-only AAB, and applies the closed package-pair audit. The bounded real
 Fonix and sherpa qualification adapters, authoritative lifecycle publication
 path, deterministic fixture generator, and trusted one-tuple target runner are
-implemented. Both 4 KiB load orders now pass against one exact Release APK;
-executing both load orders on a real 16 KiB environment is the next target
-layer.
+implemented. Both load orders now pass on 4 KiB and 16 KiB API 35 emulators
+against one exact release-minified APK, and the four validated records pass
+schema-2 aggregation.
 
 ## Verification
 
@@ -227,60 +229,64 @@ CPU/full-assignment APK receipt from an API 35 arm64 emulator with a queried
 closed XNNPACK profile with one-node full assignment across six MatMul runs,
 exact CPU parity, fallback report/rejection, recovery, and deterministic
 cleanup. This is a functional emulator checkpoint, not physical-device,
-performance, thermal, or provider-qualification evidence. API 24 execution, an
-actual 16 KiB runtime, physical-device behavior, AAB split installation,
-x86_64 execution, and QNN remain unproved. Sherpa coexistence has the
-historical exact-artifact 4 KiB runs below, but they cannot promote support
-because their source provenance was defective. iOS, Linux, and the deferred
-Windows target-host gaps remain explicit release gates.
+performance, thermal, or provider-qualification evidence. The standalone path
+still lacks API 24, 16 KiB, physical-device, AAB-split, and x86_64 execution.
+iOS, Linux, and the deferred Windows target-host gaps remain explicit release
+gates.
 
-The historical sherpa-owned arm64-v8a checkpoint was built while the checkout
-reported commit `0e4effef837352685ab5ac39cd28e017973fca70`; its
-`MANIFEST.sha256` file had SHA-256
-`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
-The static gate produced a 45,070,602-byte R8 Release APK with SHA-256
-`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`
+The corrected sherpa-owned arm64-v8a checkpoint is bound to commit
+`8a9b6812c17237aeab7ec6d933f23932668c4b33` and source manifest SHA-256
+`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`.
+The static gate produced a 45,070,602-byte API 35 release-minified APK with
+SHA-256
+`35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`
 and a 26,045,592-byte base-only AAB with SHA-256
 `ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`.
-The static package manifest and gate report have SHA-256 values
-`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
-and
-`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
+The static package manifest, gate report, and harness contract have SHA-256
+values
+`99ccfb2f88eb16b9a7fdd3e03edf39c1529f771dedf210f5e481d85b3afd60e9`,
+`6ad082a3cdf3a498f88504e24a47eb6e239a0d62f13ea02e11b7fbe202e4764e`,
+and `5460d723423515d519819e6e369646e6f6cd70edb89760c02da133da40cb7f23`.
 
-The same APK and harness contract
-(`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`)
-then passed two independent trusted-`adb` captures on one API 35 arm64 emulator
-with page size 4096 and fingerprint hash
-`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
-The runs used distinct launch challenges. Both completed two alternating
-cycles, native Fonix cancellation, between-frame sherpa cancellation, stale
-completion suppression, recovery, both disposal orders, double disposal, and
-zero pending work; the package was absent after each run. The `dart-first`
-capture-manifest/raw-receipt/validation hashes are respectively
-`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
-`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
-and `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`;
-the `sherpa-first` hashes are
-`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
-`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
-and `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
-The capture manifests record `trusted-adb-capture`; the schema-1 validation
-records remain `offline-consistency-only` and do not authenticate themselves.
-This is an exact 4 KiB emulator checkpoint, not API 24, 16 KiB, physical-device,
-AAB-derived-install, performance, distribution, or general Android support
-evidence.
+That same exact APK passed independent trusted-`adb` captures for both load
+orders on an API 35 arm64 4096-byte emulator with fingerprint hash
+`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`
+and an API 35 `sdk_gphone16k_arm64` 16384-byte emulator with fingerprint hash
+`d4cb1bb60eaee567df547e52dfdbbd5a1898d186aa9aa64f09c9b62a962f01ee`.
+Every run used a distinct challenge and completed two alternating cycles,
+native Fonix cancellation, between-frame sherpa cancellation, stale completion
+suppression, recovery, both disposal orders, double disposal, and zero pending
+work. The capture-manifest/raw-receipt/validation SHA-256 values are:
 
-These exact APK/static/target results remain factual, but only as historical
-exact-artifact evidence. Commit `0e4effe` omitted required handwritten
-`lib/src/build/native_versions_lock.dart`, and its manifest included generated
-ignored state. No source-final, commit-bound, support-promotion, or
-reproducibility claim may be derived from this checkpoint.
+- 4 KiB `dart-first`:
+  `d5cf010cb70782bb9d542b0d3b68e8272b676d127f3c72679ad24c21ebb40821`,
+  `bfc81d2e02e88c0223687cde15bb0b1df91bb2feea37c912bd729092ffc29bce`,
+  `8c9da03a622cd6e97883396d6a9a8ff9ca5ee01c0ec477aaff12f6caf319c4ff`;
+- 4 KiB `sherpa-first`:
+  `6ab621e2f11ed7e3ce3b08b1bb60c1b228dc5f6385f6cabdf1685474fdb06abe`,
+  `224cded3e1070074b98e3ee8b9c3b1296699e7e3606b0bdc70bc290cfbadf2ef`,
+  `fc0f89c630b4ace1517e59db70fce6771b57a65a5040e151624666a01c4d501a`;
+- 16 KiB `dart-first`:
+  `56f13fa49e079c60a3deec3da4ed2068a3abe7a9409fe23d099dd87fa0b14e9c`,
+  `0ecd917d2d0fe2b1e93e570dd5c802878d4f638c7f64e61f09b5eb0345d91067`,
+  `82b811ba6f7f51e3793a76b4816e1d41e909478c3c41e21a33c8f6088f2b855f`;
+- 16 KiB `sherpa-first`:
+  `2c3371ce831eaae566c8abda5a6da9fe46ee857a23b919a5c69a4304ed646764`,
+  `145f1d98440b896adfda283e5a4dde8a943ac2fda3de5b5210ba9268e943147d`,
+  `e7255259522aec2c1fd8342ea68e1796d9a961f339127fdfc394d371cb91aa63`.
 
-The next development slice is to rebuild from a corrected committed tree and
-rerun `dart-first` and `sherpa-first` on both 4 KiB and 16 KiB environments,
-then aggregate those four fresh records. After that come the iOS arm64
-reference app, Linux x86_64 target-host package, and cross-platform
-lifecycle/performance and release stabilization. Android
+The four schema-1 validation records passed schema-2 aggregation; the
+compatibility manifest has SHA-256
+`0eb7fece2610b0225060696aa8599a960d01955cc1a7bc6f2ba8d7596964f504`.
+Capture manifests retain `trusted-adb-capture` separately, while each validator
+record and the aggregate remain `offline-consistency-only`. This proves the
+exact API 35 arm64-v8a release-minified APK matrix only, not API 24, a physical
+device, an AAB-derived installation, another ABI/build, performance, signing,
+distribution, or general Android support.
+
+The next development slice is the iOS arm64 reference app, followed by the
+Linux x86_64 target-host package and cross-platform lifecycle/performance and
+release stabilization. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

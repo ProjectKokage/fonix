@@ -7,59 +7,59 @@ single ONNX Runtime packaged by sherpa-onnx.
 
 ## Current evidence status
 
-This historical checkpoint includes an exact arm64-v8a R8 Release
-APK/base-only-AAB static package audit and trusted `dart-first` and
-`sherpa-first` captures on an API 35 arm64-v8a/4 KiB emulator. It is exact-
-artifact evidence only. The checkout reported implementation commit
-`0e4effef837352685ab5ac39cd28e017973fca70`, but that commit omitted required
-handwritten `lib/src/build/native_versions_lock.dart`, while its source
-manifest included generated ignored state. The checkpoint therefore supports
-no source-final, commit-bound, reproducibility, or support-promotion claim.
+The source-final checkpoint includes an exact arm64-v8a R8 Release
+APK/base-only-AAB static package audit and the complete trusted four-record
+matrix: `dart-first` and `sherpa-first` captures on API 35 arm64-v8a/4 KiB and
+16 KiB emulators. Implementation commit
+`8a9b6812c17237aeab7ec6d933f23932668c4b33` corrected the source inventory
+and made the committed-tree evidence reproducible. This remains exact-tuple
+evidence rather than redistribution, release approval, or support promotion.
 
 The passing gate ran on macOS arm64 with Flutter revision
 `bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It bound the
-source `MANIFEST.sha256` file with SHA-256
-`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`
+36,887-byte source `MANIFEST.sha256` file with SHA-256
+`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`
 and produced:
 
 - a 45,070,602-byte APK with SHA-256
-  `93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`;
+  `35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`;
 - a 26,045,592-byte base-only AAB with SHA-256
   `ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`;
 - a 16,118-byte static manifest with SHA-256
-  `a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`;
+  `99ccfb2f88eb16b9a7fdd3e03edf39c1529f771dedf210f5e481d85b3afd60e9`;
 - a 25,308-byte persisted gate report with SHA-256
-  `b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`;
-  and
+  `6ad082a3cdf3a498f88504e24a47eb6e239a0d62f13ea02e11b7fbe202e4764e`;
 - a 1,552-byte harness contract with SHA-256
-  `963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`.
+  `5460d723423515d519819e6e369646e6f6cd70edb89760c02da133da40cb7f23`;
+  and
+- a staged `pubspec.lock` with SHA-256
+  `c51a95db82b025011be6af9b93d02524bd10aae0cd9f051a1a86ed0b47e5ff76`.
 
-The exact APK was installed independently for both load orders on an emulator
-reporting API 35, `arm64-v8a`, a 4096-byte page size, model token
-`Android-SDK-built-for-arm64`, and fingerprint SHA-256
+The exact APK was installed independently for both load orders on each API 35
+arm64-v8a emulator. The 4 KiB target reported model token
+`Android-SDK-built-for-arm64`, a 4096-byte page size, and fingerprint SHA-256
 `acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
-Both runs reported sherpa-owned process mode, ONNX Runtime 1.27.0, and API 27,
-and passed two alternating cycles plus the complete cancellation, stale,
+The 16 KiB target reported model token `sdk_gphone16k_arm64`, a 16384-byte page
+size, and fingerprint SHA-256
+`d4cb1bb60eaee567df547e52dfdbbd5a1898d186aa9aa64f09c9b62a962f01ee`.
+All four runs reported sherpa-owned process mode, ONNX Runtime 1.27.0, and API
+27, and passed two alternating cycles plus the complete cancellation, stale,
 recovery, disposal, and zero-pending-work contract. The package was
-force-stopped, uninstalled, and verified absent after each run.
+force-stopped, uninstalled, and verified absent after every run.
 
-- `dart-first`: trusted capture manifest
-  `6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
-  raw receipt
-  `fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
-  validation record
-  `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`;
-- `sherpa-first`: trusted capture manifest
-  `2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
-  raw receipt
-  `414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
-  validation record
-  `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
+| Page size | Load order | Trusted capture manifest | Raw receipt | Validation record |
+| --- | --- | --- | --- | --- |
+| 4 KiB | `dart-first` | `d5cf010cb70782bb9d542b0d3b68e8272b676d127f3c72679ad24c21ebb40821` | `bfc81d2e02e88c0223687cde15bb0b1df91bb2feea37c912bd729092ffc29bce` | `8c9da03a622cd6e97883396d6a9a8ff9ca5ee01c0ec477aaff12f6caf319c4ff` |
+| 4 KiB | `sherpa-first` | `6ab621e2f11ed7e3ce3b08b1bb60c1b228dc5f6385f6cabdf1685474fdb06abe` | `224cded3e1070074b98e3ee8b9c3b1296699e7e3606b0bdc70bc290cfbadf2ef` | `fc0f89c630b4ace1517e59db70fce6771b57a65a5040e151624666a01c4d501a` |
+| 16 KiB | `dart-first` | `56f13fa49e079c60a3deec3da4ed2068a3abe7a9409fe23d099dd87fa0b14e9c` | `0ecd917d2d0fe2b1e93e570dd5c802878d4f638c7f64e61f09b5eb0345d91067` | `82b811ba6f7f51e3793a76b4816e1d41e909478c3c41e21a33c8f6088f2b855f` |
+| 16 KiB | `sherpa-first` | `2c3371ce831eaae566c8abda5a6da9fe46ee857a23b919a5c69a4304ed646764` | `145f1d98440b896adfda283e5a4dde8a943ac2fda3de5b5210ba9268e943147d` | `e7255259522aec2c1fd8342ea68e1796d9a961f339127fdfc394d371cb91aa63` |
 
-Both capture manifests claim `trusted-adb-capture`; both validator records
-remain `offline-consistency-only`. This does not prove API 24, a 16 KiB
-runtime, a physical device, an installed AAB-derived split, performance,
-signing, or distribution.
+All capture manifests claim `trusted-adb-capture`. The validator records and
+aggregate compatibility manifest remain `offline-consistency-only`; the
+compatibility manifest has SHA-256
+`0eb7fece2610b0225060696aa8599a960d01955cc1a7bc6f2ba8d7596964f504`.
+This does not prove API 24, a physical device, x86_64, an installed AAB-derived
+split, performance, thermal behavior, signing, distribution, or another tuple.
 
 - The committed template declares no qualification assets. `main.dart`
   validates the trusted-runner launch envelope and emits
@@ -83,8 +83,9 @@ signing, or distribution.
   are not Android, ONNX Runtime, Fonix, sherpa, VAD, APK, or device evidence.
 - The trusted one-tuple target runner owns installation, a fresh challenge,
   queried device/page-size facts, UID/PID-bound log framing, force-stop,
-  uninstall, schema-2 receipt assembly, and offline validation. Its two retained
-  4 KiB captures above are target runs; a passing runner unit test alone is not.
+  uninstall, schema-2 receipt assembly, and offline validation. Its four
+  retained 4 KiB/16 KiB captures above are target runs; a passing runner unit
+  test alone is not.
 
 ## Locked composition
 
@@ -473,13 +474,12 @@ the asset-free unavailable template. The separate trusted target runner
 installs one audited APK on one selected adb serial, captures one load order and
 queried page size, validates it, then force-stops and removes only the package
 installed by that invocation. It has succeeded for both load orders on the
-exact 4 KiB tuple recorded above; that evidence does not transfer to 16 KiB or
-another target.
+exact 4 KiB and 16 KiB tuples recorded above; that evidence does not transfer
+to another target.
 
-The next target step is a corrected committed-tree rebuild followed by fresh
-`dart-first` and `sherpa-first` runs on both 4 KiB and 16 KiB Android
-environments and four-record aggregation. The roadmap then moves to iOS arm64
-and Linux x86_64 target-host work. Android aligned-build/QNN target qualification
-and all Windows target-host, provider/DirectML, final-application/package,
-installer, and clean-machine qualification remain deferred; existing static,
-source, cross-build, and security checks remain mandatory.
+The four-record Android matrix and compatibility aggregation are complete for
+the exact named tuples. The roadmap now moves to iOS arm64 and then Linux
+x86_64 target-host work. Android aligned-build/QNN target qualification and all
+Windows target-host, provider/DirectML, final-application/package, installer,
+and clean-machine qualification remain deferred; existing static, source,
+cross-build, and security checks remain mandatory.

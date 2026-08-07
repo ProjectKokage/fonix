@@ -205,48 +205,57 @@ bindings, alternating reference workloads, cancellation settlement, stale
 suppression, recovery, and disposal. The validator emits a schema-1 record,
 and the generator rejects raw receipts, stale-validator records, and an
 incomplete four-record matrix. The exact cached 1.13.4 arm64-v8a and x86_64
-native inputs pass the static profile and 16 KiB checks. No real sherpa APK
-load-order/lifecycle record exists outside the exact 4 KiB pair below, so no
-complete coexistence matrix is inferred from the tooling checkpoint.
+native inputs pass the static profile and 16 KiB checks. The corrected exact
+arm64-v8a APK now also has all four trusted target captures and a passing
+schema-2 aggregate described below.
 
-The historical checkpoint ran while the checkout reported commit
-`0e4effef837352685ab5ac39cd28e017973fca70`; its `MANIFEST.sha256` file had
-SHA-256
-`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
-That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
-while the manifest included generated ignored state. The exact APK/static/4 KiB
-results below remain historical exact-artifact evidence, but establish no
-source-final, commit-bound, reproducibility, or support-promotion claim.
-The runtime-provisioned macOS arm64 gate statically audited all eight assets
-and the single-ORT graph in a 45,070,602-byte arm64-v8a R8 Release APK
-(`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`)
+The corrected checkpoint is bound to commit
+`8a9b6812c17237aeab7ec6d933f23932668c4b33` and source-manifest SHA-256
+`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`.
+The Android sherpa gate, executed on a macOS arm64 host, statically audited all
+eight assets and the single-ORT graph in a 45,070,602-byte API 35 arm64-v8a
+release-minified APK
+(`35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`)
 and 26,045,592-byte base-only AAB
 (`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`).
 The static package manifest and report hashes are
-`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
+`99ccfb2f88eb16b9a7fdd3e03edf39c1529f771dedf210f5e481d85b3afd60e9`
 and
-`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
+`6ad082a3cdf3a498f88504e24a47eb6e239a0d62f13ea02e11b7fbe202e4764e`.
 
 The exact same APK and harness contract
-(`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`)
-then passed independent `dart-first` and `sherpa-first` trusted-`adb` captures
-on one API 35 arm64 emulator with page size 4096, fingerprint hash
-`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`,
-and distinct launch challenges. Both two-cycle runs passed native Fonix
-cancellation, bounded between-frame sherpa cancellation, stale suppression,
-recovery, both disposal orders, double disposal, and zero pending work; the
-package was absent after each. The `dart-first` capture/receipt/validation
-hashes are
-`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
-`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
-and `44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`;
-the `sherpa-first` hashes are
-`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
-`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
-and `72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
-The capture manifests record `trusted-adb-capture`; validation remains
-`offline-consistency-only`. API 24, real 16 KiB, physical-device,
-AAB-derived-install, performance, and distribution evidence remain absent.
+(`5460d723423515d519819e6e369646e6f6cd70edb89760c02da133da40cb7f23`)
+then passed independent trusted-`adb` captures for both load orders on API 35
+arm64 emulators with page sizes 4096 and 16384. Each run completed two cycles
+and passed native Fonix cancellation, bounded between-frame sherpa cancellation,
+stale suppression, recovery, both disposal orders, double disposal, and zero
+pending work. The capture/receipt/validation hashes are:
+
+- 4 KiB `dart-first`:
+  `d5cf010cb70782bb9d542b0d3b68e8272b676d127f3c72679ad24c21ebb40821`,
+  `bfc81d2e02e88c0223687cde15bb0b1df91bb2feea37c912bd729092ffc29bce`,
+  `8c9da03a622cd6e97883396d6a9a8ff9ca5ee01c0ec477aaff12f6caf319c4ff`;
+- 4 KiB `sherpa-first`:
+  `6ab621e2f11ed7e3ce3b08b1bb60c1b228dc5f6385f6cabdf1685474fdb06abe`,
+  `224cded3e1070074b98e3ee8b9c3b1296699e7e3606b0bdc70bc290cfbadf2ef`,
+  `fc0f89c630b4ace1517e59db70fce6771b57a65a5040e151624666a01c4d501a`;
+- 16 KiB `dart-first`:
+  `56f13fa49e079c60a3deec3da4ed2068a3abe7a9409fe23d099dd87fa0b14e9c`,
+  `0ecd917d2d0fe2b1e93e570dd5c802878d4f638c7f64e61f09b5eb0345d91067`,
+  `82b811ba6f7f51e3793a76b4816e1d41e909478c3c41e21a33c8f6088f2b855f`;
+- 16 KiB `sherpa-first`:
+  `2c3371ce831eaae566c8abda5a6da9fe46ee857a23b919a5c69a4304ed646764`,
+  `145f1d98440b896adfda283e5a4dde8a943ac2fda3de5b5210ba9268e943147d`,
+  `e7255259522aec2c1fd8342ea68e1796d9a961f339127fdfc394d371cb91aa63`.
+
+Those four validation records passed the schema-2 compatibility aggregate with
+SHA-256
+`0eb7fece2610b0225060696aa8599a960d01955cc1a7bc6f2ba8d7596964f504`.
+The capture manifests remain separate `trusted-adb-capture` evidence; each
+validator and the aggregate remains `offline-consistency-only`. This proves
+only the exact API 35 arm64-v8a release-minified APK matrix. API 24,
+physical-device, AAB-derived-install, other ABI/build, performance, signing,
+distribution, and general Android support remain unproved.
 
 ## 8.8 Provider qualification
 
@@ -437,8 +446,8 @@ trusted one-tuple target-runner contract. The full Gradle package gates and the
 standalone CPU/XNNPACK emulator runs are explicitly provisioned local evidence,
 not hosted CI lanes. Their Gradle dependency graphs also lack dependency-
 verification metadata, so these remain CI Release-mode package gates rather
-than reproducible release builds. The sherpa runner's two 4 KiB captures are
-local provisioned evidence, not hosted CI runs.
+than reproducible release builds. The sherpa runner's four 4 KiB/16 KiB
+captures and aggregate are local provisioned evidence, not hosted CI runs.
 
 The inexpensive C source-quality lane is deliberately offline and
 toolchain-independent. `tool/ci/check_c_source_quality.py` walks the closed
@@ -454,19 +463,18 @@ Flutter iOS/Linux/Windows final-application smoke, Android sherpa target
 coexistence, and Windows/Linux target-host real-ORT inference are not present
 CI jobs. The Android standalone CPU and XNNPACK gates have local API 35
 arm64/4 KiB final-package evidence. The sherpa-owned path now also has local
-runtime-provisioned Release APK/AAB static evidence and two trusted 4 KiB APK
-load-order captures. None of these paths has a hosted job, API 24 runtime,
-actual 16 KiB runtime, physical arm64 run, x86_64 run, or installed AAB-derived
-split. The XNNPACK run is a functional emulator checkpoint, not performance,
+runtime-provisioned release-minified APK/AAB static evidence, four trusted 4
+KiB/16 KiB APK captures, and the complete exact-APK schema-2 aggregate. None of
+these paths has a hosted job, API 24 runtime, physical arm64 run, x86_64 run, or
+installed AAB-derived split; the standalone CPU/XNNPACK path also lacks a 16
+KiB target run. The XNNPACK run is a functional emulator checkpoint, not performance,
 thermal, or provider-qualification evidence. These remain target-evidence
 requirements before promoting the corresponding support rows; a cross-build,
 source test, static package audit, or tiny emulator fixture must not be
 reported as a substitute.
 
-The active target roadmap starts with a corrected committed-tree rebuild and
-fresh sherpa `dart-first` and `sherpa-first` runs on both 4 KiB and 16 KiB,
-followed by four-record aggregation. After that come iOS arm64, Linux x86_64,
-and stabilization/release work. Android aligned/QNN device work
+The active target roadmap starts with iOS arm64, followed by Linux x86_64 and
+then stabilization/release work. Android aligned/QNN device work
 is deferred until its exact licensed SDK/hardware tuple exists. All Windows
 target-host, provider, final-app/package, installer, and clean-machine work is
 deferred until a Windows environment exists. Their portable/static/source,

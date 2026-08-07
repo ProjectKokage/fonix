@@ -46,20 +46,20 @@
   with Flutter revision
   `bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. The exact
   R8 Release APK/AAB pair and all eight qualification assets were audited.
-- Built a sherpa-owned Release package while the checkout reported
-  implementation commit `0e4effef837352685ab5ac39cd28e017973fca70`, then passed trusted
-  `dart-first` and `sherpa-first` captures with the exact
-  `93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`
-  APK on an API 35 arm64-v8a/4 KiB emulator. Both two-cycle workload and full
-  cancellation/stale/recovery/disposal contracts passed, and the package was
-  uninstalled with verified absence after each run. Validator records remain
-  `offline-consistency-only`. This is retained as historical exact-artifact
-  evidence only: that commit omitted required handwritten
-  `lib/src/build/native_versions_lock.dart`, while its source manifest included
-  generated ignored state. It therefore establishes no source-final,
-  commit-bound, reproducibility, or support-promotion claim.
+- Rebuilt the sherpa-owned Release package from source-final implementation
+  commit `8a9b6812c17237aeab7ec6d933f23932668c4b33` and source manifest
+  `3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`,
+  then passed the complete trusted four-record matrix: `dart-first` and
+  `sherpa-first` on API 35 arm64-v8a/4 KiB and 16 KiB emulators. Every run
+  passed the two-cycle workload and full cancellation, stale-result,
+  recovery, disposal, and zero-pending-work contracts; the package was
+  uninstalled with verified absence after each run. The aggregate
+  compatibility manifest is retained as `offline-consistency-only`, so this
+  remains exact-tuple evidence rather than a release or support-promotion
+  claim.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
   assignment/parity on macOS arm64. The Android XNNPACK result is limited to an
-  API 35 arm64/4 KiB emulator functional checkpoint; API 24/16 KiB/physical-
-  device and complete sherpa four-record matrix, iOS, Linux target-host, and
-  deferred QNN/Windows gates remain documented qualification requirements.
+  API 35 arm64/4 KiB emulator functional checkpoint. Android API 24,
+  physical-device, AAB-split-install, x86_64, performance, signing, and
+  distribution evidence remain open. The next target-host gates are iOS arm64
+  and Linux x86_64; Android QNN and Windows remain deferred.

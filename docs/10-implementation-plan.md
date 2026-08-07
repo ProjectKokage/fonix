@@ -6,28 +6,24 @@ The coding agent should implement vertical slices that produce runnable packaged
 
 The current development sequence is narrower than the phase inventory below:
 
-The completed macOS arm64 CPU, Android arm64 CPU, and Android arm64 XNNPACK
-functional emulator gates are standing regressions and must stay green. The
-prior Android sherpa static and two-load-order 4 KiB results are historical
-exact-artifact evidence only and cannot promote support.
+The completed macOS arm64 CPU, Android arm64 CPU/XNNPACK functional emulator,
+and corrected Android sherpa four-tuple coexistence gates are standing
+regressions and must stay green. The sherpa validator and aggregate remain
+offline-consistency-only; their trusted capture manifests are retained as a
+separate provenance layer.
 
-1. rebuild the Android sherpa APK from a corrected committed tree, run
-   `dart-first` and `sherpa-first` on both 4 KiB and 16 KiB environments,
-   retain trusted-runner provenance, validate all four raw schema-2 receipts,
-   and aggregate the four fresh records into the schema-2 compatibility
-   manifest; offline record validation does not authenticate target origin;
-2. produce the iOS arm64 CPU/CoreML reference application; verify final
+1. produce the iOS arm64 CPU/CoreML reference application; verify final
    simulator packaging/inference first, then physical-device lifecycle,
    assignment, parity, and fallback evidence when hardware/signing are
    available;
-3. produce and exercise the Linux x86_64 CPU reference package on a clean
+2. produce and exercise the Linux x86_64 CPU reference package on a clean
    target host, then cover Linux arm64 or accelerated flavors only on matching
    target hardware;
-4. finish cross-platform correctness and performance stabilization:
+3. finish cross-platform correctness and performance stabilization:
    cancellation/stale-work suppression, repeated initialization/disposal,
    bounded queues/profiles, public API/shim ABI review, representative model
    corpus, and measured baselines for rows intended to be advertised; and
-5. finish release engineering for the qualified targets: hosted target lanes
+4. finish release engineering for the qualified targets: hosted target lanes
    where feasible, artifact reproducibility, final-package audits,
    SBOM/notices/checksums, security policy, licensing, signing, clean-machine
    installation, and explicit support-matrix promotion. This can close the
@@ -181,10 +177,11 @@ size, the CPU APK produces its unchanged full-assignment/double-close receipt,
 while the XNNPACK APK proves one-node full assignment for six MatMul runs across
 two sessions, exact CPU parity, fallback report/rejection, recovery, five-
 session cleanup, and double close. This closes the macOS and Android standalone
-development reference slices only. Android API 24 execution, an actual 16 KiB
-runtime, physical-device/x86_64 execution, XNNPACK performance/thermal/provider
-qualification, the complete 4 KiB/16 KiB sherpa coexistence matrix, iOS,
-Linux, and the deferred Windows target-host gates remain open.
+development reference slices only. Android API 24 execution,
+physical-device/x86_64 execution, standalone 16 KiB execution, XNNPACK
+performance/thermal/provider qualification, iOS, Linux, and the deferred
+Windows target-host gates remain open. The separate sherpa-owned path now has
+its exact API 35 arm64-v8a release-minified 4 KiB/16 KiB coexistence matrix.
 
 ## Phase 5: async worker and throughput primitives
 
@@ -303,42 +300,51 @@ binds the exact sherpa-owned Flutter FFI APK, evidence process, fixtures,
 alternating workload, and lifecycle, emits schema-1 validation records, and
 requires four current records before schema-2 aggregation.
 
-The historical checkpoint ran while the checkout reported commit
-`0e4effef837352685ab5ac39cd28e017973fca70`; its `MANIFEST.sha256` file had
-SHA-256
-`e0080a0ed914fd55b5ab3e02f2593ab2c9a1c490ebf0e2129d9c2a806acfc5d6`.
-That commit omitted required handwritten `lib/src/build/native_versions_lock.dart`,
-while the manifest included generated ignored state. The exact APK/static/4 KiB
-results below remain historical exact-artifact evidence, but establish no
-source-final, commit-bound, reproducibility, or support-promotion claim.
-The macOS arm64 gate produced a 45,070,602-byte arm64-v8a R8 Release APK
-(`93fd4a388a723621b404aabfc1026197d8fb11620fb2f3d2746bac594fd81e54`)
+The corrected checkpoint is bound to commit
+`8a9b6812c17237aeab7ec6d933f23932668c4b33` and source-manifest SHA-256
+`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`.
+The Android sherpa gate, executed on a macOS arm64 host, produced a
+45,070,602-byte API 35 arm64-v8a release-minified APK
+(`35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`)
 and 26,045,592-byte base-only AAB
 (`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`).
 The static manifest/report hashes are
-`a75a3f7f7004a86453cf9d6d6f686c1e5645eaf167dd44268b67d107a3b099d3`
+`99ccfb2f88eb16b9a7fdd3e03edf39c1529f771dedf210f5e481d85b3afd60e9`
 and
-`b63dd44133b8a74baa02d810e9e54905d6732a4f62e6099cf56c3bc90f28fd14`.
+`6ad082a3cdf3a498f88504e24a47eb6e239a0d62f13ea02e11b7fbe202e4764e`.
 
 That exact APK and harness
-(`963e76730336bf9c22e2641d0a28b066a2e9592d64eef2723d80b81da7217519`)
-passed `dart-first` and `sherpa-first` with distinct challenges on one API 35
-arm64 emulator with page size 4096 and fingerprint hash
-`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`.
-Both two-cycle trusted-`adb` captures passed cancellation, stale suppression,
-recovery, both disposal orders, double disposal, and zero pending work, and
-left the package absent. The respective capture/receipt/validation hashes are
-`6eb2a5df4ef1b2b541522f1448cfde27ddae705d5fd810f717956a945792ad40`,
-`fe72465d43b0981ca6b4d6fad18f4c63579b833369a85656c1e89a34bcb357c8`,
-`44a27782535653538616556cabbbe918e0c0efec299315e182b5b0a9fb0f1293`
-and
-`2171e8eaf7685c5bcb59cf68195ddfc81fd23372926df45809f1c8c0a58815d0`,
-`414b85ecf40598ec9433f9c48232d634d087b0901e34ae1e76b0c06309cd4f1b`,
-`72f52d31edce29f5bdbba8cfbdc664043d45324e90b23780fe2124588bb45dbd`.
-Capture provenance is `trusted-adb-capture`; schema-1 validation remains
-`offline-consistency-only`. Phase 7 is still partial: a corrected rebuild and
-fresh 4 KiB/16 KiB four-record matrix are next. API 24, physical-device,
-AAB-derived-install, performance, and distribution evidence remain open.
+(`5460d723423515d519819e6e369646e6f6cd70edb89760c02da133da40cb7f23`)
+passed both load orders with distinct challenges on API 35 arm64 emulators with
+page sizes 4096 and 16384. All four two-cycle trusted-`adb` captures passed
+cancellation, stale suppression, recovery, both disposal orders, double
+disposal, and zero pending work. The capture/receipt/validation hashes are:
+
+- 4 KiB `dart-first`:
+  `d5cf010cb70782bb9d542b0d3b68e8272b676d127f3c72679ad24c21ebb40821`,
+  `bfc81d2e02e88c0223687cde15bb0b1df91bb2feea37c912bd729092ffc29bce`,
+  `8c9da03a622cd6e97883396d6a9a8ff9ca5ee01c0ec477aaff12f6caf319c4ff`;
+- 4 KiB `sherpa-first`:
+  `6ab621e2f11ed7e3ce3b08b1bb60c1b228dc5f6385f6cabdf1685474fdb06abe`,
+  `224cded3e1070074b98e3ee8b9c3b1296699e7e3606b0bdc70bc290cfbadf2ef`,
+  `fc0f89c630b4ace1517e59db70fce6771b57a65a5040e151624666a01c4d501a`;
+- 16 KiB `dart-first`:
+  `56f13fa49e079c60a3deec3da4ed2068a3abe7a9409fe23d099dd87fa0b14e9c`,
+  `0ecd917d2d0fe2b1e93e570dd5c802878d4f638c7f64e61f09b5eb0345d91067`,
+  `82b811ba6f7f51e3793a76b4816e1d41e909478c3c41e21a33c8f6088f2b855f`;
+- 16 KiB `sherpa-first`:
+  `2c3371ce831eaae566c8abda5a6da9fe46ee857a23b919a5c69a4304ed646764`,
+  `145f1d98440b896adfda283e5a4dde8a943ac2fda3de5b5210ba9268e943147d`,
+  `e7255259522aec2c1fd8342ea68e1796d9a961f339127fdfc394d371cb91aa63`.
+
+The four validation records passed schema-2 aggregation; its manifest SHA-256
+is `0eb7fece2610b0225060696aa8599a960d01955cc1a7bc6f2ba8d7596964f504`.
+Capture provenance remains separately retained as `trusted-adb-capture`, while
+every schema-1 validator record and the aggregate remains
+`offline-consistency-only`. This completes Phase 7 for the exact API 35
+arm64-v8a release-minified APK tuple only. API 24, physical-device,
+AAB-derived-install, other ABI/build, performance, signing, distribution, and
+general Android support remain open.
 
 ## Phase 8: desktop accelerated flavors
 
