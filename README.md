@@ -26,7 +26,8 @@ matrix, including the deferred Windows target-host lane.
   float16, and bfloat16, plus sequences, maps, optionals, and native-backed
   output leases.
 - Synchronous named inference, cancellation, bounded provider profiling,
-  worker-isolate sessions, and bounded session pools.
+  worker-isolate sessions, and session pools bounded by both request count and
+  aggregate retained input bytes.
 - CPU, XNNPACK, CoreML, legacy NNAPI, QNN, and selected desktop execution-
   provider configuration. Provider availability is never treated as proof of
   node assignment.

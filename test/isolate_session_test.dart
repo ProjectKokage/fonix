@@ -243,6 +243,291 @@ void main() {
       await worker.close();
     });
 
+    test('bounds aggregate outstanding input bytes', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'delay',
+            maxPendingRuns: 3,
+            maxMessageBytes: 1024,
+            maxOutstandingInputBytes: 26,
+          );
+      final OrtIsolateRun first = worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[1]),
+        },
+      );
+      final OrtIsolateRun second = worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[2]),
+        },
+      );
+      expect(worker.outstandingInputBytes, 26);
+      expect(worker.availableInputBytes, 0);
+      expect(
+        () => worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[3]),
+          },
+        ),
+        throwsA(
+          isA<OrtWorkerQueueFullException>()
+              .having(
+                (OrtWorkerQueueFullException error) =>
+                    error.context['maxOutstandingInputBytes'],
+                'aggregate bound',
+                26,
+              )
+              .having(
+                (OrtWorkerQueueFullException error) =>
+                    error.context['outstandingInputBytes'],
+                'reserved bytes',
+                26,
+              )
+              .having(
+                (OrtWorkerQueueFullException error) =>
+                    error.context['requestedInputBytes'],
+                'requested bytes',
+                13,
+              ),
+        ),
+      );
+
+      await first.result;
+      expect(worker.outstandingInputBytes, 13);
+      final OrtIsolateRun third = worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[3]),
+        },
+      );
+      expect(worker.outstandingInputBytes, 26);
+      await Future.wait<OrtIsolateRunResult>(<Future<OrtIsolateRunResult>>[
+        second.result,
+        third.result,
+      ]);
+      expect(worker.outstandingInputBytes, 0);
+      await worker.close();
+    });
+
+    test(
+      'holds input bytes and queued work until result run state is disposed',
+      () async {
+        final ReceivePort lifecyclePort = ReceivePort();
+        final Map<int, Completer<SendPort>> gates = <int, Completer<SendPort>>{
+          1: Completer<SendPort>(),
+          2: Completer<SendPort>(),
+        };
+        final StreamSubscription<Object?> subscription = lifecyclePort.listen((
+          Object? event,
+        ) {
+          if (event case <Object?, Object?>{
+            'type': 'runStateGate',
+            'requestId': final int requestId,
+            'port': final SendPort port,
+          }) {
+            gates[requestId]?.complete(port);
+          }
+        });
+        final OrtIsolateSession worker =
+            await spawnOrtIsolateProtocolHarnessForTesting(
+              scenario: 'cleanupGateResult',
+              startupLifecyclePort: lifecyclePort.sendPort,
+              maxPendingRuns: 2,
+              maxMessageBytes: 1024,
+              maxOutstandingInputBytes: 26,
+            );
+        try {
+          final OrtIsolateRun first = worker.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[1]),
+            },
+          );
+          final OrtIsolateRun second = worker.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[2]),
+            },
+          );
+          var firstSettled = false;
+          final Future<OrtIsolateRunResult> firstResult = first.result
+              .whenComplete(() {
+                firstSettled = true;
+              });
+
+          final SendPort firstGate = await gates[1]!.future.timeout(
+            const Duration(seconds: 2),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          expect(firstSettled, isFalse);
+          expect(gates[2]!.isCompleted, isFalse);
+          expect(worker.outstandingInputBytes, 26);
+
+          firstGate.send('disposed');
+          expect((await firstResult).tensor('Y').copyFloat32Data(), <double>[
+            1,
+          ]);
+          expect(worker.outstandingInputBytes, 13);
+
+          final SendPort secondGate = await gates[2]!.future.timeout(
+            const Duration(seconds: 2),
+          );
+          secondGate.send('disposed');
+          expect((await second.result).tensor('Y').copyFloat32Data(), <double>[
+            2,
+          ]);
+          expect(worker.outstandingInputBytes, 0);
+        } finally {
+          await worker.close();
+          await subscription.cancel();
+          lifecyclePort.close();
+        }
+      },
+    );
+
+    test('holds input bytes until error run state is disposed', () async {
+      final ReceivePort lifecyclePort = ReceivePort();
+      final Completer<SendPort> gate = Completer<SendPort>();
+      final StreamSubscription<Object?> subscription = lifecyclePort.listen((
+        Object? event,
+      ) {
+        if (event case <Object?, Object?>{
+          'type': 'runStateGate',
+          'port': final SendPort port,
+        }) {
+          gate.complete(port);
+        }
+      });
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'cleanupGateOrtError',
+            startupLifecyclePort: lifecyclePort.sendPort,
+            maxMessageBytes: 1024,
+            maxOutstandingInputBytes: 13,
+          );
+      try {
+        final OrtIsolateRun run = worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[1]),
+          },
+        );
+        var settled = false;
+        final Future<void> settlement = run.result.then<void>(
+          (_) => fail('The synthetic ORT error unexpectedly succeeded.'),
+          onError: (Object error, StackTrace stackTrace) {
+            expect(error, isA<OrtRunException>());
+            settled = true;
+          },
+        );
+        final SendPort cleanupGate = await gate.future.timeout(
+          const Duration(seconds: 2),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(settled, isFalse);
+        expect(worker.outstandingInputBytes, 13);
+
+        cleanupGate.send('disposed');
+        await settlement;
+        expect(settled, isTrue);
+        expect(worker.outstandingInputBytes, 0);
+      } finally {
+        await worker.close();
+        await subscription.cancel();
+        lifecyclePort.close();
+      }
+    });
+
+    test(
+      'queued cancellation immediately releases its byte reservation',
+      () async {
+        final OrtIsolateSession worker =
+            await spawnOrtIsolateProtocolHarnessForTesting(
+              scenario: 'delay',
+              maxPendingRuns: 3,
+              maxMessageBytes: 1024,
+              maxOutstandingInputBytes: 26,
+            );
+        final OrtIsolateRun active = worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[1]),
+          },
+        );
+        final OrtIsolateRun queued = worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[2]),
+          },
+        );
+        final Future<void> cancelledResult = expectLater(
+          queued.result,
+          throwsA(isA<OrtRunCancelledException>()),
+        );
+        expect(
+          await queued.cancelWithDisposition(),
+          OrtRunCancellationDisposition.queuedRunRemoved,
+        );
+        await cancelledResult;
+        expect(worker.outstandingInputBytes, 13);
+        final OrtIsolateRun replacement = worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[3]),
+          },
+        );
+        await Future.wait<OrtIsolateRunResult>(<Future<OrtIsolateRunResult>>[
+          active.result,
+          replacement.result,
+        ]);
+        expect(worker.outstandingInputBytes, 0);
+        await worker.close();
+      },
+    );
+
+    test('rejects input that can never fit the aggregate bound', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            maxMessageBytes: 1024,
+            maxOutstandingInputBytes: 12,
+          );
+      try {
+        expect(
+          () => worker.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[1]),
+            },
+          ),
+          throwsA(
+            isA<OrtWorkerMessageTooLargeException>()
+                .having(
+                  (OrtWorkerMessageTooLargeException error) =>
+                      error.context['maxOutstandingInputBytes'],
+                  'aggregate bound',
+                  12,
+                )
+                .having(
+                  (OrtWorkerMessageTooLargeException error) =>
+                      error.context['requestedInputBytes'],
+                  'requested bytes',
+                  13,
+                ),
+          ),
+        );
+        expect(worker.outstandingInputBytes, 0);
+      } finally {
+        await worker.close();
+      }
+    });
+
+    test('validates the aggregate input-byte configuration', () {
+      expect(
+        () => spawnOrtIsolateProtocolHarnessForTesting(
+          maxOutstandingInputBytes: 0,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => spawnOrtIsolateProtocolHarnessForTesting(
+          maxOutstandingInputBytes: 1024 * 1024 * 1024 + 1,
+        ),
+        throwsRangeError,
+      );
+    });
+
     test('pool distributes load and preserves bounded capacity', () async {
       final OrtIsolateSession first =
           await spawnOrtIsolateProtocolHarnessForTesting(
@@ -283,6 +568,48 @@ void main() {
         expect((await secondRun.result).tensor('Y').copyFloat32Data(), <double>[
           2,
         ]);
+      } finally {
+        await pool.close();
+      }
+    });
+
+    test('pool skips a worker without input-byte capacity', () async {
+      final OrtIsolateSession first =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'delay',
+            maxPendingRuns: 2,
+            maxMessageBytes: 1024,
+            maxOutstandingInputBytes: 13,
+          );
+      final OrtIsolateSession second =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'delay',
+            maxPendingRuns: 2,
+            maxMessageBytes: 1024,
+            maxOutstandingInputBytes: 26,
+          );
+      final OrtIsolateRun firstRun = first.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[1]),
+        },
+      );
+      final OrtSessionPool pool = createOrtSessionPoolForTesting(
+        <OrtIsolateSession>[first, second],
+      );
+      try {
+        final OrtIsolateRun routed = pool.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[2]),
+          },
+        );
+        expect(first.outstandingRuns, 1);
+        expect(second.outstandingRuns, 1);
+        expect(pool.outstandingInputBytes, 26);
+        await Future.wait<OrtIsolateRunResult>(<Future<OrtIsolateRunResult>>[
+          firstRun.result,
+          routed.result,
+        ]);
+        expect(pool.outstandingInputBytes, 0);
       } finally {
         await pool.close();
       }
@@ -468,6 +795,197 @@ void main() {
     });
 
     test(
+      'malformed reply fails the run before ordered worker retirement',
+      () async {
+        final ReceivePort lifecyclePort = ReceivePort();
+        final Completer<SendPort> runStateGate = Completer<SendPort>();
+        final Completer<void> workerDisposed = Completer<void>();
+        final List<String> workerEvents = <String>[];
+        final StreamSubscription<Object?> subscription = lifecyclePort.listen((
+          Object? event,
+        ) {
+          if (event is Map<Object?, Object?> &&
+              event['type'] == 'runStateGate' &&
+              event['port'] is SendPort) {
+            runStateGate.complete(event['port']! as SendPort);
+          } else if (event is String) {
+            workerEvents.add(event);
+            if (event == 'disposed' && !workerDisposed.isCompleted) {
+              workerDisposed.complete();
+            }
+          }
+        });
+        try {
+          final OrtIsolateSession worker =
+              await spawnOrtIsolateProtocolHarnessForTesting(
+                scenario: 'malformedWhileOwned',
+                startupLifecyclePort: lifecyclePort.sendPort,
+              );
+          final OrtSessionPool pool = createOrtSessionPoolForTesting(
+            <OrtIsolateSession>[worker],
+          );
+          final OrtIsolateRun run = pool.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[1]),
+            },
+          );
+          final SendPort gate = await runStateGate.future.timeout(
+            const Duration(seconds: 2),
+          );
+          await expectLater(
+            run.result,
+            throwsA(isA<OrtWorkerProtocolException>()),
+          );
+          expect(worker.outstandingInputBytes, 13);
+          expect(pool.outstandingInputBytes, 13);
+
+          var closeSettled = false;
+          final Future<void> closing = pool.close().whenComplete(() {
+            closeSettled = true;
+          });
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          expect(closeSettled, isFalse);
+          expect(workerEvents, isEmpty);
+
+          gate.send('dispose');
+          await workerDisposed.future.timeout(const Duration(seconds: 2));
+          await expectLater(
+            closing,
+            throwsA(isA<OrtWorkerProtocolException>()),
+          );
+          expect(workerEvents, <String>[
+            'runStateDisposed',
+            'closeReceived',
+            'disposed',
+          ]);
+          expect(worker.outstandingInputBytes, 0);
+          expect(pool.outstandingInputBytes, 0);
+          expect(worker.isClosed, isTrue);
+        } finally {
+          await subscription.cancel();
+          lifecyclePort.close();
+        }
+      },
+    );
+
+    test(
+      'worker terminal replies are acknowledged before exit can overtake them',
+      () async {
+        for (final (String scenario, String message) in <(String, String)>[
+          ('fatalProtocolReply', 'Synthetic fatal worker protocol failure.'),
+          ('fatalWorkerReply', 'Synthetic fatal native cleanup failure.'),
+        ]) {
+          final ReceivePort lifecyclePort = ReceivePort();
+          final Completer<void> acknowledgementReceived = Completer<void>();
+          final StreamSubscription<Object?> subscription = lifecyclePort.listen(
+            (Object? event) {
+              if (event == 'terminalAcknowledgementReceived' &&
+                  !acknowledgementReceived.isCompleted) {
+                acknowledgementReceived.complete();
+              }
+            },
+          );
+          try {
+            final OrtIsolateSession worker =
+                await spawnOrtIsolateProtocolHarnessForTesting(
+                  scenario: scenario,
+                  startupLifecyclePort: lifecyclePort.sendPort,
+                );
+            final Matcher exactTerminalError = isA<OrtWorkerProtocolException>()
+                .having(
+                  (OrtWorkerProtocolException error) => error.message,
+                  'worker-authored terminal message',
+                  message,
+                );
+            await expectLater(
+              worker.run(
+                inputs: <String, OrtIsolateValue>{
+                  'X': _tensor(<double>[1]),
+                },
+              ),
+              throwsA(exactTerminalError),
+            );
+            await acknowledgementReceived.future.timeout(
+              const Duration(seconds: 2),
+            );
+            await expectLater(worker.close(), throwsA(exactTerminalError));
+            expect(worker.outstandingInputBytes, 0);
+            expect(worker.isClosed, isTrue);
+          } finally {
+            await subscription.cancel();
+            lifecyclePort.close();
+          }
+        }
+      },
+    );
+
+    test(
+      'stale fatal worker reply cannot enter stale-result suppression',
+      () async {
+        final ReceivePort lifecyclePort = ReceivePort();
+        final Completer<void> acknowledgementReceived = Completer<void>();
+        final StreamSubscription<Object?> subscription = lifecyclePort.listen((
+          Object? event,
+        ) {
+          if (event == 'terminalAcknowledgementReceived' &&
+              !acknowledgementReceived.isCompleted) {
+            acknowledgementReceived.complete();
+          }
+        });
+        try {
+          final OrtIsolateSession worker =
+              await spawnOrtIsolateProtocolHarnessForTesting(
+                scenario: 'fatalWorkerStaleReply',
+                startupLifecyclePort: lifecyclePort.sendPort,
+              );
+          expect(
+            (await worker.run(
+              inputs: <String, OrtIsolateValue>{
+                'X': _tensor(<double>[1]),
+              },
+            )).tensor('Y').copyFloat32Data(),
+            <double>[1],
+          );
+          final Matcher malformedTerminal = isA<OrtWorkerProtocolException>()
+              .having(
+                (OrtWorkerProtocolException error) => error.message,
+                'controller terminal protocol error',
+                'The worker sent a malformed versioned message.',
+              );
+          await expectLater(
+            worker.run(
+              inputs: <String, OrtIsolateValue>{
+                'X': _tensor(<double>[2]),
+              },
+            ),
+            throwsA(malformedTerminal),
+          );
+          await acknowledgementReceived.future.timeout(
+            const Duration(seconds: 2),
+          );
+          await expectLater(worker.close(), throwsA(malformedTerminal));
+          expect(worker.outstandingInputBytes, 0);
+          expect(worker.isClosed, isTrue);
+        } finally {
+          await subscription.cancel();
+          lifecyclePort.close();
+        }
+      },
+    );
+
+    test('worker exit cannot replace the required close receipt', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'closeWithoutReceipt',
+          );
+      await expectLater(
+        worker.close(),
+        throwsA(isA<OrtWorkerCrashedException>()),
+      );
+      expect(worker.isClosed, isTrue);
+    });
+
+    test(
       'parent installs timer and isolate ownership before worker resumes',
       () async {
         (bool, bool, bool, bool)? parentState;
@@ -495,6 +1013,128 @@ void main() {
           expect(parentState, (true, true, false, true));
         } finally {
           await worker.close();
+        }
+      },
+    );
+
+    test('startup timeout includes the isolate spawn future', () async {
+      final Completer<void> spawnGate = Completer<void>();
+      final ReceivePort lifecyclePort = ReceivePort();
+      final Completer<void> controllerClosed = Completer<void>();
+      final Completer<void> latePausedIsolateKilled = Completer<void>();
+      final List<String> workerEvents = <String>[];
+      final List<String> controllerEvents = <String>[];
+      final StreamSubscription<Object?> lifecycleSubscription = lifecyclePort
+          .listen((Object? event) {
+            if (event is String) {
+              workerEvents.add(event);
+            }
+          });
+      void observeController(String event) {
+        controllerEvents.add(event);
+        if (event == 'connectionsClosed' && !controllerClosed.isCompleted) {
+          controllerClosed.complete();
+        }
+        if (event == 'latePausedIsolateKilled' &&
+            !latePausedIsolateKilled.isCompleted) {
+          latePausedIsolateKilled.complete();
+        }
+      }
+
+      try {
+        final Stopwatch elapsed = Stopwatch()..start();
+        final Future<OrtIsolateSession> spawning =
+            spawnOrtIsolateProtocolHarnessForTesting(
+              startupLifecyclePort: lifecyclePort.sendPort,
+              spawnGate: spawnGate.future,
+              onControllerEvent: observeController,
+              startupTimeout: const Duration(milliseconds: 30),
+            );
+        await expectLater(
+          spawning,
+          throwsA(
+            isA<OrtWorkerStartupException>().having(
+              (OrtWorkerStartupException error) =>
+                  error.context['startupTimeoutMilliseconds'],
+              'bounded timeout',
+              30,
+            ),
+          ),
+        );
+        elapsed.stop();
+        expect(elapsed.elapsed, lessThan(const Duration(seconds: 1)));
+        await controllerClosed.future.timeout(const Duration(seconds: 2));
+        expect(controllerEvents, <String>[
+          'callerAbandoned',
+          'connectionsClosed',
+        ]);
+        expect(workerEvents, isEmpty);
+
+        spawnGate.complete();
+        await latePausedIsolateKilled.future.timeout(
+          const Duration(seconds: 2),
+        );
+        expect(workerEvents, isEmpty);
+        expect(controllerEvents, <String>[
+          'callerAbandoned',
+          'connectionsClosed',
+          'latePausedIsolateKilled',
+        ]);
+      } finally {
+        if (!spawnGate.isCompleted) spawnGate.complete();
+        await lifecycleSubscription.cancel();
+        lifecyclePort.close();
+      }
+    });
+
+    test(
+      'late spawn failure cannot replace the authoritative startup timeout',
+      () async {
+        final Completer<void> spawnGate = Completer<void>();
+        final ReceivePort lifecyclePort = ReceivePort();
+        final List<String> workerEvents = <String>[];
+        final List<String> controllerEvents = <String>[];
+        final StreamSubscription<Object?> lifecycleSubscription = lifecyclePort
+            .listen((Object? event) {
+              if (event is String) workerEvents.add(event);
+            });
+        try {
+          final Future<OrtIsolateSession> spawning =
+              spawnOrtIsolateProtocolHarnessForTesting(
+                startupLifecyclePort: lifecyclePort.sendPort,
+                spawnGate: spawnGate.future,
+                onControllerEvent: controllerEvents.add,
+                startupTimeout: const Duration(milliseconds: 30),
+              );
+          await expectLater(
+            spawning,
+            throwsA(
+              isA<OrtWorkerStartupException>().having(
+                (OrtWorkerStartupException error) =>
+                    error.context['startupTimeoutMilliseconds'],
+                'original bounded timeout',
+                30,
+              ),
+            ),
+          );
+          expect(controllerEvents, <String>[
+            'callerAbandoned',
+            'connectionsClosed',
+          ]);
+
+          spawnGate.completeError(StateError('synthetic late spawn failure'));
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          expect(controllerEvents, <String>[
+            'callerAbandoned',
+            'connectionsClosed',
+          ]);
+          expect(workerEvents, isEmpty);
+        } finally {
+          if (!spawnGate.isCompleted) {
+            spawnGate.completeError(StateError('test cleanup'));
+          }
+          await lifecycleSubscription.cancel();
+          lifecyclePort.close();
         }
       },
     );
@@ -761,10 +1401,12 @@ void main() {
             'X': _tensor(<double>[1]),
           },
         );
+        expect(worker.outstandingInputBytes, 13);
         final Future<void> firstClose = worker.close();
         final Future<void> secondClose = worker.close();
         expect(identical(firstClose, secondClose), isTrue);
         await active.result;
+        expect(worker.outstandingInputBytes, 0);
         await firstClose;
         expect(worker.isClosed, isTrue);
         expect(

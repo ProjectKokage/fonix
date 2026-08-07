@@ -15,11 +15,12 @@ simulator application passed two consecutive Debug builds. The complete iOS
 gate result remains `PASS (2026-08-07)` for that exact frozen epoch.
 
 This snapshot is not implementation-complete. The Linux x86_64 source path is
-implemented but has no exact target-host PASS, and the next local stabilization
-slice must still close four known resource/lifecycle boundaries: ordered worker
-retirement after malformed replies or native work instead of unsafe immediate
-force-kill, a startup timeout that includes isolate spawning, an aggregate
-outstanding-input byte budget, and hard subprocess/CTest time limits in native
+implemented but has no exact target-host PASS. Local stabilization now uses an
+ordered protocol-v4 worker retirement handshake after malformed replies and
+worker-authored terminal failures, and includes `Isolate.spawn` inside the
+startup deadline. Sessions and pools now
+reserve aggregate input bytes across active and queued work. The remaining
+known resource bound is hard subprocess/CTest time and output control in native
 CI orchestration.
 
 The macOS gate applications and independently audited Android arm64-v8a
@@ -49,7 +50,7 @@ the active documentation:
 - a typed Dart API for trusted runtime sources, file/byte/external-data models,
   dense tensors, strings, float16/bfloat16 storage, sequences, maps, optionals,
   copied metadata, native-backed leases, and named synchronous inference;
-- bounded worker-isolate sessions and pools using wire protocol version 3,
+- bounded worker-isolate sessions and pools using wire protocol version 4,
   paused-spawn parent ownership, early authoritative command-port transfer,
   correlated readiness, cooperative cancellation, graceful timeout cleanup,
   stale-result suppression, backpressure, and idempotent shutdown;
@@ -99,7 +100,7 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 190 passed, 17 explicitly provisioned skips |
+| Ordinary offline Dart suite | 203 passed, 17 explicitly provisioned skips |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |

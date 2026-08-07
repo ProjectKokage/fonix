@@ -162,16 +162,25 @@ run result. `OrtRunResult.providerEvidence` and
 `OrtRunResult.providerDiagnostics` are immutable receipts for that exact run;
 session-level diagnostics never infer node assignment from successful session
 creation. Worker-isolate results carry the same copied receipts. Worker
-protocol version 3 spawns the worker paused so the controller can own the
-isolate and install its bounded startup timer before any child message. After
-resume, the worker publishes one authoritative command port before fallible
-native setup, then requires the ready message to repeat that exact port. This
-lets a timed-out or malformed startup queue one graceful close without
-force-killing an isolate while native code may own resources; the worker
-consumes that close if setup returns. The protocol also preserves typed CoreML
-cache configuration and copies the full redacted session/run diagnostics
-snapshot; it never sends the cache path or another private path back to the
-caller.
+protocol version 4 installs the bounded startup timer before beginning
+`Isolate.spawn`, then spawns the worker paused so the controller can establish
+ownership before native setup. After resume, the worker publishes one
+authoritative command port before fallible native setup, then requires the
+ready message to repeat that exact port. This lets a timed-out or malformed
+startup queue one graceful close without force-killing an isolate while native
+code may own resources; the worker consumes that close if setup returns. If
+the deadline wins before `Isolate.spawn` returns, the controller closes its
+bootstrap ports and kills the late isolate while it is still paused, so an
+abandoned caller cannot start native initialization. A validated `closed`
+receipt is emitted only after native owners are disposed;
+the controller then sends `retire`, so worker exit can never race ahead of the
+required cleanup receipt. Worker-authored fatal protocol/cleanup replies also
+wait for a controller `retire` acknowledgement before exiting; the controller
+then uses the observed exit as the cleanup boundary, so a separately delivered
+`onExit` event cannot replace the exact terminal error. The protocol also
+preserves typed CoreML cache configuration and copies the full redacted
+session/run diagnostics snapshot; it never sends the cache path or another
+private path back to the caller.
 
 ## 3.5 Type system
 
@@ -429,7 +438,9 @@ The worker:
 - serializes runs by default;
 - supports cancellation as cooperative ORT run termination where possible;
 - reports worker crashes separately from ORT errors;
-- shuts down native resources before isolate exit when possible.
+- fails active public work immediately on a terminal protocol error while
+  retaining controller ownership until native cleanup settles; and
+- requires a cleanup receipt before normal isolate retirement.
 
 The shipped protocol accepts only exact, versioned message fields and closed
 `OrtIsolateValue` variants. Numeric payloads are copied into
@@ -444,16 +455,30 @@ termination. `cancelWithDisposition` exposes the exact closed outcome:
 `queuedRunRemoved`, `nativeTerminationRequested`, or `notCancelled`. The native
 outcome means the active registry accepted the request; authoritative run
 settlement still comes from awaiting `result`. Runs remain serialized per
-worker, and `maxPendingRuns` applies backpressure before an unbounded queue can
-form. Graceful close rejects queued work, requests cancellation of the active
-run, waits for its native call to return, and disposes session then runtime. It
-intentionally has no timeout that silently kills a provider while native state
-may still be live.
+worker. `maxPendingRuns` bounds request count, while
+`maxOutstandingInputBytes` bounds the measured bytes reserved by all active and
+queued inputs; it defaults to `maxMessageBytes` and is independently capped at
+1 GiB. A request larger than that aggregate limit can never fit and raises
+`OrtWorkerMessageTooLargeException`; temporary aggregate exhaustion raises
+`OrtWorkerQueueFullException` with the bound, current reservation, and request
+size. Dispatch drops the controller's input references, but its reservation is
+retained until the worker disposes every ordinary per-run native owner before
+publishing authoritative settlement. A malformed or fatal reply retains the
+active reservation until the worker's cleanup receipt or observed exit. Queued
+cancellation releases both immediately. Graceful close rejects queued work, requests cancellation of the
+active run, waits for its native call to return, and disposes session then
+runtime. It intentionally has no timeout that silently kills a provider while
+native state may still be live. A malformed run reply follows the same ordered
+retirement path: the public run fails immediately, but `close()` settles only
+after the worker reports cleanup or exits. Exit without the required receipt is
+a worker crash, not a successful close.
 
 An explicitly sized `OrtSessionPool` may own multiple workers for throughput.
-It selects the least-loaded live worker with round-robin tie breaking, preserves
-terminal worker failures ahead of queue-full errors, and cleans up a partially
-started pool. Pool size is a measured configuration, not CPU-count magic.
+It selects the least-loaded live worker with round-robin tie breaking, skips a
+worker without byte capacity for the measured request, preserves terminal
+worker failures ahead of queue-full errors, and cleans up a partially started
+pool. `maxOutstandingInputBytesPerWorker` configures the same per-worker bound.
+Pool size is a measured configuration, not CPU-count magic.
 
 ## 3.15 Provider API
 

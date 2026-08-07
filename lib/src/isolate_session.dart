@@ -1,8 +1,9 @@
 part of 'runtime.dart';
 
-const int _ortWorkerProtocolVersion = 3;
+const int _ortWorkerProtocolVersion = 4;
 const int _defaultWorkerMessageBytes = 64 * 1024 * 1024;
 const int _maximumWorkerMessageBytes = 1024 * 1024 * 1024;
+const int _maximumOutstandingWorkerInputBytes = 1024 * 1024 * 1024;
 const int _maximumPendingWorkerRuns = 1024;
 const int _maximumSessionPoolSize = 32;
 const int _maximumWorkerCompositeChildren = 1024;
@@ -104,7 +105,6 @@ final class OrtIsolateRun {
 /// A long-lived worker isolate that exclusively owns one runtime and session.
 final class OrtIsolateSession {
   OrtIsolateSession._({
-    required Isolate isolate,
     required SendPort commandPort,
     required ReceivePort responsePort,
     required ReceivePort errorPort,
@@ -117,9 +117,9 @@ final class OrtIsolateSession {
     required this.diagnostics,
     required this.maxPendingRuns,
     required this.maxMessageBytes,
+    required this.maxOutstandingInputBytes,
     required bool Function(int token) requestCancelToken,
-  }) : _isolate = isolate,
-       _commandPort = commandPort,
+  }) : _commandPort = commandPort,
        _responsePort = responsePort,
        _errorPort = errorPort,
        _exitPort = exitPort,
@@ -140,11 +140,15 @@ final class OrtIsolateSession {
     String logId = 'fonix-worker',
     int maxPendingRuns = 8,
     int maxMessageBytes = _defaultWorkerMessageBytes,
+    int? maxOutstandingInputBytes,
     Duration startupTimeout = const Duration(seconds: 30),
   }) {
+    final int effectiveMaxOutstandingInputBytes =
+        maxOutstandingInputBytes ?? maxMessageBytes;
     _validateWorkerBounds(
       maxPendingRuns: maxPendingRuns,
       maxMessageBytes: maxMessageBytes,
+      maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
       startupTimeout: startupTimeout,
     );
     final OrtSessionOptions effectiveOptions = options ?? OrtSessionOptions();
@@ -162,11 +166,11 @@ final class OrtIsolateSession {
       startup: startup,
       maxPendingRuns: maxPendingRuns,
       maxMessageBytes: maxMessageBytes,
+      maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
       startupTimeout: startupTimeout,
     );
   }
 
-  final Isolate _isolate;
   final SendPort _commandPort;
   final ReceivePort _responsePort;
   final ReceivePort _errorPort;
@@ -183,20 +187,28 @@ final class OrtIsolateSession {
   final OrtDiagnostics diagnostics;
   final int maxPendingRuns;
   final int maxMessageBytes;
+  final int maxOutstandingInputBytes;
 
   _PendingIsolateRun? _active;
   int _nextRequestId = 1;
+  int _outstandingInputBytes = 0;
   bool _closing = false;
   bool _closeCommandSent = false;
+  bool _retireCommandSent = false;
   bool _closed = false;
   bool _connectionsClosed = false;
   OrtWorkerException? _terminalFailure;
+  StackTrace? _terminalStackTrace;
+  _PendingIsolateRun? _terminalActiveReservation;
   Completer<void>? _closeCompleter;
 
   bool get isClosing => _closing;
   bool get isClosed => _closed;
   int get outstandingRuns => _queue.length + (_active == null ? 0 : 1);
+  int get outstandingInputBytes => _outstandingInputBytes;
   int get availableRunSlots => maxPendingRuns - outstandingRuns;
+  int get availableInputBytes =>
+      maxOutstandingInputBytes - outstandingInputBytes;
 
   Future<OrtIsolateRunResult> run({
     required Map<String, OrtIsolateValue> inputs,
@@ -208,16 +220,7 @@ final class OrtIsolateSession {
     List<String>? outputNames,
   }) {
     _ensureAcceptingRuns();
-    if (outstandingRuns >= maxPendingRuns) {
-      throw OrtWorkerQueueFullException(
-        message: 'The isolate session has reached its bounded run capacity.',
-        context: <String, Object?>{
-          'maxPendingRuns': maxPendingRuns,
-          'outstandingRuns': outstandingRuns,
-        },
-      );
-    }
-    final Map<String, OrtIsolateValue> checkedInputs = _validateWorkerRunInputs(
+    final _ValidatedWorkerInputs checkedInputs = _validateWorkerRunInputs(
       supplied: inputs,
       knownNames: inputNames,
       maxMessageBytes: maxMessageBytes,
@@ -226,15 +229,52 @@ final class OrtIsolateSession {
       supplied: outputNames,
       knownNames: this.outputNames,
     );
+    return _enqueueValidatedRun(checkedInputs, checkedOutputs);
+  }
+
+  OrtIsolateRun _enqueueValidatedRun(
+    _ValidatedWorkerInputs inputs,
+    List<String> outputNames,
+  ) {
+    _ensureAcceptingRuns();
+    if (inputs.bytes > maxOutstandingInputBytes) {
+      throw OrtWorkerMessageTooLargeException(
+        message: 'The worker input can never fit its aggregate byte capacity.',
+        context: <String, Object?>{
+          'maxOutstandingInputBytes': maxOutstandingInputBytes,
+          'requestedInputBytes': inputs.bytes,
+        },
+      );
+    }
+    if (outstandingRuns >= maxPendingRuns ||
+        inputs.bytes > availableInputBytes) {
+      throw OrtWorkerQueueFullException(
+        message: 'The isolate session has reached bounded run capacity.',
+        context: <String, Object?>{
+          'maxPendingRuns': maxPendingRuns,
+          'outstandingRuns': outstandingRuns,
+          'maxOutstandingInputBytes': maxOutstandingInputBytes,
+          'outstandingInputBytes': outstandingInputBytes,
+          'requestedInputBytes': inputs.bytes,
+        },
+      );
+    }
     final _PendingIsolateRun request = _PendingIsolateRun(
       id: _nextRequestId++,
-      inputs: checkedInputs,
-      outputNames: checkedOutputs,
+      inputs: inputs.values,
+      inputBytes: inputs.bytes,
+      outputNames: outputNames,
     );
+    _outstandingInputBytes += inputs.bytes;
     _queue.addLast(request);
     _dispatchNext();
     return OrtIsolateRun._(this, request);
   }
+
+  bool _canAcceptInputBytes(int bytes) =>
+      bytes <= maxOutstandingInputBytes &&
+      outstandingRuns < maxPendingRuns &&
+      bytes <= availableInputBytes;
 
   /// Gracefully drains the active run after requesting cancellation, then asks
   /// the worker to dispose its session/runtime before exiting.
@@ -248,18 +288,25 @@ final class OrtIsolateSession {
     final Completer<void> completer = Completer<void>();
     _closeCompleter = completer;
     if (_closed) {
-      completer.complete();
+      final OrtWorkerException? terminal = _terminalFailure;
+      if (terminal == null) {
+        completer.complete();
+      } else {
+        completer.completeError(terminal, _terminalStackTrace);
+      }
       return completer.future;
     }
     final OrtWorkerException? terminal = _terminalFailure;
     if (terminal != null) {
-      completer.completeError(terminal);
+      _closing = true;
       return completer.future;
     }
     _closing = true;
     final OrtWorkerClosedException closedError = OrtWorkerClosedException();
     while (_queue.isNotEmpty) {
       final _PendingIsolateRun request = _queue.removeFirst();
+      request.releaseInputs();
+      _releaseInputReservation(request);
       request.completeError(closedError);
       request.completeCancellation(OrtRunCancellationDisposition.notCancelled);
     }
@@ -267,7 +314,11 @@ final class OrtIsolateSession {
     if (active != null) {
       unawaited(_requestCancellationForClose(active));
     } else {
-      _sendCloseCommand();
+      if (_closeCommandSent) {
+        _sendRetireCommand();
+      } else {
+        _sendCloseCommand();
+      }
     }
     return completer.future;
   }
@@ -305,6 +356,8 @@ final class OrtIsolateSession {
       final bool removed = _queue.remove(request);
       if (removed) {
         request.cancelRequested = true;
+        request.releaseInputs();
+        _releaseInputReservation(request);
         request.completeError(
           OrtRunCancelledException(
             context: <String, Object?>{'requestId': request.id},
@@ -366,12 +419,12 @@ final class OrtIsolateSession {
     request.dispatched = true;
     _active = request;
     try {
+      final Map<String, OrtIsolateValue> inputs = request.takeInputs();
       final _WorkerMessageBudget budget = _WorkerMessageBudget(
         maxBytes: maxMessageBytes,
       );
       final Map<String, Object?> encodedInputs = <String, Object?>{};
-      for (final MapEntry<String, OrtIsolateValue> entry
-          in request.inputs.entries) {
+      for (final MapEntry<String, OrtIsolateValue> entry in inputs.entries) {
         budget.addUtf8(entry.key);
         encodedInputs[entry.key] = _encodeIsolateValue(
           entry.value,
@@ -389,6 +442,7 @@ final class OrtIsolateSession {
       });
     } on Object catch (error, stackTrace) {
       _active = null;
+      _releaseInputReservation(request);
       request.completeError(error, stackTrace);
       request.completeCancellation(OrtRunCancellationDisposition.notCancelled);
       _dispatchNext();
@@ -396,7 +450,7 @@ final class OrtIsolateSession {
   }
 
   void _sendCloseCommand() {
-    if (_closeCommandSent || _closed || _terminalFailure != null) return;
+    if (_closeCommandSent || _closed) return;
     _closeCommandSent = true;
     _commandPort.send(<String, Object?>{
       'version': _ortWorkerProtocolVersion,
@@ -405,7 +459,24 @@ final class OrtIsolateSession {
   }
 
   void _handleWorkerMessage(Object? rawMessage) {
-    if (_closed || _terminalFailure != null) return;
+    if (_closed) return;
+    if (_terminalFailure != null) {
+      try {
+        final Map<Object?, Object?> message = _workerMap(rawMessage);
+        _requireWorkerVersion(message);
+        final String type = _workerString(message, 'type');
+        if (type != 'closed') return;
+        _requireWorkerReplyKeys(message, type);
+        if (!_closeCommandSent || _active != null) return;
+        _sendRetireCommand();
+        _finishRetirement();
+      } on Object {
+        // Preserve the first terminal failure. A malformed late message cannot
+        // authorize cleanup or replace it; the authoritative exit receipt can
+        // still retire the worker.
+      }
+      return;
+    }
     try {
       final Map<Object?, Object?> message = _workerMap(rawMessage);
       _requireWorkerVersion(message);
@@ -415,18 +486,42 @@ final class OrtIsolateSession {
         if (!_closeCommandSent || _active != null) {
           throw const FormatException('Unexpected worker close receipt.');
         }
-        _closed = true;
-        _closeCompleter?.complete();
-        _closeConnections();
+        _sendRetireCommand();
+        _finishRetirement();
         return;
       }
       if (type == 'fatalProtocol') {
-        throw FormatException(
-          _boundedWorkerText(message['message'], 'worker protocol failure'),
+        _failTerminal(
+          OrtWorkerProtocolException(
+            message: _boundedWorkerText(
+              message['message'],
+              'worker protocol failure',
+            ),
+          ),
+          acknowledgeWorkerTerminalReply: true,
         );
+        return;
       }
       final int requestId = _workerPositiveInt(message, 'requestId');
       final _PendingIsolateRun? request = _active;
+      if (type == 'fatalWorkerError') {
+        if (request == null || requestId != request.id) {
+          throw const FormatException(
+            'Fatal worker reply does not match the active request.',
+          );
+        }
+        final OrtWorkerProtocolException error = OrtWorkerProtocolException(
+          message: _boundedWorkerText(
+            message['message'],
+            'The worker could not retire native run state safely.',
+          ),
+          context: <String, Object?>{'requestId': request.id},
+        );
+        request.completeError(error);
+        request.completeCancellationError(error);
+        _failTerminal(error, acknowledgeWorkerTerminalReply: true);
+        return;
+      }
       if (request == null || requestId != request.id) {
         if (requestId < _nextRequestId) {
           return; // A stale reply cannot settle a newer request.
@@ -495,23 +590,11 @@ final class OrtIsolateSession {
           );
           _settleActive(request);
           break;
-        case 'fatalWorkerError':
-          final OrtWorkerProtocolException error = OrtWorkerProtocolException(
-            message: _boundedWorkerText(
-              message['message'],
-              'The worker could not retire native run state safely.',
-            ),
-            context: <String, Object?>{'requestId': request.id},
-          );
-          request.completeError(error);
-          request.completeCancellationError(error);
-          _failTerminal(error);
-          break;
         default:
           throw const FormatException('Unknown worker message type.');
       }
     } on OrtWorkerException catch (error, stackTrace) {
-      _failTerminal(error, stackTrace: stackTrace, forceKill: true);
+      _failTerminal(error, stackTrace: stackTrace);
     } on Object catch (error, stackTrace) {
       _failTerminal(
         OrtWorkerProtocolException(
@@ -519,7 +602,6 @@ final class OrtIsolateSession {
           cause: error,
         ),
         stackTrace: stackTrace,
-        forceKill: true,
       );
     }
   }
@@ -528,6 +610,7 @@ final class OrtIsolateSession {
     if (!identical(_active, request)) return;
     request.cancelToken = null;
     _active = null;
+    _releaseInputReservation(request);
     _dispatchNext();
   }
 
@@ -539,46 +622,92 @@ final class OrtIsolateSession {
   }
 
   void _handleWorkerExit() {
-    if (_closed || _terminalFailure != null) return;
-    if (_closeCommandSent && _active == null) {
-      _closed = true;
-      _closeCompleter?.complete();
-      _closeConnections();
-      return;
+    if (_closed) return;
+    if (_terminalFailure == null) {
+      _failTerminal(
+        OrtWorkerCrashedException(
+          message: 'Worker isolate exited without a graceful close receipt.',
+        ),
+      );
     }
-    _failTerminal(
-      OrtWorkerCrashedException(
-        message: 'Worker isolate exited without a graceful close receipt.',
-      ),
-    );
+    _finishRetirement();
   }
 
   void _failTerminal(
     OrtWorkerException error, {
     StackTrace? stackTrace,
-    bool forceKill = false,
+    bool acknowledgeWorkerTerminalReply = false,
   }) {
     if (_terminalFailure != null || _closed) return;
     _terminalFailure = error;
+    _terminalStackTrace = stackTrace;
     _closing = true;
     final _PendingIsolateRun? active = _active;
     _active = null;
+    if (active != null) {
+      active.releaseInputs();
+      // A malformed or fatal reply can arrive before the worker's native run
+      // state has been disposed. Keep the active byte reservation until the
+      // worker proves cleanup with `closed`, or until its exit is observed.
+      _terminalActiveReservation = active;
+    }
     active?.completeError(error, stackTrace);
     active?.completeCancellationError(error, stackTrace);
     while (_queue.isNotEmpty) {
       final _PendingIsolateRun request = _queue.removeFirst();
+      request.releaseInputs();
+      _releaseInputReservation(request);
       request.completeError(error, stackTrace);
       request.completeCancellationError(error, stackTrace);
     }
-    if (!(_closeCompleter?.isCompleted ?? true)) {
-      _closeCompleter!.completeError(error, stackTrace);
+    if (acknowledgeWorkerTerminalReply) {
+      // The worker waits for this acknowledgement before exiting, so onExit
+      // cannot overtake and replace the exact terminal reply. Its outer
+      // finally block disposes session/runtime before that exit is observed.
+      _sendRetireCommand();
+    } else {
+      // The authoritative command port was published before fallible native
+      // setup. Request ordered cleanup through it even after a malformed
+      // reply: that reply may have been sent before the worker's run-state
+      // finally block completed.
+      _sendCloseCommand();
     }
-    if (forceKill) {
-      // Used only after an invalid reply, which is emitted after run cleanup.
-      // It is never a graceful-close timeout fallback.
-      _isolate.kill(priority: Isolate.immediate);
+  }
+
+  void _releaseInputReservation(_PendingIsolateRun request) {
+    if (!request.inputReservationHeld) return;
+    assert(_outstandingInputBytes >= request.inputBytes);
+    request.inputReservationHeld = false;
+    _outstandingInputBytes -= request.inputBytes;
+  }
+
+  void _finishRetirement() {
+    if (_closed) return;
+    final _PendingIsolateRun? terminalActive = _terminalActiveReservation;
+    _terminalActiveReservation = null;
+    if (terminalActive != null) {
+      _releaseInputReservation(terminalActive);
+    }
+    _closed = true;
+    final Completer<void>? completer = _closeCompleter;
+    if (completer != null && !completer.isCompleted) {
+      final OrtWorkerException? terminal = _terminalFailure;
+      if (terminal == null) {
+        completer.complete();
+      } else {
+        completer.completeError(terminal, _terminalStackTrace);
+      }
     }
     _closeConnections();
+  }
+
+  void _sendRetireCommand() {
+    if (_retireCommandSent) return;
+    _retireCommandSent = true;
+    _commandPort.send(<String, Object?>{
+      'version': _ortWorkerProtocolVersion,
+      'type': 'retire',
+    });
   }
 
   void _closeConnections() {
@@ -596,12 +725,14 @@ final class OrtIsolateSession {
 final class _PendingIsolateRun {
   _PendingIsolateRun({
     required this.id,
-    required this.inputs,
+    required Map<String, OrtIsolateValue> inputs,
+    required this.inputBytes,
     required this.outputNames,
-  });
+  }) : _inputs = inputs;
 
   final int id;
-  final Map<String, OrtIsolateValue> inputs;
+  Map<String, OrtIsolateValue>? _inputs;
+  final int inputBytes;
   final List<String> outputNames;
   final Completer<OrtIsolateRunResult> completer =
       Completer<OrtIsolateRunResult>();
@@ -612,6 +743,20 @@ final class _PendingIsolateRun {
   Completer<OrtRunCancellationDisposition>? cancellationCompleter;
   Future<OrtRunCancellationDisposition>? cancellationFuture;
   Future<bool>? booleanCancellationFuture;
+  bool inputReservationHeld = true;
+
+  Map<String, OrtIsolateValue> takeInputs() {
+    final Map<String, OrtIsolateValue>? values = _inputs;
+    if (values == null) {
+      throw StateError('Worker request inputs were already released.');
+    }
+    _inputs = null;
+    return values;
+  }
+
+  void releaseInputs() {
+    _inputs = null;
+  }
 
   void complete(OrtIsolateRunResult result) {
     if (!completer.isCompleted) completer.complete(result);
@@ -646,7 +791,18 @@ final class _WorkerCancellationCleanupFailure implements Exception {
 
 /// An explicitly sized pool of independent isolate-owned sessions.
 final class OrtSessionPool {
-  OrtSessionPool._(this._workers);
+  OrtSessionPool._(this._workers) {
+    final OrtIsolateSession first = _workers.first;
+    for (final OrtIsolateSession worker in _workers.skip(1)) {
+      if (!_sameWorkerNames(worker.inputNames, first.inputNames) ||
+          !_sameWorkerNames(worker.outputNames, first.outputNames) ||
+          worker.maxMessageBytes != first.maxMessageBytes) {
+        throw ArgumentError(
+          'Session-pool workers must share one input/output message contract.',
+        );
+      }
+    }
+  }
 
   static Future<OrtSessionPool> spawn({
     required int size,
@@ -658,6 +814,7 @@ final class OrtSessionPool {
     String logId = 'fonix-pool',
     int maxPendingRunsPerWorker = 8,
     int maxMessageBytes = _defaultWorkerMessageBytes,
+    int? maxOutstandingInputBytesPerWorker,
     Duration startupTimeout = const Duration(seconds: 30),
   }) async {
     if (size < 1 || size > _maximumSessionPoolSize) {
@@ -676,6 +833,7 @@ final class OrtSessionPool {
             logId: '$logId-$index',
             maxPendingRuns: maxPendingRunsPerWorker,
             maxMessageBytes: maxMessageBytes,
+            maxOutstandingInputBytes: maxOutstandingInputBytesPerWorker,
             startupTimeout: startupTimeout,
           ),
         );
@@ -716,6 +874,11 @@ final class OrtSessionPool {
     0,
     (int total, OrtIsolateSession worker) => total + worker.outstandingRuns,
   );
+  int get outstandingInputBytes => _workers.fold<int>(
+    0,
+    (int total, OrtIsolateSession worker) =>
+        total + worker.outstandingInputBytes,
+  );
 
   Future<OrtIsolateRunResult> run({
     required Map<String, OrtIsolateValue> inputs,
@@ -727,6 +890,35 @@ final class OrtSessionPool {
     List<String>? outputNames,
   }) {
     if (_closing) throw OrtWorkerClosedException();
+    final OrtIsolateSession contractWorker = _workers.first;
+    final _ValidatedWorkerInputs checkedInputs = _validateWorkerRunInputs(
+      supplied: inputs,
+      knownNames: contractWorker.inputNames,
+      maxMessageBytes: contractWorker.maxMessageBytes,
+    );
+    final List<String> checkedOutputs = _validateWorkerOutputNames(
+      supplied: outputNames,
+      knownNames: contractWorker.outputNames,
+    );
+    if (!_workers.any(
+      (OrtIsolateSession worker) =>
+          checkedInputs.bytes <= worker.maxOutstandingInputBytes,
+    )) {
+      throw OrtWorkerMessageTooLargeException(
+        message:
+            'The worker input can never fit any pool worker byte capacity.',
+        context: <String, Object?>{
+          'requestedInputBytes': checkedInputs.bytes,
+          'maximumWorkerInputBytes': _workers.fold<int>(
+            0,
+            (int maximum, OrtIsolateSession worker) =>
+                maximum > worker.maxOutstandingInputBytes
+                ? maximum
+                : worker.maxOutstandingInputBytes,
+          ),
+        },
+      );
+    }
     OrtIsolateSession? selected;
     OrtWorkerException? terminalFailure;
     var selectedIndex = -1;
@@ -738,7 +930,7 @@ final class OrtSessionPool {
       terminalFailure ??= worker._terminalFailure;
       if (worker.isClosing ||
           worker.isClosed ||
-          worker.availableRunSlots <= 0) {
+          !worker._canAcceptInputBytes(checkedInputs.bytes)) {
         continue;
       }
       if (worker.outstandingRuns < selectedLoad) {
@@ -762,11 +954,13 @@ final class OrtSessionPool {
         context: <String, Object?>{
           'poolSize': size,
           'outstandingRuns': outstandingRuns,
+          'outstandingInputBytes': outstandingInputBytes,
+          'requestedInputBytes': checkedInputs.bytes,
         },
       );
     }
     _tieBreaker = (selectedIndex + 1) % _workers.length;
-    return selected.startRun(inputs: inputs, outputNames: outputNames);
+    return selected._enqueueValidatedRun(checkedInputs, checkedOutputs);
   }
 
   Future<void> close() {
@@ -783,6 +977,14 @@ final class OrtSessionPool {
     );
     return completer.future;
   }
+}
+
+bool _sameWorkerNames(List<String> left, List<String> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
 
 /// Internal pool constructor for real-isolate protocol tests.
@@ -811,10 +1013,12 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   required Map<String, Object?> startup,
   required int maxPendingRuns,
   required int maxMessageBytes,
+  required int maxOutstandingInputBytes,
   required Duration startupTimeout,
   void Function(String event)? onControllerEventForTesting,
   bool Function(int token)? requestCancelTokenForTesting,
   void Function(bool, bool, bool, bool)? onParentStateForTesting,
+  Future<void>? spawnGateForTesting,
 }) async {
   final ReceivePort responsePort = ReceivePort();
   final ReceivePort errorPort = ReceivePort();
@@ -900,6 +1104,10 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       }
       if (bootstrapCloseCommandSent && type == 'closed') {
         _requireWorkerReplyKeys(message, type);
+        ownershipCommandPort?.send(<String, Object?>{
+          'version': _ortWorkerProtocolVersion,
+          'type': 'retire',
+        });
         closeBootstrapConnections();
         return;
       }
@@ -958,11 +1166,10 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       if (outputNames.isEmpty) {
         throw const FormatException('Worker session has no output names.');
       }
-      final Isolate currentIsolate =
-          isolate ??
-          (throw const FormatException('Worker became ready before spawn.'));
+      if (isolate == null) {
+        throw const FormatException('Worker became ready before spawn.');
+      }
       session = OrtIsolateSession._(
-        isolate: currentIsolate,
         commandPort: authoritativeCommandPort,
         responsePort: responsePort,
         errorPort: errorPort,
@@ -975,6 +1182,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
         diagnostics: diagnostics,
         maxPendingRuns: maxPendingRuns,
         maxMessageBytes: maxMessageBytes,
+        maxOutstandingInputBytes: maxOutstandingInputBytes,
         requestCancelToken:
             requestCancelTokenForTesting ??
             FonixNativeApi.nativeAsset().requestCancelToken,
@@ -1030,33 +1238,6 @@ Future<OrtIsolateSession> _spawnOrtWorker({
     ...startup,
     'responsePort': responsePort.sendPort,
   };
-  late final Isolate spawnedIsolate;
-  try {
-    spawnedIsolate = await Isolate.spawn<Map<String, Object?>>(
-      entrypoint,
-      initialMessage,
-      paused: true,
-      onError: errorPort.sendPort,
-      onExit: exitPort.sendPort,
-      errorsAreFatal: true,
-      debugName: 'fonix-ort-worker',
-    );
-  } on Object catch (error) {
-    closeBootstrapConnections();
-    throw OrtWorkerStartupException(
-      message: 'Could not spawn the isolate session worker.',
-      cause: error,
-    );
-  }
-  isolate = spawnedIsolate;
-  final Capability? resumeCapability = spawnedIsolate.pauseCapability;
-  if (resumeCapability == null) {
-    spawnedIsolate.kill(priority: Isolate.immediate);
-    closeBootstrapConnections();
-    throw OrtWorkerStartupException(
-      message: 'Paused worker isolate has no resume capability.',
-    );
-  }
   startupTimer = Timer(startupTimeout, () {
     final bool timeoutWon = abandonCaller(
       OrtWorkerStartupException(
@@ -1068,35 +1249,101 @@ Future<OrtIsolateSession> _spawnOrtWorker({
     );
     if (!timeoutWon) return;
     final SendPort? commandPort = ownershipCommandPort;
-    if (commandPort != null) sendBootstrapClose(commandPort);
+    if (commandPort != null) {
+      sendBootstrapClose(commandPort);
+    } else if (isolate == null) {
+      // The spawn future has not produced an isolate, so no native setup can
+      // have begun. Close the controller side now; a late paused isolate is
+      // killed before resume by acceptSpawnedIsolate.
+      closeBootstrapConnections();
+    }
   });
-  try {
-    onParentStateForTesting?.call(
-      identical(isolate, spawnedIsolate),
-      startupTimer.isActive,
-      ready.isCompleted,
-      spawnedIsolate.pauseCapability != null,
+
+  Future<Isolate> spawnWorker() async {
+    final Future<void>? spawnGate = spawnGateForTesting;
+    if (spawnGate != null) await spawnGate;
+    return Isolate.spawn<Map<String, Object?>>(
+      entrypoint,
+      initialMessage,
+      paused: true,
+      onError: errorPort.sendPort,
+      onExit: exitPort.sendPort,
+      errorsAreFatal: true,
+      debugName: 'fonix-ort-worker',
     );
-  } on Object {
-    // A package-internal observer cannot alter startup ownership.
   }
-  try {
-    spawnedIsolate.resume(resumeCapability);
-  } on Object catch (error) {
-    startupTimer.cancel();
-    spawnedIsolate.kill(priority: Isolate.immediate);
+
+  void failBeforeResume(Isolate? spawnedIsolate, OrtWorkerException error) {
+    // A paused isolate has not entered native setup, so this is the one state
+    // where immediate termination cannot interrupt native ownership.
+    spawnedIsolate?.kill(priority: Isolate.immediate);
+    abandonCaller(error);
     closeBootstrapConnections();
-    throw OrtWorkerStartupException(
-      message: 'Could not resume the paused isolate session worker.',
-      cause: error,
-    );
   }
+
+  void acceptSpawnedIsolate(Isolate spawnedIsolate) {
+    if (bootstrapConnectionsClosed || callerAbandoned) {
+      spawnedIsolate.kill(priority: Isolate.immediate);
+      closeBootstrapConnections();
+      emitControllerEvent('latePausedIsolateKilled');
+      return;
+    }
+    isolate = spawnedIsolate;
+    final Capability? resumeCapability = spawnedIsolate.pauseCapability;
+    if (resumeCapability == null) {
+      failBeforeResume(
+        spawnedIsolate,
+        OrtWorkerStartupException(
+          message: 'Paused worker isolate has no resume capability.',
+        ),
+      );
+      return;
+    }
+    try {
+      onParentStateForTesting?.call(
+        identical(isolate, spawnedIsolate),
+        startupTimer?.isActive ?? false,
+        ready.isCompleted,
+        spawnedIsolate.pauseCapability != null,
+      );
+    } on Object {
+      // A package-internal observer cannot alter startup ownership.
+    }
+    try {
+      spawnedIsolate.resume(resumeCapability);
+    } on Object catch (error) {
+      failBeforeResume(
+        spawnedIsolate,
+        OrtWorkerStartupException(
+          message: 'Could not resume the paused isolate session worker.',
+          cause: error,
+        ),
+      );
+    }
+  }
+
+  unawaited(
+    spawnWorker().then<void>(
+      acceptSpawnedIsolate,
+      onError: (Object error, StackTrace stackTrace) {
+        abandonCaller(
+          OrtWorkerStartupException(
+            message: 'Could not spawn the isolate session worker.',
+            cause: error,
+          ),
+          stackTrace,
+        );
+        closeBootstrapConnections();
+      },
+    ),
+  );
   return ready.future;
 }
 
 void _validateWorkerBounds({
   required int maxPendingRuns,
   required int maxMessageBytes,
+  required int maxOutstandingInputBytes,
   required Duration startupTimeout,
 }) {
   if (maxPendingRuns < 1 || maxPendingRuns > _maximumPendingWorkerRuns) {
@@ -1113,6 +1360,15 @@ void _validateWorkerBounds({
       1,
       _maximumWorkerMessageBytes,
       'maxMessageBytes',
+    );
+  }
+  if (maxOutstandingInputBytes < 1 ||
+      maxOutstandingInputBytes > _maximumOutstandingWorkerInputBytes) {
+    throw RangeError.range(
+      maxOutstandingInputBytes,
+      1,
+      _maximumOutstandingWorkerInputBytes,
+      'maxOutstandingInputBytes',
     );
   }
   if (startupTimeout <= Duration.zero ||
@@ -1656,6 +1912,7 @@ void _requireWorkerReplyKeys(Map<Object?, Object?> message, String type) {
 void _requireWorkerCommandKeys(Map<Object?, Object?> command, String type) {
   switch (type) {
     case 'close':
+    case 'retire':
       _requireWorkerKeys(command, required: const <String>{'version', 'type'});
     case 'run':
       _requireWorkerKeys(
@@ -1801,7 +2058,14 @@ String _boundedWorkerCrash(Object? raw) {
   return _boundedWorkerText(error?.toString(), 'unreported worker error');
 }
 
-Map<String, OrtIsolateValue> _validateWorkerRunInputs({
+final class _ValidatedWorkerInputs {
+  const _ValidatedWorkerInputs({required this.values, required this.bytes});
+
+  final Map<String, OrtIsolateValue> values;
+  final int bytes;
+}
+
+_ValidatedWorkerInputs _validateWorkerRunInputs({
   required Map<String, OrtIsolateValue> supplied,
   required List<String> knownNames,
   required int maxMessageBytes,
@@ -1822,7 +2086,10 @@ Map<String, OrtIsolateValue> _validateWorkerRunInputs({
     _measureIsolateValue(entry.value, budget: budget, depth: 0);
     copied[entry.key] = entry.value;
   }
-  return Map<String, OrtIsolateValue>.unmodifiable(copied);
+  return _ValidatedWorkerInputs(
+    values: Map<String, OrtIsolateValue>.unmodifiable(copied),
+    bytes: budget.bytes,
+  );
 }
 
 List<String> _validateWorkerOutputNames({
@@ -3026,14 +3293,36 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
     });
 
     var lastRequestId = 0;
+    var closeReceiptSent = false;
+    var terminalReplySent = false;
     await for (final Object? rawCommand in commandPort) {
       try {
         final Map<Object?, Object?> command = _workerMap(rawCommand);
         _requireWorkerVersion(command);
         final String type = _workerString(command, 'type');
         _requireWorkerCommandKeys(command, type);
-        if (type == 'close') {
+        if (terminalReplySent) {
+          if (type != 'retire' && type != 'close') {
+            throw const FormatException(
+              'Worker received work after its terminal reply.',
+            );
+          }
           commandPort.close();
+          return;
+        }
+        if (type == 'retire') {
+          if (!closeReceiptSent) {
+            throw const FormatException('Worker retirement was not ready.');
+          }
+          commandPort.close();
+          return;
+        }
+        if (closeReceiptSent) {
+          throw const FormatException(
+            'Worker received work after its close receipt.',
+          );
+        }
+        if (type == 'close') {
           session!.dispose();
           session = null;
           runtime!.dispose();
@@ -3042,7 +3331,8 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
             'version': _ortWorkerProtocolVersion,
             'type': 'closed',
           });
-          return;
+          closeReceiptSent = true;
+          continue;
         }
         if (type != 'run') {
           throw const FormatException('Unknown worker command type.');
@@ -3061,7 +3351,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
         if (commandMessageBytes != maxMessageBytes) {
           throw const FormatException('Worker message bound changed.');
         }
-        final bool fatalCleanupFailure = _executeOrtWorkerRun(
+        final _OrtWorkerRunCompletion completion = _executeOrtWorkerRun(
           responsePort: responsePort,
           command: command,
           requestId: requestId,
@@ -3070,18 +3360,22 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
           options: options,
           maxMessageBytes: maxMessageBytes,
         );
-        if (fatalCleanupFailure) {
-          commandPort.close();
-          return;
+        // _executeOrtWorkerRun returns only after every ordinary per-run native
+        // owner has been disposed. Publishing settlement here prevents the
+        // controller from releasing its aggregate input reservation early.
+        responsePort.send(completion.reply);
+        if (completion.fatalCleanupFailure) {
+          terminalReplySent = true;
         }
       } on Object catch (error) {
-        responsePort.send(<String, Object?>{
-          'version': _ortWorkerProtocolVersion,
-          'type': 'fatalProtocol',
-          'message': _safeWorkerFailureText(error),
-        });
-        commandPort.close();
-        return;
+        if (!terminalReplySent) {
+          responsePort.send(<String, Object?>{
+            'version': _ortWorkerProtocolVersion,
+            'type': 'fatalProtocol',
+            'message': _safeWorkerFailureText(error),
+          });
+          terminalReplySent = true;
+        }
       }
     }
   } on Object catch (error) {
@@ -3097,7 +3391,17 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
   }
 }
 
-bool _executeOrtWorkerRun({
+final class _OrtWorkerRunCompletion {
+  const _OrtWorkerRunCompletion({
+    required this.reply,
+    this.fatalCleanupFailure = false,
+  });
+
+  final Map<String, Object?> reply;
+  final bool fatalCleanupFailure;
+}
+
+_OrtWorkerRunCompletion _executeOrtWorkerRun({
   required SendPort responsePort,
   required Map<Object?, Object?> command,
   required int requestId,
@@ -3189,35 +3493,39 @@ bool _executeOrtWorkerRun({
       );
       cancelToken = null;
     } on Object catch (error) {
-      responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
-        'type': 'fatalWorkerError',
-        'requestId': requestId,
-        'message':
-            'Native cancellation state could not be retired safely: '
-            '${_safeWorkerFailureText(error)}',
-      });
-      return true;
+      return _OrtWorkerRunCompletion(
+        fatalCleanupFailure: true,
+        reply: <String, Object?>{
+          'version': _ortWorkerProtocolVersion,
+          'type': 'fatalWorkerError',
+          'requestId': requestId,
+          'message':
+              'Native cancellation state could not be retired safely: '
+              '${_safeWorkerFailureText(error)}',
+        },
+      );
     }
 
     if (runError != null) {
       if (runError case final OrtException error) {
-        responsePort.send(<String, Object?>{
-          'version': _ortWorkerProtocolVersion,
-          'type': 'ortError',
-          'requestId': requestId,
-          'error': _encodeWorkerOrtError(error),
-          'wasTerminationRequested': wasTerminationRequested,
-        });
-      } else {
-        responsePort.send(<String, Object?>{
+        return _OrtWorkerRunCompletion(
+          reply: <String, Object?>{
+            'version': _ortWorkerProtocolVersion,
+            'type': 'ortError',
+            'requestId': requestId,
+            'error': _encodeWorkerOrtError(error),
+            'wasTerminationRequested': wasTerminationRequested,
+          },
+        );
+      }
+      return _OrtWorkerRunCompletion(
+        reply: <String, Object?>{
           'version': _ortWorkerProtocolVersion,
           'type': 'workerError',
           'requestId': requestId,
           'message': _safeWorkerFailureText(runError),
-        });
-      }
-      return false;
+        },
+      );
     }
 
     final OrtRunResult completedResult = runResult!;
@@ -3260,44 +3568,49 @@ bool _executeOrtWorkerRun({
       ..addUtf8(jsonEncode(diagnosticsReceipt));
     completedResult.dispose();
     runResult = null;
-    responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
-      'type': 'result',
-      'requestId': requestId,
-      'outputs': encodedOutputs,
-      'providerEvidence': providerEvidenceReceipt,
-      'providerDiagnostics': providerDiagnosticsReceipt,
-      'diagnostics': diagnosticsReceipt,
-      'wasTerminationRequested': wasTerminationRequested,
-    });
-    return false;
+    return _OrtWorkerRunCompletion(
+      reply: <String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'result',
+        'requestId': requestId,
+        'outputs': encodedOutputs,
+        'providerEvidence': providerEvidenceReceipt,
+        'providerDiagnostics': providerDiagnosticsReceipt,
+        'diagnostics': diagnosticsReceipt,
+        'wasTerminationRequested': wasTerminationRequested,
+      },
+    );
   } on _WorkerCancellationCleanupFailure catch (error) {
-    responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
-      'type': 'fatalWorkerError',
-      'requestId': requestId,
-      'message':
-          'Native cancellation state could not be retired safely: '
-          '${_safeWorkerFailureText(error.cause)}',
-    });
-    return true;
+    return _OrtWorkerRunCompletion(
+      fatalCleanupFailure: true,
+      reply: <String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'fatalWorkerError',
+        'requestId': requestId,
+        'message':
+            'Native cancellation state could not be retired safely: '
+            '${_safeWorkerFailureText(error.cause)}',
+      },
+    );
   } on OrtException catch (error) {
-    responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
-      'type': 'ortError',
-      'requestId': requestId,
-      'error': _encodeWorkerOrtError(error),
-      'wasTerminationRequested': wasTerminationRequested,
-    });
-    return false;
+    return _OrtWorkerRunCompletion(
+      reply: <String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'ortError',
+        'requestId': requestId,
+        'error': _encodeWorkerOrtError(error),
+        'wasTerminationRequested': wasTerminationRequested,
+      },
+    );
   } on Object catch (error) {
-    responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
-      'type': 'workerError',
-      'requestId': requestId,
-      'message': _safeWorkerFailureText(error),
-    });
-    return false;
+    return _OrtWorkerRunCompletion(
+      reply: <String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'workerError',
+        'requestId': requestId,
+        'message': _safeWorkerFailureText(error),
+      },
+    );
   } finally {
     runResult?.dispose();
     runOptions?.dispose();
@@ -3332,13 +3645,18 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
   void Function(String event)? onControllerEvent,
   bool Function(int token)? requestCancelToken,
   void Function(bool, bool, bool, bool)? onParentState,
+  Future<void>? spawnGate,
   int maxPendingRuns = 8,
   int maxMessageBytes = 1024 * 1024,
+  int? maxOutstandingInputBytes,
   Duration startupTimeout = const Duration(seconds: 5),
 }) {
+  final int effectiveMaxOutstandingInputBytes =
+      maxOutstandingInputBytes ?? maxMessageBytes;
   _validateWorkerBounds(
     maxPendingRuns: maxPendingRuns,
     maxMessageBytes: maxMessageBytes,
+    maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
     startupTimeout: startupTimeout,
   );
   if (!const <String>{
@@ -3355,11 +3673,18 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     'startupReadyMissingCommandPort',
     'startupReadyWrongCommandPort',
     'malformed',
+    'malformedWhileOwned',
+    'cleanupGateResult',
+    'cleanupGateOrtError',
+    'fatalProtocolReply',
+    'fatalWorkerReply',
+    'fatalWorkerStaleReply',
     'missingField',
     'syntheticCancelToken',
     'nativeCancelRegistry',
     'ortError',
     'unknownField',
+    'closeWithoutReceipt',
   }.contains(scenario)) {
     throw ArgumentError.value(scenario, 'scenario');
   }
@@ -3368,14 +3693,22 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
       'runtimeLibraryPath is required only for nativeCancelRegistry.',
     );
   }
-  final bool needsStartupLifecycle = const <String>{
-    'startupGateReady',
-    'startupGateError',
-    'startupGateExit',
-    'startupMalformedReady',
-    'startupReadyMissingCommandPort',
-    'startupReadyWrongCommandPort',
-  }.contains(scenario);
+  final bool needsStartupLifecycle =
+      const <String>{
+        'startupGateReady',
+        'startupGateError',
+        'startupGateExit',
+        'startupMalformedReady',
+        'startupReadyMissingCommandPort',
+        'startupReadyWrongCommandPort',
+        'malformedWhileOwned',
+        'cleanupGateResult',
+        'cleanupGateOrtError',
+        'fatalProtocolReply',
+        'fatalWorkerReply',
+        'fatalWorkerStaleReply',
+      }.contains(scenario) ||
+      spawnGate != null;
   if (needsStartupLifecycle != (startupLifecyclePort != null)) {
     throw ArgumentError(
       'startupLifecyclePort is required only for startup lifecycle scenarios.',
@@ -3393,10 +3726,12 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     },
     maxPendingRuns: maxPendingRuns,
     maxMessageBytes: maxMessageBytes,
+    maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
     startupTimeout: startupTimeout,
     onControllerEventForTesting: onControllerEvent,
     requestCancelTokenForTesting: requestCancelToken,
     onParentStateForTesting: onParentState,
+    spawnGateForTesting: spawnGate,
   );
 }
 
@@ -3516,27 +3851,118 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
   }
   responsePort.send(readyMessage);
   var priorRequestId = 0;
+  var closeReceiptSent = false;
+  var terminalReplySent = false;
   await for (final Object? rawCommand in commands) {
     final Map<Object?, Object?> command = _workerMap(rawCommand);
     _requireWorkerVersion(command);
     final String type = _workerString(command, 'type');
     _requireWorkerCommandKeys(command, type);
+    if (terminalReplySent) {
+      if (type != 'retire' && type != 'close') {
+        throw const FormatException('Harness received work after terminal.');
+      }
+      startupLifecyclePort?.send('terminalAcknowledgementReceived');
+      commands.close();
+      return;
+    }
+    if (type == 'retire') {
+      if (!closeReceiptSent) {
+        throw const FormatException('Harness retirement was not ready.');
+      }
+      commands.close();
+      return;
+    }
+    if (closeReceiptSent) {
+      throw const FormatException('Harness received work after close.');
+    }
     if (type == 'close') {
       startupLifecyclePort?.send('closeReceived');
-      commands.close();
       wrongCommands?.close();
       cancellationRuntime?.dispose();
       startupLifecyclePort?.send('disposed');
+      if (scenario == 'closeWithoutReceipt') {
+        commands.close();
+        return;
+      }
       responsePort.send(<String, Object?>{
         'version': _ortWorkerProtocolVersion,
         'type': 'closed',
       });
-      return;
+      closeReceiptSent = true;
+      continue;
     }
     final int requestId = _workerPositiveInt(command, 'requestId');
+
+    Future<void> awaitRunStateCleanupGate() async {
+      final ReceivePort cleanupGate = ReceivePort();
+      startupLifecyclePort!.send(<String, Object?>{
+        'type': 'runStateGate',
+        'requestId': requestId,
+        'port': cleanupGate.sendPort,
+      });
+      try {
+        await cleanupGate.first;
+      } finally {
+        cleanupGate.close();
+      }
+      startupLifecyclePort.send(<String, Object?>{
+        'type': 'runStateDisposed',
+        'requestId': requestId,
+      });
+    }
+
     if (scenario == 'crash') {
       Isolate.current.kill(priority: Isolate.immediate);
       return;
+    }
+    if (scenario == 'fatalProtocolReply') {
+      responsePort.send(<String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'fatalProtocol',
+        'message': 'Synthetic fatal worker protocol failure.',
+      });
+      terminalReplySent = true;
+      continue;
+    }
+    if (scenario == 'fatalWorkerReply') {
+      responsePort.send(<String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'fatalWorkerError',
+        'requestId': requestId,
+        'message': 'Synthetic fatal native cleanup failure.',
+      });
+      terminalReplySent = true;
+      continue;
+    }
+    if (scenario == 'fatalWorkerStaleReply' && priorRequestId != 0) {
+      responsePort.send(<String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'fatalWorkerError',
+        'requestId': priorRequestId,
+        'message': 'Synthetic stale fatal native cleanup failure.',
+      });
+      terminalReplySent = true;
+      continue;
+    }
+    if (scenario == 'malformedWhileOwned') {
+      final ReceivePort ownershipGate = ReceivePort();
+      startupLifecyclePort!.send(<String, Object?>{
+        'type': 'runStateGate',
+        'port': ownershipGate.sendPort,
+      });
+      responsePort.send(<String, Object?>{
+        'version': 999,
+        'type': 'result',
+        'requestId': requestId,
+      });
+      try {
+        await ownershipGate.first;
+      } finally {
+        ownershipGate.close();
+      }
+      startupLifecyclePort.send('runStateDisposed');
+      continue;
     }
     if (scenario == 'malformed') {
       responsePort.send(<String, Object?>{
@@ -3544,7 +3970,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'type': 'result',
         'requestId': requestId,
       });
-      return;
+      continue;
     }
     if (scenario == 'missingField') {
       responsePort.send(<String, Object?>{
@@ -3553,7 +3979,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'requestId': requestId,
         'outputs': const <String, Object?>{},
       });
-      return;
+      continue;
     }
     if (scenario == 'unknownField') {
       responsePort.send(<String, Object?>{
@@ -3567,10 +3993,13 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'wasTerminationRequested': false,
         'unexpected': true,
       });
-      return;
+      continue;
     }
-    if (scenario == 'ortError') {
+    if (scenario == 'ortError' || scenario == 'cleanupGateOrtError') {
       await Future<void>.delayed(const Duration(milliseconds: 20));
+      if (scenario == 'cleanupGateOrtError') {
+        await awaitRunStateCleanupGate();
+      }
       responsePort.send(<String, Object?>{
         'version': _ortWorkerProtocolVersion,
         'type': 'ortError',
@@ -3649,6 +4078,9 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     );
     if (scenario == 'delay') {
       await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    if (scenario == 'cleanupGateResult') {
+      await awaitRunStateCleanupGate();
     }
     Map<String, Object?> encodedOutput() {
       final _WorkerMessageBudget budget = _WorkerMessageBudget(

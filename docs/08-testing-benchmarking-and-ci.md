@@ -98,7 +98,16 @@ For every baseline platform/architecture:
 The isolate suite additionally uses real Dart isolates to reject missing and
 unknown protocol fields, verify queue cancellation/backpressure, distinguish
 startup/crash/protocol/ORT failures, drain close races, preserve recursive
-Optional None types, and surface terminal pool failures before backpressure.
+Optional None types, prove the startup timeout covers a delayed isolate-spawn
+future without resuming a late paused isolate, preserve that timeout across a
+late spawn failure, reject exit without the required cleanup receipt, retain a
+malformed worker and its input reservation until gated run-state cleanup
+completes, require controller acknowledgement before worker-authored fatal
+protocol/cleanup replies may exit, reject mismatched fatal request IDs instead
+of treating them as stale results, gate valid result/error publication behind
+run-state disposal, exercise aggregate input-byte exhaustion/release and
+byte-aware pool routing, and surface terminal pool failures before
+backpressure.
 Its opt-in native-asset case registers cancellation inside the worker isolate
 and requests it from the caller isolate. The public disposition must report
 `nativeTerminationRequested`, proving that the request reached the same

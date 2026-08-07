@@ -170,7 +170,7 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
   target provenance; changing that meaning requires a new closed protocol.
 - Runtime-information and public-diagnostics envelopes: their independent
   closed schema 1 payloads. Provider discovery/evidence also use their own
-  schema 1 payloads, while the worker-isolate wire protocol is version 3. Its
+  schema 1 payloads, while the worker-isolate wire protocol is version 4. Its
   startup contract resumes only after parent ownership and timeout setup,
   publishes an authoritative command port before fallible native setup, and
   correlates readiness to that same port.
