@@ -41,6 +41,7 @@ void main() {
 
     test('schema is valid JSON Schema metadata', () {
       final schema = _object(jsonDecode(File(_schemaPath).readAsStringSync()));
+      final definitions = _object(schema[r'$defs']);
 
       expect(
         schema[r'$schema'],
@@ -48,10 +49,27 @@ void main() {
       );
       expect(schema['additionalProperties'], isFalse);
       expect(
-        _object(schema[r'$defs']),
+        definitions,
         containsPair('artifactContainer', isA<Map<String, Object?>>()),
       );
-      expect(_object(schema[r'$defs']), contains('artifactNotice'));
+      expect(definitions, contains('artifactNotice'));
+
+      final releaseTargetsSchema = _object(
+        _object(schema['properties'])['release_targets'],
+      );
+      expect(releaseTargetsSchema['uniqueItems'], isTrue);
+      final schemaTargetIdentities =
+          _list(_object(definitions['releaseTarget'])['enum']).map((value) {
+            final target = _object(value);
+            return '${target['os']}/${target['architecture']}/'
+                '${target['variant']}/${target['flavor']}';
+          }).toSet();
+      final lock = NativeVersionsLock.parse(File(_lockPath).readAsStringSync());
+      expect(
+        schemaTargetIdentities,
+        lock.releaseTargets.map((target) => target.identity).toSet(),
+      );
+      expect(_list(_object(definitions['target'])['allOf']), hasLength(5));
     });
 
     test('fails release validation while the Tier-1 matrix is incomplete', () {

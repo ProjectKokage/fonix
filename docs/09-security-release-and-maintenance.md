@@ -318,9 +318,16 @@ python3 -B tool/ci/generate_release_sbom.py \
 
 The generator is offline and deterministic. It rejects duplicate JSON keys,
 unknown fields, lock/manifest drift, unsafe paths, links, extra staged files,
-and staged byte size or hash drift. It records the locked Dart dependency
-graph, exact ORT source and compatibility inputs, selected artifact bytes, and
-notice identities without embedding checkout or staging paths.
+and staged byte size or hash drift. Its independent lock decoder also enforces
+the exact schema-v2 Tier-1 CPU target set, OS-specific architecture and variant
+combinations, artifact membership in that set, and equality between the shim's
+required ORT API and the compatibility floor. A lock marked `release` must
+cover every Tier-1 target with artifacts and record every provider's reported
+name. Replacing a baseline row, introducing a non-CPU release flavor, or using
+an architecture or variant from another platform is rejected before audit
+metadata is emitted. The generator records the locked Dart dependency graph,
+exact ORT source and compatibility inputs, selected artifact bytes, and notice
+identities without embedding checkout or staging paths.
 
 These files are unreleased audit metadata only. They are not release approval,
 signing evidence, provider qualification, or authorization to publish or

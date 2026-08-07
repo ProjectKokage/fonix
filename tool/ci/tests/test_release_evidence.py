@@ -861,6 +861,150 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(release_evidence.ReleaseEvidenceError, "unknown=unknown"):
             self.generate()
 
+    def test_release_target_dimensions_are_platform_specific(self) -> None:
+        cases = (
+            (
+                "windows-android-architecture",
+                {
+                    "os": "windows",
+                    "architecture": "arm64-v8a",
+                    "variant": "default",
+                    "flavor": "cpu",
+                },
+                "architecture is unsupported for windows",
+            ),
+            (
+                "windows-simulator",
+                {
+                    "os": "windows",
+                    "architecture": "x64",
+                    "variant": "simulator",
+                    "flavor": "cpu",
+                },
+                "variant is unsupported for windows",
+            ),
+            (
+                "ios-default",
+                {
+                    "os": "ios",
+                    "architecture": "arm64",
+                    "variant": "default",
+                    "flavor": "cpu",
+                },
+                "variant is unsupported for ios",
+            ),
+        )
+        for name, replacement, message in cases:
+            with self.subTest(name=name):
+                fixture = _EvidenceFixture(Path(self.temporary.name) / name)
+                fixture.lock["release_targets"][-1] = replacement
+                fixture.lock["artifacts"][-1]["target"] = {
+                    "os": replacement["os"],
+                    "architecture": replacement["architecture"],
+                    "variant": replacement["variant"],
+                    "min_os": "1.0",
+                }
+                fixture.rewrite_lock()
+                with self.assertRaisesRegex(
+                    release_evidence.ReleaseEvidenceError, message
+                ):
+                    release_evidence.generate_evidence(
+                        fixture.repository, fixture.stage, fixture.artifact_id
+                    )
+
+    def test_release_targets_reject_non_cpu_flavors(self) -> None:
+        self.fixture.lock["release_targets"][-1]["flavor"] = "qnn"
+        self.fixture.lock["artifacts"][-1]["flavor"] = "qnn"
+        self.fixture.rewrite_lock()
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError, "flavor is unsupported"
+        ):
+            self.generate()
+
+    def test_release_targets_must_equal_the_closed_tier1_matrix(self) -> None:
+        self.fixture.lock["release_targets"][-1] = {
+            "os": "macos",
+            "architecture": "x86_64",
+            "variant": "default",
+            "flavor": "cpu",
+        }
+        self.fixture.lock["artifacts"][-1]["target"] = {
+            "os": "macos",
+            "architecture": "x86_64",
+            "variant": "default",
+            "min_os": "1.0",
+        }
+        self.fixture.rewrite_lock()
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "must exactly declare the schema-v2 Tier-1 CPU matrix",
+        ):
+            self.generate()
+
+    def test_release_target_order_is_not_semantic(self) -> None:
+        self.fixture.lock["release_targets"].reverse()
+        self.fixture.rewrite_lock()
+        self.generate()
+
+    def test_artifact_target_dimensions_are_platform_specific(self) -> None:
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "architecture is unsupported for windows",
+        ):
+            release_evidence._validate_target(
+                {
+                    "os": "windows",
+                    "architecture": "arm64-v8a",
+                    "variant": "simulator",
+                    "min_os": "1.0",
+                },
+                "artifact target",
+            )
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "artifact target.os must be a bounded non-empty string",
+        ):
+            release_evidence._validate_target(
+                {
+                    "os": ["windows"],
+                    "architecture": "x64",
+                    "variant": "default",
+                    "min_os": "1.0",
+                },
+                "artifact target",
+            )
+
+    def test_shim_api_must_match_the_compatibility_floor(self) -> None:
+        self.fixture.lock["shim"]["required_ort_api"] = 26
+        self.fixture.rewrite_lock()
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "required_ort_api must equal onnxruntime.compatibility_floor.c_api",
+        ):
+            self.generate()
+
+    def test_release_lock_requires_artifacts_for_every_tier1_target(self) -> None:
+        self.fixture.lock["release_state"] = "release"
+        self.fixture.lock["shim"]["source_revision"] = "b" * 40
+        self.fixture.lock["artifacts"].pop()
+        self.fixture.rewrite_lock()
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "artifacts do not cover release targets",
+        ):
+            self.generate()
+
+    def test_release_lock_requires_reported_provider_names(self) -> None:
+        self.fixture.lock["release_state"] = "release"
+        self.fixture.lock["shim"]["source_revision"] = "b" * 40
+        self.fixture.selected_artifact["providers"][0]["reported_name"] = None
+        self.fixture.rewrite_lock()
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "reported_name is required for a release",
+        ):
+            self.generate()
+
     def test_pubspec_lock_unknown_field_is_rejected(self) -> None:
         lock_path = self.fixture.repository / "pubspec.lock"
         text = lock_path.read_text(encoding="utf-8")
@@ -885,6 +1029,18 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 self.fixture.repository,
                 self.fixture.stage,
                 "onnxruntime-not-locked",
+            )
+
+        other_artifact_id = self.fixture.lock["artifacts"][0]["id"]
+        self.assertNotEqual(other_artifact_id, self.fixture.artifact_id)
+        with self.assertRaisesRegex(
+            release_evidence.ReleaseEvidenceError,
+            "staged manifest artifactId does not match the native lock",
+        ):
+            release_evidence.generate_evidence(
+                self.fixture.repository,
+                self.fixture.stage,
+                other_artifact_id,
             )
 
 

@@ -63,6 +63,26 @@ _PACKAGE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$")
 _MINIMUM_OS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
 
+_TARGET_ARCHITECTURES = {
+    "android": frozenset({"arm64-v8a", "x86_64", "armeabi-v7a", "x86"}),
+    "ios": frozenset({"arm64", "x86_64"}),
+    "macos": frozenset({"arm64", "x86_64"}),
+    "linux": frozenset({"arm64", "x86_64"}),
+    "windows": frozenset({"arm64", "x64"}),
+}
+_REQUIRED_RELEASE_TARGETS = frozenset(
+    {
+        ("ios", "arm64", "device", "cpu"),
+        ("ios", "arm64", "simulator", "cpu"),
+        ("macos", "arm64", "default", "cpu"),
+        ("android", "arm64-v8a", "default", "cpu"),
+        ("android", "x86_64", "default", "cpu"),
+        ("linux", "x86_64", "default", "cpu"),
+        ("linux", "arm64", "default", "cpu"),
+        ("windows", "x64", "default", "cpu"),
+    }
+)
+
 _LOCK_KEYS = frozenset(
     {
         "schema",
@@ -449,22 +469,33 @@ def _validate_source_input(value: Any, label: str) -> dict[str, Any]:
     return item
 
 
+def _validate_target_dimensions(
+    value: dict[str, Any], label: str
+) -> tuple[str, str, str]:
+    operating_system = _string(value["os"], f"{label}.os", maximum=16)
+    architectures = _TARGET_ARCHITECTURES.get(operating_system)
+    if architectures is None:
+        raise ReleaseEvidenceError(f"{label}.os is unsupported")
+    architecture = _string(
+        value["architecture"], f"{label}.architecture", maximum=32
+    )
+    if architecture not in architectures:
+        raise ReleaseEvidenceError(
+            f"{label}.architecture is unsupported for {operating_system}"
+        )
+    variant = _string(value["variant"], f"{label}.variant", maximum=16)
+    variants = {"device", "simulator"} if operating_system == "ios" else {"default"}
+    if variant not in variants:
+        raise ReleaseEvidenceError(
+            f"{label}.variant is unsupported for {operating_system}"
+        )
+    return operating_system, architecture, variant
+
+
 def _validate_target(value: Any, label: str) -> dict[str, Any]:
     target = _object(value, label)
     _exact_keys(target, _TARGET_KEYS, label)
-    if target["os"] not in {"android", "ios", "macos", "linux", "windows"}:
-        raise ReleaseEvidenceError(f"{label}.os is unsupported")
-    if target["architecture"] not in {
-        "arm64-v8a",
-        "x86_64",
-        "armeabi-v7a",
-        "x86",
-        "arm64",
-        "x64",
-    }:
-        raise ReleaseEvidenceError(f"{label}.architecture is unsupported")
-    if target["variant"] not in {"default", "device", "simulator"}:
-        raise ReleaseEvidenceError(f"{label}.variant is unsupported")
+    _validate_target_dimensions(target, label)
     minimum_os = _string(target["min_os"], f"{label}.min_os", maximum=64)
     if _MINIMUM_OS.fullmatch(minimum_os) is None:
         raise ReleaseEvidenceError(f"{label}.min_os is invalid")
@@ -510,7 +541,7 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
     shim = _object(lock["shim"], "native lock shim")
     _exact_keys(shim, _SHIM_KEYS, "native lock shim")
     _integer(shim["abi"], "native lock shim.abi", minimum=1, maximum=0xFFFFFFFF)
-    _integer(
+    required_ort_api = _integer(
         shim["required_ort_api"],
         "native lock shim.required_ort_api",
         minimum=1,
@@ -528,12 +559,17 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
     _exact_keys(onnx, _ONNX_KEYS, "native lock onnxruntime")
     compatibility = _object(onnx["compatibility_floor"], "native lock compatibility_floor")
     _exact_keys(compatibility, _COMPATIBILITY_KEYS, "native lock compatibility_floor")
-    _integer(
+    compatibility_api = _integer(
         compatibility["c_api"],
         "native lock compatibility_floor.c_api",
         minimum=1,
         maximum=0xFFFFFFFF,
     )
+    if required_ort_api != compatibility_api:
+        raise ReleaseEvidenceError(
+            "native lock shim.required_ort_api must equal "
+            "onnxruntime.compatibility_floor.c_api"
+        )
     for name in ("header", "ep_header", "license"):
         _validate_source_input(
             compatibility[name], f"native lock compatibility_floor.{name}"
@@ -547,20 +583,27 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
         label = f"native lock release_targets[{index}]"
         target = _object(raw_target, label)
         _exact_keys(target, _RELEASE_TARGET_KEYS, label)
-        if target["os"] not in {"android", "ios", "macos", "linux", "windows"}:
-            raise ReleaseEvidenceError(f"{label}.os is unsupported")
-        if target["architecture"] not in {"arm64-v8a", "x86_64", "arm64", "x64"}:
-            raise ReleaseEvidenceError(f"{label}.architecture is unsupported")
-        if target["variant"] not in {"default", "device", "simulator"}:
-            raise ReleaseEvidenceError(f"{label}.variant is unsupported")
+        operating_system, architecture, variant = _validate_target_dimensions(
+            target, label
+        )
         flavor = _identifier(target["flavor"], f"{label}.flavor", _FLAVOR)
-        key = (target["os"], target["architecture"], target["variant"], flavor)
+        if flavor != "cpu":
+            raise ReleaseEvidenceError(f"{label}.flavor is unsupported")
+        key = (operating_system, architecture, variant, flavor)
         if key in release_target_keys:
             raise ReleaseEvidenceError("native lock release_targets contains a duplicate")
         release_target_keys.add(key)
+    if release_target_keys != _REQUIRED_RELEASE_TARGETS:
+        missing = sorted(_REQUIRED_RELEASE_TARGETS - release_target_keys)
+        unknown = sorted(release_target_keys - _REQUIRED_RELEASE_TARGETS)
+        raise ReleaseEvidenceError(
+            "native lock release_targets must exactly declare the schema-v2 "
+            f"Tier-1 CPU matrix (missing={missing}, unknown={unknown})"
+        )
 
     artifacts = _array(lock["artifacts"], "native lock artifacts", minimum=1, maximum=256)
     by_id: dict[str, dict[str, Any]] = {}
+    covered_release_targets: set[tuple[str, str, str, str]] = set()
     for index, raw_artifact in enumerate(artifacts):
         label = f"native lock artifacts[{index}]"
         artifact = _object(raw_artifact, label)
@@ -683,6 +726,10 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     f"{provider_label}.reported_name",
                     maximum=128,
                 )
+            elif lock["release_state"] == "release":
+                raise ReleaseEvidenceError(
+                    f"{provider_label}.reported_name is required for a release"
+                )
 
         build = _object(artifact["build"], f"{label}.build")
         _exact_keys(build, _BUILD_KEYS, f"{label}.build")
@@ -722,7 +769,15 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
         release_key = (target["os"], target["architecture"], target["variant"], flavor)
         if release_key not in release_target_keys:
             raise ReleaseEvidenceError(f"{label} target/flavor is not release-targeted")
+        covered_release_targets.add(release_key)
         by_id[artifact_id] = artifact
+    if lock["release_state"] == "release":
+        missing_targets = sorted(_REQUIRED_RELEASE_TARGETS - covered_release_targets)
+        if missing_targets:
+            raise ReleaseEvidenceError(
+                "native lock artifacts do not cover release targets: "
+                f"{missing_targets}"
+            )
     return by_id
 
 

@@ -30,6 +30,7 @@
       "type": "array",
       "minItems": 8,
       "maxItems": 8,
+      "uniqueItems": true,
       "items": { "$ref": "#/$defs/releaseTarget" }
     },
     "artifacts": {
@@ -139,7 +140,54 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "os": { "const": "android" } } },
+          "then": {
+            "properties": {
+              "architecture": { "enum": ["arm64-v8a", "x86_64", "armeabi-v7a", "x86"] },
+              "variant": { "const": "default" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "os": { "const": "ios" } } },
+          "then": {
+            "properties": {
+              "architecture": { "enum": ["arm64", "x86_64"] },
+              "variant": { "enum": ["device", "simulator"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "os": { "const": "macos" } } },
+          "then": {
+            "properties": {
+              "architecture": { "enum": ["arm64", "x86_64"] },
+              "variant": { "const": "default" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "os": { "const": "linux" } } },
+          "then": {
+            "properties": {
+              "architecture": { "enum": ["arm64", "x86_64"] },
+              "variant": { "const": "default" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "os": { "const": "windows" } } },
+          "then": {
+            "properties": {
+              "architecture": { "enum": ["arm64", "x64"] },
+              "variant": { "const": "default" }
+            }
+          }
+        }
+      ]
     },
     "artifactSource": {
       "type": "object",
@@ -178,7 +226,17 @@
         },
         "variant": { "enum": ["default", "device", "simulator"] },
         "flavor": { "const": "cpu" }
-      }
+      },
+      "enum": [
+        { "os": "ios", "architecture": "arm64", "variant": "device", "flavor": "cpu" },
+        { "os": "ios", "architecture": "arm64", "variant": "simulator", "flavor": "cpu" },
+        { "os": "macos", "architecture": "arm64", "variant": "default", "flavor": "cpu" },
+        { "os": "android", "architecture": "arm64-v8a", "variant": "default", "flavor": "cpu" },
+        { "os": "android", "architecture": "x86_64", "variant": "default", "flavor": "cpu" },
+        { "os": "linux", "architecture": "x86_64", "variant": "default", "flavor": "cpu" },
+        { "os": "linux", "architecture": "arm64", "variant": "default", "flavor": "cpu" },
+        { "os": "windows", "architecture": "x64", "variant": "default", "flavor": "cpu" }
+      ]
     },
     "expectedFile": {
       "type": "object",
