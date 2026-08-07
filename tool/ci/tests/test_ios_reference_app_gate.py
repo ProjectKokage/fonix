@@ -17,6 +17,7 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "run_ios_reference_app_gate.py"
+REPOSITORY = Path(__file__).resolve().parents[3]
 SPEC = importlib.util.spec_from_file_location("run_ios_reference_app_gate", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 run_ios_reference_app_gate = importlib.util.module_from_spec(SPEC)
@@ -643,13 +644,22 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
         main.write_text(
             "\n".join(
                 [
-                    "if (Platform.isIOS)",
-                    "challenge = await readIosResidentReferenceChallenge()",
-                    "_runResidentPackagedSmoke(challenge, pid).catchError",
-                    "residentReferenceActivationFailureDiagnostic",
-                    "residentReferencePublicationFailureDiagnostic",
-                    "if (Platform.isMacOS &&",
-                    "Platform.environment[_smokeEnvironmentKey] == '1'",
+                    "import 'dart:async';",
+                    "  if (Platform.isIOS) {",
+                    "      challenge = await readIosResidentReferenceChallenge();",
+                    "      unawaited(",
+                    "        _runResidentPackagedSmoke(challenge, pid).catchError((Object _) {",
+                    "          stderr.writeln(residentReferencePublicationFailureDiagnostic);",
+                    "        }),",
+                    "      );",
+                    "      stderr.writeln(residentReferenceActivationFailureDiagnostic);",
+                    "  if ((Platform.isMacOS || Platform.isLinux) &&",
+                    "      desktopReferenceSmokeEnabled(",
+                    "        isMacOS: Platform.isMacOS,",
+                    "        isLinux: Platform.isLinux,",
+                    "        environment: Platform.environment,",
+                    "      )) {",
+                    "exit(status);",
                 ]
             ),
             encoding="utf-8",
@@ -716,6 +726,9 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
         ):
             run_ios_reference_app_gate._require_ios_source_contract(work)
 
+    def test_ios_source_contract_accepts_committed_reference_application(self) -> None:
+        run_ios_reference_app_gate._require_ios_source_contract(REPOSITORY / "example")
+
     def test_ios_source_contract_rejects_launch_bridge_regressions(self) -> None:
         work = self.root / "work"
         _, delegate, main = self._write_ios_source_contract(work)
@@ -749,6 +762,90 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
                 "challenge = await readIosResidentReferenceChallenge()",
                 "requireResidentReferenceChallenge(Platform.environment)",
             ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "resident smoke entrypoint contract changed",
+        ):
+            run_ios_reference_app_gate._require_ios_source_contract(work)
+
+    def test_ios_source_contract_requires_owned_resident_future(self) -> None:
+        work = self.root / "work"
+        _, _, main = self._write_ios_source_contract(work)
+        main.write_text(
+            main.read_text(encoding="utf-8").replace("unawaited(", ""),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "resident smoke entrypoint contract changed",
+        ):
+            run_ios_reference_app_gate._require_ios_source_contract(work)
+
+        _, _, main = self._write_ios_source_contract(work)
+        main.write_text(
+            main.read_text(encoding="utf-8").replace(
+                ".catchError((Object _) {",
+                ".then((Object _) {",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "resident smoke entrypoint contract changed",
+        ):
+            run_ios_reference_app_gate._require_ios_source_contract(work)
+
+        _, _, main = self._write_ios_source_contract(work)
+        main.write_text(
+            f"{main.read_text(encoding='utf-8')}\nFuture<void>.value().ignore();\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "resident smoke entrypoint contract changed",
+        ):
+            run_ios_reference_app_gate._require_ios_source_contract(work)
+
+    def test_ios_source_contract_keeps_desktop_activation_closed(self) -> None:
+        work = self.root / "work"
+        _, _, main = self._write_ios_source_contract(work)
+        main.write_text(
+            main.read_text(encoding="utf-8").replace(
+                "desktopReferenceSmokeEnabled(",
+                "Platform.environment['FONIX_REFERENCE_SMOKE'] == '1' && (",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "resident smoke entrypoint contract changed",
+        ):
+            run_ios_reference_app_gate._require_ios_source_contract(work)
+
+        mutations = (
+            ("Platform.isMacOS || Platform.isLinux", "Platform.isMacOS"),
+            ("isMacOS: Platform.isMacOS", "isMacOS: false"),
+            ("isLinux: Platform.isLinux", "isLinux: false"),
+            ("environment: Platform.environment", "environment: const {}"),
+        )
+        for source, replacement in mutations:
+            with self.subTest(source=source):
+                _, _, main = self._write_ios_source_contract(work)
+                main.write_text(
+                    main.read_text(encoding="utf-8").replace(source, replacement),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    run_ios_reference_app_gate.IosReferenceAppGateError,
+                    "resident smoke entrypoint contract changed",
+                ):
+                    run_ios_reference_app_gate._require_ios_source_contract(work)
+
+        _, _, main = self._write_ios_source_contract(work)
+        main.write_text(
+            f"{main.read_text(encoding='utf-8')}\ndesktopReferenceSmokeEnabled(\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(

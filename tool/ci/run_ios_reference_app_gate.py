@@ -797,18 +797,37 @@ def _require_ios_source_contract(work_directory: Path) -> None:
         "committed reference application entrypoint",
         maximum=256 * 1024,
     ).read_text(encoding="utf-8")
+    resident_dispatch = (
+        "      unawaited(\n"
+        "        _runResidentPackagedSmoke(challenge, pid).catchError((Object _) {\n"
+        "          stderr.writeln(residentReferencePublicationFailureDiagnostic);\n"
+        "        }),\n"
+        "      );"
+    )
+    desktop_guard = (
+        "  if ((Platform.isMacOS || Platform.isLinux) &&\n"
+        "      desktopReferenceSmokeEnabled(\n"
+        "        isMacOS: Platform.isMacOS,\n"
+        "        isLinux: Platform.isLinux,\n"
+        "        environment: Platform.environment,\n"
+        "      )) {"
+    )
     required_main_fragments = (
+        "import 'dart:async';",
         "if (Platform.isIOS)",
         "challenge = await readIosResidentReferenceChallenge()",
-        "_runResidentPackagedSmoke(challenge, pid).catchError",
+        resident_dispatch,
         "residentReferenceActivationFailureDiagnostic",
-        "residentReferencePublicationFailureDiagnostic",
-        "if (Platform.isMacOS &&",
-        "Platform.environment[_smokeEnvironmentKey] == '1'",
+        desktop_guard,
+        "exit(status);",
     )
     if (
         any(fragment not in main for fragment in required_main_fragments)
         or main.count("Platform.environment") != 1
+        or main.count("unawaited(") != 1
+        or main.count("_runResidentPackagedSmoke(challenge, pid)") != 1
+        or main.count("desktopReferenceSmokeEnabled(") != 1
+        or main.count("exit(status);") != 1
         or ".ignore()" in main
         or "requireResidentReferenceChallenge(Platform.environment)" in main
     ):
