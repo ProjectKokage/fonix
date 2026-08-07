@@ -730,6 +730,46 @@ def _install_succeeded(output: str) -> None:
     )
 
 
+def _install_release_apk(
+    runner: CapturingRunner,
+    adb: Path,
+    serial: str,
+    final_apk: Path,
+    expected_size_bytes: int,
+) -> None:
+    output = runner(
+        (
+            str(adb),
+            "-s",
+            serial,
+            "install",
+            "--no-streaming",
+            str(final_apk),
+        ),
+        operation="audited Release APK install",
+        timeout_seconds=120,
+        maximum_output=64 * 1024,
+        environment=tool_environment(),
+    )
+    _install_succeeded(output.stdout)
+    if not output.stderr:
+        return
+    if "\r" in output.stderr or "\x00" in output.stderr:
+        raise AndroidSherpaTargetGateError(
+            "APK install stderr contains invalid controls"
+        )
+    decimal = r"(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?"
+    pattern = re.compile(
+        re.escape(str(final_apk))
+        + rf": 1 file pushed, 0 skipped\. {decimal} MB/s "
+        + rf"\({expected_size_bytes} bytes in {decimal}s\)\n"
+    )
+    if pattern.fullmatch(output.stderr) is None:
+        raise AndroidSherpaTargetGateError(
+            "APK install stderr is outside the closed adb push receipt"
+        )
+
+
 def _parse_installed_apk_path(output: str) -> str:
     value = _single_line(output, "installed base APK path", maximum=1024)
     match = re.fullmatch(
@@ -2226,14 +2266,12 @@ def run_target_gate(
     app_payload: dict[str, Any] | None = None
     try:
         install_attempted = True
-        _install_succeeded(
-            _adb(
-                runner,
-                arguments.adb,
-                arguments.serial,
-                ("install", "--no-streaming", str(arguments.final_apk)),
-                "audited Release APK install",
-            )
+        _install_release_apk(
+            runner,
+            arguments.adb,
+            arguments.serial,
+            arguments.final_apk,
+            apk_identity.size_bytes,
         )
         _verify_installed_apk(
             runner,

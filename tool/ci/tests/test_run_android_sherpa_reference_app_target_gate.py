@@ -45,6 +45,8 @@ class FakeTargetRunner:
         self.uninstall_failure = False
         self.logcat = fixture.completion_log
         self.application_id = GATE.APPLICATION_ID
+        self.install_stdout = "Performing Push Install\nSuccess\n"
+        self.install_stderr = ""
         self.fingerprint_queries = 0
         self.postflight_fingerprint: str | None = None
         self.fingerprint_change_query = 3
@@ -111,7 +113,7 @@ class FakeTargetRunner:
             return self._output("1\n")
         if adb_arguments[:2] == ("install", "--no-streaming"):
             self.installed = True
-            return self._output("Performing Push Install\nSuccess\n")
+            return self._output(self.install_stdout, self.install_stderr)
         if adb_arguments == ("shell", "pm", "path", GATE.APPLICATION_ID):
             return self._output(f"package:{self.fixture.installed_path}\n")
         if adb_arguments == (
@@ -193,8 +195,8 @@ class FakeTargetRunner:
         self.fixture.fail(f"unexpected command: {argv!r}")
 
     @staticmethod
-    def _output(stdout: str) -> GATE.CommandOutput:
-        return GATE.CommandOutput(stdout, "")
+    def _output(stdout: str, stderr: str = "") -> GATE.CommandOutput:
+        return GATE.CommandOutput(stdout, stderr)
 
 
 class AndroidSherpaTargetGateTest(unittest.TestCase):
@@ -627,6 +629,40 @@ class AndroidSherpaTargetGateTest(unittest.TestCase):
             f"pidof {GATE.APPLICATION_ID} 2>/dev/null || true",
         )
         self.assertNotIn("sh -c", " ".join(command))
+
+    def test_accepts_exact_adb_push_progress_on_stderr(self) -> None:
+        fake = FakeTargetRunner(self)
+        fake.install_stderr = (
+            f"{self.final_apk.resolve()}: 1 file pushed, 0 skipped. "
+            f"696.8 MB/s ({self.final_apk.stat().st_size} bytes in 0.062s)\n"
+        )
+
+        manifest = GATE.run_target_gate(
+            self._arguments("split-install-output-capture"),
+            command_runner=fake,
+            challenge_factory=lambda count: self.challenge,
+        )
+
+        self.assertEqual(manifest["result"], "passed")
+        self.assertTrue(fake.uninstalled)
+        self.assertFalse(fake.installed)
+
+    def test_rejects_unclosed_install_stderr_and_still_uninstalls(self) -> None:
+        fake = FakeTargetRunner(self)
+        fake.install_stderr = "unexpected adb warning\n"
+
+        with self.assertRaisesRegex(
+            GATE.AndroidSherpaTargetGateError,
+            "stderr is outside the closed adb push receipt",
+        ):
+            GATE.run_target_gate(
+                self._arguments("bad-install-stderr-capture"),
+                command_runner=fake,
+                challenge_factory=lambda count: self.challenge,
+            )
+
+        self.assertTrue(fake.uninstalled)
+        self.assertFalse(fake.installed)
 
     def test_rejects_foreign_apk_application_id_before_install(self) -> None:
         fake = FakeTargetRunner(self)

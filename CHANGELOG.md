@@ -38,6 +38,9 @@
 - Kept generated `.bin` qualification fixtures uncompressed and made the
   static package gate enforce the target runner's closed archive expansion
   ratio before an APK can reach installation.
+- Bound the trusted runner to ADB's exact successful push-install stderr
+  receipt while continuing to reject arbitrary warnings and cleanup the
+  dedicated package after any failure.
 - Passed the runtime-provisioned static gate after implementation commit
   `635e97d` and staged-build stabilization commit `eaa195a` on macOS arm64
   with Flutter revision
