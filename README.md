@@ -160,10 +160,14 @@ base-only AAB to the same selected raw sherpa/Fonix inputs, complete dependency
 graph, and file-backed loaded segments. Its output is deliberately
 `static-package-only`. In addition to synthetic/tamper coverage, the staged
 runner has built and passed this gate for the committed arm64-v8a Release
-sherpa reference composition. That application still emits only
-`unavailable/native-fixtures-unprovisioned`; no product, installation, or
-runtime coexistence claim follows. No AAB runtime claim exists until an
-AAB-derived split is installed and exercised.
+sherpa reference composition. The latest opt-in runtime-provisioned pass also
+packaged and audited the exact generated Fonix/VAD fixtures and externally
+provisioned Silero model for consumption by the implemented native adapters
+during a future target run. It did not install or launch the APK, so no
+product, target, load-order, or runtime coexistence claim follows. The
+asset-free committed template still emits
+`unavailable/native-fixtures-unprovisioned`, and no AAB runtime claim exists
+until an AAB-derived split is installed and exercised.
 
 ## Committed Flutter reference application
 
@@ -188,8 +192,11 @@ the AAB, but does not install an AAB-derived split. See the
 is the separate sherpa-owned scaffold. Its locked runner copies it outside the
 checkout, guards all five hosted sherpa package trees and generated plugin
 bindings, runs its host contract tests, builds an arm64-v8a R8 Release APK and
-base-only AAB, and applies the closed package-pair audit. Native qualification
-drivers and target execution remain the next layer.
+base-only AAB, and applies the closed package-pair audit. The bounded real
+Fonix and sherpa qualification adapters, authoritative lifecycle publication
+path, deterministic fixture generator, and trusted one-tuple target runner are
+implemented. Executing that runner on the required targets remains the next
+layer.
 
 ## Verification
 
@@ -223,17 +230,26 @@ actual 16 KiB runtime, physical-device behavior, AAB split installation,
 x86_64 execution, QNN, and sherpa coexistence remain unproved. iOS, Linux, and
 the deferred Windows target-host gaps remain explicit release gates.
 
-The committed sherpa-owned arm64-v8a reference composition also has one exact
-R8 Release APK/base-only-AAB static package-pair record. It binds the locked
-hosted package trees, raw sherpa/ORT/Fonix inputs, complete native dependency
-graph, matching Flutter platform-library loaded bytes, and static 16 KiB ELF
-compatibility. It did not install or run either package.
+The committed sherpa-owned arm64-v8a reference composition implemented in
+`635e97d` and stabilized in `eaa195a` also has an exact runtime-provisioned R8
+Release APK/base-only-AAB static package-pair record. On macOS arm64, Flutter
+revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12 produced a
+42,979,622-byte APK with SHA-256
+`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8` and a
+26,045,591-byte base-only AAB with SHA-256
+`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
+The record binds the locked hosted package trees, all eight qualification
+assets, raw sherpa/ORT/Fonix inputs, complete native dependency graph, matching
+Flutter platform-library loaded bytes, and static 16 KiB ELF compatibility.
+APK installation and launch were not authorized or executed; the queried API
+35 arm64 emulator's 4096-byte page size is environment inventory, not target
+evidence.
 
-The next development slice is the exact sherpa-owned Flutter FFI Android
-runtime adapter and trusted target runner, producing four validated
-arm64-v8a Release load-order/page-size records for one exact APK. After that
-come the iOS arm64 reference app, Linux x86_64 target-host package, and
-cross-platform
+The next development slice is to run the trusted target gate for both
+`dart-first` and `sherpa-first` on that 4 KiB arm64 emulator, then repeat both
+load orders on a real 16 KiB Android environment. After that come the iOS
+arm64 reference app, Linux x86_64 target-host package, and cross-platform
 lifecycle/performance and release stabilization. Android QNN/aligned-runtime
 device qualification and all Windows target-host, final-package, installer,
 and clean-machine work are deferred until their required SDK/hardware or

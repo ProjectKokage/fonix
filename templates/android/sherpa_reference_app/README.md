@@ -7,9 +7,31 @@ single ONNX Runtime packaged by sherpa-onnx.
 
 ## Current evidence status
 
-This checkpoint includes the real bounded qualification path plus the earlier
-exact arm64-v8a R8 Release APK/base-only-AAB static package audit. It contains
-no target execution evidence yet.
+This checkpoint includes the real bounded qualification path and an exact
+runtime-provisioned arm64-v8a R8 Release APK/base-only-AAB static package audit.
+The implementation landed in commit `635e97d` and its staged build was
+stabilized in `eaa195a`. It contains no target execution evidence yet.
+
+The passing gate ran on macOS arm64 with Flutter revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It produced:
+
+- a 42,979,622-byte APK with SHA-256
+  `d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
+- a 26,045,591-byte base-only AAB with SHA-256
+  `fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`;
+- a 16,118-byte static manifest with SHA-256
+  `8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`;
+  and
+- a gate report with SHA-256
+  `17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`.
+
+The gate verified the `eaa195a` implementation tree's `MANIFEST.sha256`, whose
+SHA-256 was
+`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`
+and passed 50 staged Flutter tests plus analysis. An API 35 arm64 emulator was
+queried with a 4096-byte page size, but installation, launch, and target-runner
+execution were not authorized and did not occur. That query is not target
+evidence.
 
 - The committed template declares no qualification assets. `main.dart`
   validates the trusted-runner launch envelope and emits
@@ -411,3 +433,12 @@ installs one audited APK on one selected adb serial, captures one load order and
 queried page size, validates it, then force-stops and removes only the package
 installed by that invocation. Until that runner succeeds on a target, this
 source still carries no runtime coexistence claim.
+
+The next target steps are both `dart-first` and `sherpa-first` against the exact
+audited APK on the available API 35 arm64/4 KiB emulator, followed by both load
+orders on a real 16 KiB Android environment. The repository roadmap then moves
+to iOS arm64 and Linux x86_64 target-host work. Android aligned-build/QNN
+target qualification and all Windows target-host, provider/DirectML,
+final-application/package, installer, and clean-machine qualification remain
+deferred; existing static, source, cross-build, and security checks remain
+mandatory.

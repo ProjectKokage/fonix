@@ -28,8 +28,18 @@
 - Added a locked sherpa-owned Android reference scaffold and staged build gate
   that binds all hosted package trees, the generated plugin graph, exact raw
   native inputs, and one arm64-v8a Release APK/base-only-AAB static pair.
+- Added the real bounded sherpa-owned Android qualification path: deterministic
+  Fonix/VAD fixtures, process-runtime Fonix and sherpa adapters, authoritative
+  cancellation/stale-result publication, recovery and disposal checks, and a
+  trusted UID/PID-bound one-tuple target runner.
+- Passed the runtime-provisioned static gate after implementation commit
+  `635e97d` and staged-build stabilization commit `eaa195a` on macOS arm64
+  with Flutter revision
+  `bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. The exact
+  R8 Release APK/AAB pair and all eight qualification assets were audited; no
+  Android target run or coexistence receipt was produced.
 - Validated exact ONNX Runtime 1.27.1 CPU inference and CoreML `CPUOnly`
   assignment/parity on macOS arm64. The Android XNNPACK result is limited to an
   API 35 arm64/4 KiB emulator functional checkpoint; API 24/16 KiB/physical-
-  device and sherpa, iOS, Linux target-host, and deferred QNN/Windows gates
-  remain documented qualification requirements.
+  device and sherpa target execution, iOS, Linux target-host, and deferred
+  QNN/Windows gates remain documented qualification requirements.

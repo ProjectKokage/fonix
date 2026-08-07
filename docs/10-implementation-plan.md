@@ -6,17 +6,19 @@ The coding agent should implement vertical slices that produce runnable packaged
 
 The current development sequence is narrower than the phase inventory below:
 
-1. commit and keep green the macOS arm64 CPU reference gate, Android arm64 CPU
-   gate, and Android arm64 XNNPACK functional emulator gate; the XNNPACK
-   checkpoint is not provider qualification;
-2. integrate the exact selected sherpa-onnx Android artifact under the
-   single-ORT process-owner contract, starting with one arm64-v8a
-   release-minified APK; audit that APK and the matching AAB, then produce four
-   independent raw schema-2 target receipts (both load orders on 4 KiB and
-   16 KiB), validate them into schema-1 records, and aggregate only those
-   records into the schema-2 compatibility manifest; preserve trusted runner
-   provenance for installation and raw `adb`/package-manager/logcat capture,
-   because offline record validation does not authenticate target origin;
+The completed macOS arm64 CPU, Android arm64 CPU, Android arm64 XNNPACK
+functional emulator, and Android sherpa runtime-provisioned static gates are
+standing regressions and must stay green. The XNNPACK checkpoint is not
+provider qualification, and the sherpa static gate is not target evidence.
+
+1. run the trusted one-tuple Android sherpa target gate for `dart-first` and
+   `sherpa-first` on the queried 4 KiB arm64 emulator, retaining exact
+   installed-APK, package-manager, `adb`, and logcat provenance;
+2. repeat both load orders on an actual 16 KiB environment, validate the four
+   independent raw schema-2 receipts into schema-1 records, and aggregate only
+   those records into the schema-2 compatibility manifest; offline record
+   validation does not authenticate target origin, so only trusted-runner
+   captures qualify;
 3. produce the iOS arm64 CPU/CoreML reference application; verify final
    simulator packaging/inference first, then physical-device lifecycle,
    assignment, parity, and fallback evidence when hardware/signing are
@@ -296,26 +298,39 @@ closed `sherpa` or `application` runtime owner, emits respectively a process
 shim or a bundled exact artifact, and embeds schema-3 owner/source policy.
 Locked arm64-v8a and x86_64 shims cross-build at API 24 and pass static 16 KiB,
 dependency, and single-ORT inventory checks. The deterministic compatibility
-record generator now distinguishes the legacy JNI and current Flutter FFI
+record generator distinguishes the legacy JNI and current Flutter FFI
 profiles, accepts repeatable exact `jniLibs`/Native Assets source directories,
 binds every selected native library to final loaded segments, and rejects
 unexplained final native libraries. A strict schema-2 target-receipt validator
-now binds the exact sherpa-owned Flutter FFI APK, evidence process, fixtures,
+binds the exact sherpa-owned Flutter FFI APK, evidence process, fixtures,
 alternating workload, and lifecycle, emits schema-1 validation records, and
-requires four current records before schema-2 aggregation. Its implementation
-and tamper tests are tooling evidence only. Separate application-owned
-standalone CPU and XNNPACK profile APK/AAB builds now pass final-package
-inspection and API 35 arm64/4 KiB
-emulator runs, but neither build contains sherpa and no exact product sherpa
-composition, target load-order/workload/lifecycle receipt, or 16 KiB runtime
-exists. The exact selected raw publication inputs have only static audit
-evidence. The current runtime validator covers APK plus sherpa-owned Flutter
-FFI only. The closed matching APK/base-only-AAB static coexistence gate is now
-implemented with deterministic synthetic and tamper coverage and has passed on
-the exact committed arm64-v8a Release reference composition. That reference
-app still emits only `unavailable/native-fixtures-unprovisioned`; it has no
-native adapter, target run, load-order/workload/lifecycle receipt, or 16 KiB
-runtime result. Phase 7 acceptance therefore remains only partially complete.
+requires four current records before schema-2 aggregation.
+
+Commit `635e97d` implements the real bounded Fonix process-runtime and sherpa
+Silero VAD application adapters, authoritative lifecycle publication sink,
+deterministic fixture generator and strict asset gate, plus the trusted
+one-tuple target runner; commit `eaa195a` stabilizes the staged build and
+tests. On a macOS arm64 host, the runtime-provisioned Release gate passed for
+an arm64-v8a R8 APK and matching base-only AAB, statically auditing all eight
+exact assets and the single-ORT graph. Its report SHA-256 is
+`17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`,
+the gate-time `eaa195a` implementation tree's `MANIFEST.sha256` has SHA-256
+`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`,
+and the static package manifest SHA-256 is
+`8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`.
+The 42,979,622-byte APK has SHA-256
+`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
+the 26,045,591-byte AAB has SHA-256
+`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
+
+The report has `targetEvidence: null`. Although an API 35 arm64 emulator with
+a queried 4096-byte page size was available, the APK was not installed or run
+and the target runner emitted no receipt. Separate application-owned CPU and
+XNNPACK APKs retain their earlier 4 KiB emulator evidence, but neither contains
+sherpa. Phase 7 therefore remains partially complete: next run both load
+orders on 4 KiB, then both on an actual 16 KiB environment; no target,
+load-order, inference, lifecycle, or page-size runtime claim follows from the
+static checkpoint.
 
 ## Phase 8: desktop accelerated flavors
 

@@ -209,21 +209,33 @@ native inputs pass the static profile and 16 KiB checks. No real sherpa APK
 load-order/lifecycle record has been produced, so no coexistence execution is
 inferred from this tooling checkpoint.
 
-The separate `run_android_sherpa_reference_app_gate.py` now copies the locked
-sherpa-owned scaffold outside the checkout, verifies all five selected hosted
-package trees and generated plugin bindings around each consuming command,
-runs host tests, builds arm64-v8a R8 Release APK/AAB bytes, and invokes the
-closed static package-pair generator. The committed reference composition
-passed that gate on 2026-08-07. Its main path still reports only
-`unavailable/native-fixtures-unprovisioned`, and the runner accepts no device
-or runtime-receipt input, so this adds package evidence only.
+Commit `635e97d` adds real bounded Fonix process-runtime and sherpa Silero VAD
+application adapters, an authoritative lifecycle publication sink,
+deterministic fixture generation plus strict asset loading, and a trusted
+one-tuple target runner; commit `eaa195a` stabilizes the staged build and
+tests. The runtime-provisioned
+`run_android_sherpa_reference_app_gate.py` passed on a macOS arm64 host for an
+arm64-v8a R8 Release APK and matching base-only AAB. It statically audited all
+eight exact qualification assets and the single-ORT graph. The report SHA-256
+is `17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`,
+the gate-time `eaa195a` implementation tree's `MANIFEST.sha256` has SHA-256
+`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`,
+and the static package manifest SHA-256 is
+`8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`.
+The 42,979,622-byte APK has SHA-256
+`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
+the 26,045,591-byte AAB has SHA-256
+`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
 
-The offline validator cannot authenticate the origin of target or logcat JSON.
-Trusted device-runner capture of installation, package-manager/`adb` output,
-raw logs, and the exact installed APK remains part of the open Android
-coexistence slice; public tool hashes are identities, not attestations.
-Current validator and compatibility outputs are mechanically labeled
-`offline-consistency-only`, with target provenance `unverified`.
+That gate report records `targetEvidence: null`. The API 35 arm64 emulator and
+its queried 4096-byte page size were environment inventory only: no install,
+app launch, workload, or target-runner receipt was produced. The trusted
+capture path now exists in source, but it must still be run for both 4 KiB load
+orders and then both 16 KiB load orders. The offline validator still cannot
+authenticate the origin of supplied target or logcat JSON; public tool hashes
+are identities, not attestations. Current validator and compatibility outputs
+remain mechanically labeled `offline-consistency-only`, with target
+provenance `unverified`.
 
 ## 8.8 Provider qualification
 
@@ -409,11 +421,12 @@ The checked-in pull-request/push workflow currently runs:
 
 The Python job includes unit and tamper coverage for the Android auditor,
 schema-2 load-order receipt validator, schema-1 validation-record ingestion,
-four-record compatibility aggregation, and reference-gate orchestration. The
-full Gradle package gate and emulator run are currently explicitly provisioned
-local evidence, not a hosted CI lane; its
-Gradle dependency graph also lacks dependency-verification metadata, so it is a
-CI Release-mode package gate rather than a reproducible release build.
+four-record compatibility aggregation, reference-gate orchestration, and the
+trusted one-tuple target-runner contract. The full Gradle package gates and the
+standalone CPU/XNNPACK emulator runs are explicitly provisioned local evidence,
+not hosted CI lanes. Their Gradle dependency graphs also lack dependency-
+verification metadata, so these remain CI Release-mode package gates rather
+than reproducible release builds. The sherpa target runner has not run.
 
 The inexpensive C source-quality lane is deliberately offline and
 toolchain-independent. `tool/ci/check_c_source_quality.py` walks the closed
@@ -425,22 +438,28 @@ markers. The native CMake jobs remain the semantic compiler-lint gate through
 elsewhere. This lexical gate does not claim `clang-tidy` static-analysis
 coverage; adding a pinned cross-platform analyzer remains separate work.
 
-Flutter iOS/Linux/Windows final-application smoke, Android sherpa coexistence,
-and Windows/Linux target-host real-ORT inference are not present CI jobs. The
-Android standalone CPU and XNNPACK gates have local API 35 arm64/4 KiB final-
-package evidence but no hosted job, API 24 runtime, actual 16 KiB runtime,
-physical arm64 run, x86_64 run, or installed AAB-derived split. The XNNPACK run
-is a functional emulator checkpoint, not performance, thermal, or provider-
-qualification evidence. These remain target-evidence requirements before
-promoting the corresponding support rows; a cross-build, source test, or tiny
-emulator fixture must not be reported as a substitute.
+Flutter iOS/Linux/Windows final-application smoke, Android sherpa target
+coexistence, and Windows/Linux target-host real-ORT inference are not present
+CI jobs. The Android standalone CPU and XNNPACK gates have local API 35
+arm64/4 KiB final-package evidence. The sherpa-owned path now also has local
+runtime-provisioned Release APK/AAB static evidence, but its report contains
+`targetEvidence: null`. None of these paths has a hosted job, API 24 runtime,
+actual 16 KiB runtime, physical arm64 run, x86_64 run, or installed
+AAB-derived split. The XNNPACK run is a functional emulator checkpoint, not
+performance, thermal, or provider-qualification evidence. These remain
+target-evidence requirements before promoting the corresponding support rows;
+a cross-build, source test, static package audit, or tiny emulator fixture must
+not be reported as a substitute.
 
-The active target roadmap is Android sherpa-owned Flutter FFI, then iOS arm64,
-Linux x86_64, and stabilization/release work. Android aligned/QNN device work is
-deferred until its exact licensed SDK/hardware tuple exists. All Windows
-target-host, final-application, installer, and clean-machine work is deferred
-until a Windows environment exists. Their present QNN tamper/static gates and
-Windows source/cross-build/loader-security gates remain required.
+The active target roadmap is to run the sherpa-owned Flutter FFI Release APK
+through `dart-first` and `sherpa-first` on the queried 4 KiB arm64 emulator,
+then repeat both load orders on an actual 16 KiB environment. After that come
+iOS arm64, Linux x86_64, and stabilization/release work. Android aligned/QNN
+device work is deferred until its exact licensed SDK/hardware tuple exists.
+All Windows target-host, final-application, installer, and clean-machine work
+is deferred until a Windows environment exists. Their present QNN
+tamper/static gates and Windows source/cross-build/loader-security gates remain
+required.
 
 ### Future nightly/scheduled lanes in active scope
 

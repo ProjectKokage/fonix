@@ -496,12 +496,14 @@ This is an offline consistency gate, not a device-attestation system. Supplied
 target and logcat JSON can be fabricated by an untrusted caller even when all
 hashes agree. A target compatibility claim therefore also requires trusted
 runner provenance for installation, `adb`/package-manager capture, the raw
-logs, and the exact installed APK. Until that capture path exists and is run,
-validator and compatibility-generator output is contract/tooling evidence
-only. Both emitted layers carry `claimStatus: offline-consistency-only`, and
-the validator record carries `targetEvidenceProvenance: unverified`. A future
-trusted capture path must use a new closed status/schema rather than rewriting
-either value in place.
+logs, and the exact installed APK. The one-tuple trusted target runner is now
+implemented, but it has not produced a target receipt. Validator and
+compatibility-generator output remains offline consistency evidence even after
+a trusted capture: both emitted layers carry
+`claimStatus: offline-consistency-only`, and the validator record carries
+`targetEvidenceProvenance: unverified`. Separately retained runner provenance
+is the additional target layer; no such evidence exists yet, and the runner
+does not rewrite either closed value in place.
 
 ### Raw target workload and lifecycle gate
 
@@ -591,16 +593,30 @@ not supersede the four-record APK runtime matrix. The preliminary
 `sherpa-audit` policy alone is not this gate, and no AAB runtime claim exists
 until a delivered split is installed and exercised.
 
-Static reference checkpoint (2026-08-07): the locked staged runner copied the
-committed sherpa reference application outside the checkout, verified the
-complete `sherpa_onnx` 1.13.4 hosted package trees and generated four-plugin
-Android graph, ran its host tests, and built an arm64-v8a R8 Release APK plus
-base-only AAB. Both packages retained the exact raw ORT, sherpa C/C++, and
-Fonix shim bytes; their `libapp.so` and `libflutter.so` loaded identities also
-matched. The package-pair gate passed with `static-package-only`. The app has
-no native fixture adapter and was not installed or executed, so this is not a
-load-order, API negotiation, inference, lifecycle, page-size environment, or
-target compatibility result.
+Runtime-provisioned static reference checkpoint (2026-08-07): commit `635e97d`
+implements real bounded application adapters for Fonix process-runtime
+inference and sherpa Silero VAD, the authoritative lifecycle publication sink,
+deterministic fixture generation and strict asset loading, and the trusted
+one-tuple target runner; commit `eaa195a` stabilizes the staged build and
+tests. On a macOS arm64 host, the locked Release gate provisioned and
+statically audited all eight exact qualification assets and the single-ORT
+native graph in an arm64-v8a R8 APK and matching base-only AAB. The path-free
+gate report has SHA-256
+`17dbf5c2cc1cd2d76300034721ad49ea41bb5c8cad236ef15f89b3b00026e6fa`,
+the gate-time `eaa195a` implementation tree's `MANIFEST.sha256` has SHA-256
+`3cabcad849ca2480a0b7d6e9bff17b176f295ac4369ebf7d7057e5c1934f1f8b`,
+and the static package manifest SHA-256 is
+`8be28263a802f757cd66b42f39234111bc0d99aeb3df8cd069cdb2b4eff34765`.
+The APK is 42,979,622 bytes with SHA-256
+`d6032230cebfa6fb2ab89be170579b4b1b848adb0c0485b1ac084e9e9e8a46e8`;
+the AAB is 26,045,591 bytes with SHA-256
+`fe39a7870067e1b0b5691ba9f1ce94fa48b9bfd8640b0125410d27bdecc2aa3e`.
+The report deliberately records `targetEvidence: null`. An API 35 arm64
+emulator with a queried 4096-byte page size was available, but the APK was not
+installed or executed and the target runner produced no receipt. This is
+static package and implemented-harness evidence, not load-order, API
+negotiation, inference, lifecycle, page-size runtime, or target compatibility
+evidence.
 
 ### Static-to-final binding and matrix aggregation
 
@@ -673,7 +689,7 @@ first development slice is arm64-v8a Release:
 | Runtime mode | sherpa-owned Flutter FFI shared runtime; aligned custom deferred |
 | ORT compatibility | supported API, intentionally unsupported API |
 | Provider | sherpa-owned CPU baseline; QNN aligned qualification deferred |
-| Packaging | exact APK runtime validation plus the implemented matching APK/base-only-AAB static gate; the reference composition passed statically, while the eventual target composition must bind both layers; delivered-split runtime later |
+| Packaging | exact APK runtime validation plus the implemented matching APK/base-only-AAB static gate; the runtime-provisioned reference composition passed statically with `targetEvidence: null`, while target execution must first cover both load orders on 4 KiB and then both on 16 KiB; delivered-split runtime later |
 | Page size | 4 KB and 16 KB environment |
 | Workload | 2--64 strict Fonix-reference/Silero-VAD cycles, starting with Fonix |
 | Lifecycle | native Fonix cancellation settlement, between-frame VAD cancellation, stale suppression, recovery, both disposal orders, double disposal, zero pending work |
