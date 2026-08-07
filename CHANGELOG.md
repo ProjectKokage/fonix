@@ -64,14 +64,14 @@
   native process environment into only a cached null-or-closed activation;
   Dart revalidates it with a bounded wait and never receives the raw
   environment.
-- Added the manifest-bound iOS reference gate. The source passes 68/68 app
-  tests and analysis, including 24/24 resident-publication tests and 5/5 iOS
-  project-contract tests, and the simulator application passes two consecutive
-  linked Debug builds. The gate binds installation through every directory,
-  path, byte, and the retained `Runner` executable bit while permitting only
-  `simctl`'s exact three-framework executable-bit normalization. The complete
-  unsigned-device audit and simulator install/run result is
-  `PASS (2026-08-07)`.
+- Added the manifest-bound iOS reference gate. The current frozen source epoch
+  passes 72/72 app tests and analysis, including 25/25 reference-smoke tests
+  and 5/5 iOS project-contract tests, and the simulator application passes two
+  consecutive linked Debug builds. The gate binds installation through every
+  directory, path, byte, and the retained `Runner` executable bit while
+  permitting only `simctl`'s exact three-framework executable-bit
+  normalization. The complete unsigned-device Release `.app` build/static
+  audit and simulator install/run result is `PASS (2026-08-07)`.
 - Extended the Apple final-application auditor with exact iOS arm64 Mach-O,
   deployment-floor, dependency, RPATH, export, hook-provenance, transformation,
   and signing profiles. Its device result is static-only, while simulator

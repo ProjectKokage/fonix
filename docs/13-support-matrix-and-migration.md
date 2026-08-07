@@ -245,10 +245,11 @@ release definition.
   deferred. Their existing source and cross-build evidence does not promote a
   support row.
 
-With the exact iOS arm64 CPU baseline closed and frozen, the Linux x86_64
-source package and fail-closed gate are implemented; the next target-evidence
-step is running that gate on the exact target host. Cross-platform stabilization
-and release engineering can proceed locally in parallel. iOS
+With the exact unsigned-device static-audit plus Debug-simulator iOS arm64 CPU
+baseline closed and frozen, the Linux x86_64 source package and fail-closed
+gate are implemented; the next target-evidence step is running that gate on the
+exact target host. Cross-platform stabilization and release engineering can
+proceed locally in parallel. iOS
 physical-device/provider qualification remains a separately
 evidenced follow-up rather than the next development slice. Android QNN and all
 Windows target-host, provider, final-application/package, installer, and

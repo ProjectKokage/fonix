@@ -265,10 +265,15 @@ from that tree. The application declares 15.1 and arm64 only. Exact final
 load-command floors are 15.1 for Runner and the Fonix shim and 15.0 for the
 pinned App and Flutter frameworks.
 
-The source checkpoint passed all 68 application tests and analysis;
-`reference_smoke_test.dart` passed 24/24 and
+The frozen source checkpoint passed all 72 application tests and analysis;
+`reference_smoke_test.dart` passed 25/25 and
 `ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
 Debug builds passed. The complete gate result is `PASS (2026-08-07)`.
+That result is bound to source commit
+`3716a4cc706f3186e1dafac4dc0ee6eeef1823cf`, manifest SHA-256
+`9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a`,
+and closed source-tree SHA-256
+`2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2`.
 
 The device branch builds an unsigned arm64 Release app with no provisioning
 profile. The root app and executable remain unsigned while the three nested

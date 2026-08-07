@@ -10,12 +10,13 @@ The completed macOS arm64 CPU, Android arm64 CPU/XNNPACK functional emulator,
 and corrected Android sherpa four-tuple coexistence gates are standing
 regressions and must stay green. The sherpa validator and aggregate remain
 offline-consistency-only; their trusted capture manifests are retained as a
-separate provenance layer. The iOS arm64 CPU reference source has passed 68/68
-tests and analysis, including 24/24 focused smoke tests and 5/5 project-contract
+separate provenance layer. The iOS arm64 CPU reference source has passed 72/72
+tests and analysis, including 25/25 focused smoke tests and 5/5 project-contract
 tests, plus two consecutive linked simulator Debug builds. Its complete
-device-build/audit and installed-simulator gate result is
-`PASS (2026-08-07)`. It is now a standing regression. Keep physical-device
-execution, approved signing/provisioning, and
+unsigned-device Release `.app` build/static audit and installed-simulator gate
+result is `PASS (2026-08-07)` for the exact epoch recorded in
+[`../VALIDATION.md`](../VALIDATION.md). It is now a standing regression. Keep
+physical-device execution, approved signing/provisioning, and
 iOS CoreML/XNNPACK/GPU/Neural Engine qualification as separately evidenced
 follow-up work when hardware and credentials exist; they are not the next
 development slice.
@@ -214,11 +215,11 @@ size, the CPU APK produces its unchanged full-assignment/double-close receipt,
 while the XNNPACK APK proves one-node full assignment for six MatMul runs across
 two sessions, exact CPU parity, fallback report/rejection, recovery, five-
 session cleanup, and double close. The same committed source now includes an
-arm64-only iOS 15.1 linked CPU scaffold. Its 68 application tests and analysis,
-24 focused smoke tests, five project-contract tests, and two consecutive
-simulator Debug builds pass. The complete unsigned-device Release audit and
-transport-normalized, audited-identity-bound simulator install/run/cleanup gate
-result is
+arm64-only iOS 15.1 linked CPU scaffold. Its 72 application tests and analysis,
+25 focused smoke tests, five project-contract tests, and two consecutive
+simulator Debug builds pass. The complete unsigned-device Release `.app`
+build/static audit and transport-normalized, audited-identity-bound simulator
+install/run/cleanup gate result is
 `PASS (2026-08-07)`. The device output is static-only and unexecuted; the
 simulator receipt is exact Debug CPU/full-assignment evidence only. It proves
 neither physical-device/signing/distribution nor iOS CoreML/XNNPACK/GPU/Neural

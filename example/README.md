@@ -109,11 +109,12 @@ simulator SDKs, Flutter revision
 hook floor is 15.1; the exact final-binary floors are 15.1 for Runner and the
 shim and 15.0 for App and Flutter.
 
-The source checkpoint passed all 68 application tests and analysis;
-`reference_smoke_test.dart` passed 24/24 and
+The frozen source checkpoint passed all 72 application tests and analysis;
+`reference_smoke_test.dart` passed 25/25 and
 `ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
-Debug builds also passed. The complete device-build, final-audit, install,
-receipt, settlement, and cleanup gate is `PASS (2026-08-07)`.
+Debug builds also passed. The complete unsigned-device Release `.app`
+build/static audit and simulator install, receipt, settlement, and cleanup gate
+is `PASS (2026-08-07)`.
 
 The device branch produces and audits an unsigned arm64 Release application.
 Its root application and executable have no signature or provisioning profile;

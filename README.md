@@ -249,17 +249,19 @@ cleanup. This is a functional emulator checkpoint, not physical-device,
 performance, thermal, or provider-qualification evidence. The standalone path
 still lacks API 24, 16 KiB, physical-device, AAB-split, and x86_64 execution.
 
-The iOS arm64 reference source passes 68 application tests and analysis, and
+The iOS arm64 reference source passes 72 application tests and analysis,
+including 25/25 reference-smoke tests and 5/5 iOS project-contract tests, and
 its simulator project has passed two consecutive linked Debug builds. The
 complete manifest-bound device/simulator gate result is
 `PASS (2026-08-07)`. The app delegate validates the exact native
 smoke/challenge pair and forwards only a cached null-or-closed activation over
 an argument-free app-owned channel; Dart revalidates it with a bounded wait and
-never receives the raw environment. That gate is limited to an unsigned arm64 Release
-device package audit and an exact arm64 Debug simulator CPU/full-assignment
-run. It cannot establish physical-device execution, provisioning, approved
-device or distribution signing, an IPA or App Store path, CoreML/XNNPACK/GPU/
-Neural Engine assignment, performance, or sustained behavior. Its final
+never receives the raw environment. That gate is limited to an unsigned arm64
+Release device `.app` build/static audit and an exact arm64 Debug simulator
+CPU/full-assignment run. It cannot establish physical-device execution,
+provisioning, approved device or distribution signing, an IPA or App Store
+path, CoreML/XNNPACK/GPU/Neural Engine assignment, performance, or sustained
+behavior. Its final
 Mach-O audit can exclude separately packaged ORT Mach-Os and audited
 load-command dependencies attributable to ORT, but cannot prove the absence of
 runtime `dlopen`, another static ORT copy in a different Mach-O, or exactly-one

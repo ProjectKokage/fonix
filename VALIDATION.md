@@ -8,11 +8,11 @@
 
 The declared development API and locally controllable package boundary pass
 the completed validation recorded below. The current shared reference source
-passes 72/72 application tests and analysis. The earlier manifest-bound iOS
-gate source epoch passed 68/68 application tests, including 24/24
-resident-publication tests and 5/5 iOS project-contract tests, and its linked
-simulator application passed two consecutive Debug builds. The complete iOS
-gate result remains `PASS (2026-08-07)` for that exact frozen epoch.
+and the manifest-bound iOS gate source epoch pass 72/72 application tests and
+analysis, including 25/25 reference-smoke tests and 5/5 iOS project-contract
+tests. The linked simulator application passed two consecutive Debug builds.
+The complete iOS gate result is `PASS (2026-08-07)` for that exact frozen
+epoch.
 
 This snapshot is not implementation-complete. The Linux x86_64 source path is
 implemented but has no exact target-host PASS. Local stabilization now uses an
@@ -152,13 +152,13 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 588/588 passed |
-| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 588-test Python suite |
+| Python CI-script tests | 591/591 passed |
+| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 591-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
 | Apple final-application auditor focused tests | 54/54 passed |
-| iOS reference-gate focused tests | 94/94 passed |
+| iOS reference-gate focused tests | 97/97 passed |
 | macOS reference/final-app gate focused tests | 32/32 passed |
 | Standalone Python verifier tests | 54/54 passed |
 | C source quality | 34/34 files passed the closed byte/style gate |
@@ -175,12 +175,12 @@ paths.
 | Linux x64/arm64 and Windows x64 Zig cross-build | 1/1 passed |
 | Flutter asset publication | 7/7 passed |
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
-| Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
+| Committed macOS public-API reference application gate | 72/72 app tests and analysis, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
 | Current shared public-API reference source | 72/72 app tests and analysis passed in a clean external copy |
-| Committed iOS arm64 public-API reference gate | Frozen source epoch: 68 app tests and analysis; unsigned device Release static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
+| Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
-| Closed source checksum manifest | Historical Android records retain their commit-bound manifest; the current iOS gate source-epoch binding is `PASS (2026-08-07)` |
+| Closed source checksum manifest | Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
 real-runtime, fake-runtime, exact-archive, cross-build, and CoreML cases were
@@ -216,19 +216,22 @@ The bounded-command changes were verified at the Python helper, auditor, and
 runner-contract levels. The first native-runner slice was also exercised on a
 macOS arm64 host through the POSIX native source harness, where configure,
 build, inventory, and 12/12 CTests passed. Binding regeneration reproduced both
-checked-in outputs exactly through the new command owner. The later Apple gate
-migration has not rerun the full provisioned macOS or iOS application gates,
-so their exact results above remain evidence for their named earlier source
-epochs and artifacts rather than refreshed evidence for this process-control
-change. None of these checks proves containment of a deliberately escaping
-process or changes a platform support claim.
+checked-in outputs exactly through the new command owner. Both full provisioned
+macOS application gates then passed at source commit
+`bb78c333160d9ccc3963497fcbe1ddcf23edeb06`, and the complete iOS
+device-build/simulator gate passed at source commit
+`3716a4cc706f3186e1dafac4dc0ee6eeef1823cf` through the migrated
+bounded-command and in-process-auditor paths. None of these checks proves
+containment of a deliberately escaping process, distribution readiness, or a
+broader platform support claim.
 
 The hardened macOS runtime checker separately passed against the exact pinned
 38,502,216-byte ORT dylib while the parent supplied hostile Xcode, SDK,
 compiler, loader, and search-path selectors; the child tool environment omitted
 them, and the single private snapshot passed byte, Mach-O, dependency, export,
 provider, and embedded-signature checks. This is runtime-artifact inspection,
-not a refreshed final-application gate.
+not final-application evidence by itself; the subsequent macOS application
+gates provide the separate refreshed final-bundle and inference evidence.
 
 The offline artifact cache contained the exact lock-selected macOS arm64,
 iOS arm64 XCFramework, Android arm64-v8a/x86_64, Linux x86_64/arm64, and
@@ -290,15 +293,18 @@ manifests provide the target-capture provenance for all four exact tuples.
 
 The final application gate used Xcode 26.6 (17F113) and Flutter revision
 `bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter 3.47.0-0.1.pre, Dart
-3.13.0-282.1.beta). It created a fresh Release application at a macOS 14.0
-floor, audited the packaged manifest/notices and arm64 Mach-O identities,
+3.13.0-282.1.beta) from source commit
+`bb78c333160d9ccc3963497fcbe1ddcf23edeb06`. It created a fresh Release
+application at a macOS 14.0 floor, audited the packaged manifest/notices and
+arm64 Mach-O identities,
 verified code signatures and loaded-section parity with the lock-selected
 runtime, then loaded only through the packaged shim/framework layout and
 produced the expected CPU outputs.
 
 The separate committed-reference gate copied `example/` outside the package
-checkout, reproduced the exact manifest/notices, passed 31 controller,
-channel, smoke, and widget tests plus analysis, built Release, and verified
+checkout, reproduced the exact manifest/notices, passed 72/72 controller,
+platform-contract, channel, smoke, backend, and widget tests plus analysis,
+built Release, and verified
 signatures, hardened runtime,
 the sandbox, and the explicit local ad-hoc library-validation exception. The
 independent final-application audit ran before the named Flutter executable was
@@ -326,6 +332,13 @@ offline cache contains the 135,152,698-byte
 plus the exact macOS host archive needed by host-side Dart commands. The gate
 freezes the current closed source manifest into a private source epoch and
 derives both application variants from that same tree.
+
+The passing frozen epoch came from source commit
+`3716a4cc706f3186e1dafac4dc0ee6eeef1823cf`, contained 401 files and
+7,358,160 bytes, and had manifest SHA-256
+`9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a`
+and closed tree SHA-256
+`2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2`.
 
 The committed application and hook declare iOS 15.1 and arm64 only. Its four
 closed Mach-O images are `Runner`, `App.framework/App`,
@@ -561,11 +574,13 @@ remains absent.
 
 The Apple auditor and iOS reference-gate unit/tamper suites also run in the
 ordinary Python collection. The full iOS build/audit/simulator gate is locally
-provisioned evidence rather than a hosted CI lane. Its exact source epoch,
-archive, toolchain, unsigned device application, audited simulator application,
+provisioned evidence rather than a hosted CI lane. Its exact manifest
+`9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a`
+and source tree
+`2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2`,
+archive, toolchain, unsigned device `.app`, audited simulator application,
 transport-normalized installed tree, launch binding, receipt, settlement, and
-uninstall are one
-closed tuple; none may be inferred from source tests alone.
+uninstall are one closed tuple; none may be inferred from source tests alone.
 
 ## Evidence not produced, scoped exclusions, and release blockers
 

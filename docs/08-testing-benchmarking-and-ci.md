@@ -179,11 +179,15 @@ requires ORT 1.27.1 linked wrapper-owned CPU, output
 `[1,4,9,16,25,36]`, full assignment, double close, process settlement, and
 uninstall.
 
-The source checkpoint passed all 68 application tests and analysis;
-`reference_smoke_test.dart` passed 24/24 and
+The frozen source checkpoint passed all 72 application tests and analysis;
+`reference_smoke_test.dart` passed 25/25 and
 `ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
 Debug builds passed. The complete iOS gate result is
-`PASS (2026-08-07)`. Its final-bundle audit excludes a separately
+`PASS (2026-08-07)`, bound to manifest SHA-256
+`9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a`
+and closed source-tree SHA-256
+`2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2`.
+Its final-bundle audit excludes a separately
 packaged raw ORT Mach-O and an audited ORT load-command dependency and binds the
 packaged shim to the exact prepackage hook output through normalized fields,
 hook metadata, schema-3 identity, dyld exports/fixups, and accounted
@@ -608,10 +612,11 @@ requirements before promoting the corresponding support rows; a cross-build,
 source test, static package audit, or tiny emulator fixture must not be
 reported as a substitute.
 
-The iOS arm64 baseline is now a standing regression. The next target-evidence
-step is executing and calibrating the implemented Linux x86_64 gate on its
-exact host; local stabilization/release work can proceed while that environment
-is provisioned. Android aligned/QNN device work is deferred until
+The exact unsigned-device static-audit plus Debug-simulator arm64 CPU baseline
+is now a standing regression. The next target-evidence step is executing and
+calibrating the implemented Linux x86_64 gate on its exact host; local
+stabilization/release work can proceed while that environment is provisioned.
+Android aligned/QNN device work is deferred until
 its exact licensed SDK/hardware tuple exists. All Windows
 target-host, provider, final-app/package, installer, and clean-machine work is
 deferred until a Windows environment exists. Their portable/static/source,
