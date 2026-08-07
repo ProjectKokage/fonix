@@ -449,6 +449,12 @@ class SourceChecksumManifestTests(unittest.TestCase):
                 "android/captures-copy/capture.bin",
                 "android/local.properties.backup",
                 "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java.backup",
+                "ios/Flutter/ephemeral-copy/config.xcconfig",
+                "ios/Flutter/Generated.xcconfig.backup",
+                "ios/Flutter/flutter_export_environment.sh.backup",
+                "ios/Runner/GeneratedPluginRegistrant.h.backup",
+                "ios/Runner/GeneratedPluginRegistrant.m.backup",
+                "linux/flutter/ephemeral-copy/generated_config.cmake",
                 "macos/Flutter/ephemeral-copy/config.xcconfig",
                 ".flutter-plugins-dependencies.backup",
                 "module.iml.backup",
@@ -467,6 +473,8 @@ class SourceChecksumManifestTests(unittest.TestCase):
                 "android/.kotlin",
                 "android/app/.cxx",
                 "android/captures",
+                "ios/Flutter/ephemeral",
+                "linux/flutter/ephemeral",
                 "macos/Flutter/ephemeral",
             )
             for relative in ignored_directories:
@@ -492,6 +500,16 @@ class SourceChecksumManifestTests(unittest.TestCase):
             )
             registrant.parent.mkdir(parents=True, exist_ok=True)
             registrant.write_bytes(b"generated\n")
+            generated_ios_files = (
+                "ios/Flutter/Generated.xcconfig",
+                "ios/Flutter/flutter_export_environment.sh",
+                "ios/Runner/GeneratedPluginRegistrant.h",
+                "ios/Runner/GeneratedPluginRegistrant.m",
+            )
+            for relative in generated_ios_files:
+                path = example.joinpath(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"generated\n")
             (example / "fonix_reference.iml").write_bytes(b"generated\n")
             (example / "android" / "fonix_reference_android.ipr").write_bytes(
                 b"generated\n"
@@ -615,6 +633,8 @@ class SourceChecksumManifestTests(unittest.TestCase):
             ("android/.kotlin", True),
             ("android/app/.cxx", True),
             ("android/captures", True),
+            ("ios/Flutter/ephemeral", True),
+            ("linux/flutter/ephemeral", True),
             ("macos/Flutter/ephemeral", True),
             (".flutter-plugins-dependencies", False),
             ("android/local.properties", False),
@@ -622,6 +642,10 @@ class SourceChecksumManifestTests(unittest.TestCase):
                 "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
                 False,
             ),
+            ("ios/Flutter/Generated.xcconfig", False),
+            ("ios/Flutter/flutter_export_environment.sh", False),
+            ("ios/Runner/GeneratedPluginRegistrant.h", False),
+            ("ios/Runner/GeneratedPluginRegistrant.m", False),
             ("fonix_reference.iml", False),
         )
         for relative, target_is_directory in ignored_paths:

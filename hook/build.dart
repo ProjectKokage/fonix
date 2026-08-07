@@ -144,6 +144,10 @@ CBuilder _createConfiguredShimBuilder({
   required StagedNativeArtifact? stagedRuntime,
 }) {
   final appleExportList = input.packageRoot.resolve('src/fonix_exports.apple');
+  final linuxVersionScriptFlags = fonixLinuxVersionScriptFlags(
+    options.targetOS,
+    input.packageRoot,
+  );
   final lockedMinimumOs = stagedRuntime?.identity.minimumOs;
   _validateStagedAndroidOwnership(options, stagedRuntime);
   final artifactDefines = <String, String?>{
@@ -161,6 +165,7 @@ CBuilder _createConfiguredShimBuilder({
       sources,
       artifactDefines: artifactDefines,
       additionalFlags: <String>[
+        ...linuxVersionScriptFlags,
         if (lockedMinimumOs != null)
           ...fonixPinnedAppleDeploymentFlags(
             options,

@@ -479,6 +479,9 @@ void main() {
         temporaryDirectory.uri.resolve('src/fonix_exports.apple'),
       ).writeAsStringSync('');
       File.fromUri(
+        temporaryDirectory.uri.resolve(fonixElfExportMapPath),
+      ).writeAsStringSync('$fonixElfExportVersion { local: *; };\n');
+      File.fromUri(
         temporaryDirectory.uri.resolve(
           'third_party/onnxruntime/include/onnxruntime_ep_c_api.h',
         ),
@@ -515,7 +518,37 @@ void main() {
         validateFonixNativeInputs(temporaryDirectory.uri, <String>[
           'src/dort_core.c',
         ]),
-        hasLength(5),
+        hasLength(6),
+      );
+    });
+
+    test('tracks the exact Linux ELF version map as a native input', () {
+      final ortHeader = File.fromUri(
+        temporaryDirectory.uri.resolve(
+          'third_party/onnxruntime/include/onnxruntime_c_api.h',
+        ),
+      )..writeAsStringSync('#define ORT_API_VERSION 27\n');
+      expect(ortHeader.existsSync(), isTrue);
+
+      final exportMap = temporaryDirectory.uri.resolve(fonixElfExportMapPath);
+      final dependencies = validateFonixNativeInputs(
+        temporaryDirectory.uri,
+        const <String>['src/dort_core.c'],
+      );
+      expect(dependencies, contains(exportMap));
+
+      File.fromUri(exportMap).deleteSync();
+      expect(
+        () => validateFonixNativeInputs(temporaryDirectory.uri, const <String>[
+          'src/dort_core.c',
+        ]),
+        throwsA(
+          isA<BuildError>().having(
+            (error) => error.message,
+            'message',
+            contains(fonixElfExportMapPath),
+          ),
+        ),
       );
     });
   });
@@ -548,6 +581,7 @@ void main() {
       expect(builder.flags, contains('-pthread'));
       expect(builder.flags, contains('-Wl,-z,max-page-size=16384'));
       expect(builder.flags, contains('-Wl,-soname,libfonix_shim.so'));
+      expect(builder.flags, isNot(contains('-Wl,--build-id=sha1')));
       expect(builder.libraries, equals(<String>['dl']));
       expect(builder.libraries, isNot(contains('onnxruntime')));
       expect(builder.defines['FONIX_SHIM_BUILDING'], '1');
@@ -648,8 +682,61 @@ void main() {
 
       expect(builder.flags, containsAll(<String>['/W4', '/WX', '/utf-8']));
       expect(builder.flags, isNot(contains('-fvisibility=hidden')));
+      expect(builder.flags, isNot(contains('-Wl,--build-id=sha1')));
       expect(builder.libraries, <String>['bcrypt', 'advapi32']);
       expect(builder.libraries, isNot(contains('dl')));
+    });
+
+    test('selects the GNU version script only for Linux', () {
+      final packageRoot = Directory.current.uri;
+      final linuxFlags = fonixLinuxVersionScriptFlags(OS.linux, packageRoot);
+      final linuxOptions = resolveFonixBuildOptions(
+        targetOS: OS.linux,
+        targetArchitecture: Architecture.x64,
+        runtimeMode: fonixBundledRuntimeMode,
+        applicationMinimumOs: '14.0',
+      );
+
+      expect(linuxFlags, hasLength(2));
+      expect(linuxFlags.first, '-Xlinker');
+      expect(
+        linuxFlags.last,
+        '--version-script='
+        '${packageRoot.resolve(fonixElfExportMapPath).toFilePath()}',
+      );
+      expect(fonixCompilerFlags(OS.linux), contains('-Wl,--build-id=sha1'));
+      expect(fonixCompilerFlags(OS.linux), contains('-fuse-ld=lld'));
+      expect(
+        fonixPinnedAppleDeploymentFlags(
+          linuxOptions,
+          lockedMinimumOs: 'glibc-2.27',
+        ),
+        isEmpty,
+        reason:
+            'a shared Apple application floor must not parse the Linux lock floor',
+      );
+      for (final targetOS in <OS>[OS.android, OS.iOS, OS.macOS, OS.windows]) {
+        expect(
+          fonixLinuxVersionScriptFlags(targetOS, packageRoot),
+          isEmpty,
+          reason: '${targetOS.name} link behavior must remain unchanged',
+        );
+        expect(
+          fonixCompilerFlags(targetOS),
+          isNot(contains('-fuse-ld=lld')),
+          reason: '${targetOS.name} linker selection must remain unchanged',
+        );
+      }
+    });
+
+    test('keeps commas in the Linux version-script path opaque', () {
+      final packageRoot = Uri.directory('/private/tmp/fonix,workspace/');
+
+      expect(fonixLinuxVersionScriptFlags(OS.linux, packageRoot), <String>[
+        '-Xlinker',
+        '--version-script='
+            '${packageRoot.resolve(fonixElfExportMapPath).toFilePath()}',
+      ]);
     });
 
     test('compiles the bundled shim for the exact locked macOS tuple', () {

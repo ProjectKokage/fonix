@@ -177,10 +177,10 @@ until an AAB-derived split is installed and exercised.
 
 ## Committed Flutter reference application
 
-[`example/`](example/) is a shared iOS arm64, macOS arm64, and Android
-arm64-v8a Flutter reference application that imports only
+[`example/`](example/) is a shared iOS arm64, macOS arm64, Android
+arm64-v8a, and Linux x86_64 Flutter reference application that imports only
 `package:fonix/fonix.dart`. It uses the lock-selected linked runtime on iOS and
-the bundled runtime on macOS and Android, creates bounded worker-isolate
+the bundled runtime on macOS, Android, and Linux, creates bounded worker-isolate
 sessions, runs an exact CPU-assignment smoke model, and owns retry,
 cancellation, suspension/resume, stale-result suppression, and idempotent
 shutdown. Its Android one-shot path also has a closed XNNPACK functional
@@ -197,6 +197,15 @@ The iOS gate builds an unsigned arm64 device Release application and two
 consecutive arm64 simulator Debug applications, then installs and exercises
 only the audited simulator application. See the
 [reference-app guide](example/README.md).
+
+The Linux source includes a pinned Flutter scaffold, a relocatable
+`$ORIGIN/lib` Release layout, a closed GNU-versioned 67-symbol shim export
+surface, and an independent final-tree/ELF/provenance auditor. Its gate refuses
+anything except the required Ubuntu 18.04.6 x86_64/glibc 2.27 host before
+creating work, then builds, audits, and launches from an unrelated directory
+under Xvfb with an environment-isolated private profile. That target-host gate
+has not yet been run successfully; its presence and source-side synthetic tests are
+source evidence, not Linux final-application evidence.
 
 [`templates/android/sherpa_reference_app/`](templates/android/sherpa_reference_app/)
 is the separate sherpa-owned scaffold. Its locked runner copies it outside the
@@ -257,6 +266,12 @@ static archive linkage. Linux remains an active scoped-release gate. The
 deferred Windows target-host gaps remain gates only for five-platform,
 unqualified `Release-ready`, or 1.0 status.
 
+The Linux x86_64 source path now has the committed reference scaffold,
+cross-built GNU-versioned shim checks, and a fail-closed final-application gate
+with focused synthetic coverage. This macOS arm64 host cannot build or execute
+the final Linux x86_64 Flutter bundle, and no exact Ubuntu 18.04.6/glibc 2.27
+gate report exists yet. The Linux support row therefore remains unpromoted.
+
 The corrected sherpa-owned arm64-v8a checkpoint is bound to commit
 `8a9b6812c17237aeab7ec6d933f23932668c4b33` and source manifest SHA-256
 `3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`.
@@ -307,8 +322,9 @@ exact API 35 arm64-v8a release-minified APK matrix only, not API 24, a physical
 device, an AAB-derived installation, another ABI/build, performance, signing,
 distribution, or general Android support.
 
-The next development slice is the Linux x86_64 target-host package, followed
-by lifecycle/performance stabilization and scoped pre-1.0 release engineering
+The next target-evidence step is executing and calibrating the Linux x86_64
+gate on its exact target host. Local development can proceed in parallel with
+lifecycle/performance stabilization and scoped pre-1.0 release engineering
 for only the exact macOS, iOS, Linux, and Android-without-QNN tuples that the
 support matrix explicitly advertises. Android
 QNN/aligned-runtime device qualification and all Windows target-host,

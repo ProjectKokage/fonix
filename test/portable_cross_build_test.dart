@@ -200,6 +200,10 @@ for argument in sys.argv[1:]:
         arguments.append("-Werror")
     elif argument == "/utf-8":
         arguments.append("-finput-charset=UTF-8")
+    elif argument == "-fuse-ld=lld":
+        # Zig always drives its bundled LLD and diagnoses this otherwise-valid
+        # Clang selector as unused during per-source compilation.
+        continue
     else:
         arguments.append(argument)
 os.environ["ZIG_GLOBAL_CACHE_DIR"] = ${jsonEncode(globalCache)}
@@ -223,6 +227,20 @@ void _auditCrossBuiltShim(File shim, _CrossTarget target) {
   if (target.operatingSystem == OS.linux) {
     expect(RegExp(r'SONAME\s+libfonix_shim\.so').hasMatch(output), isTrue);
     expect(RegExp(r'RUNPATH\s+\$ORIGIN').hasMatch(output), isTrue);
+    final buildId = Process.runSync('/usr/bin/objdump', <String>[
+      '--section-headers',
+      shim.path,
+    ]);
+    expect(buildId.exitCode, 0, reason: '${buildId.stdout}\n${buildId.stderr}');
+    expect(
+      RegExp(
+        r'^\s*\d+\s+\.note\.gnu\.build-id\s+00000024\s',
+        multiLine: true,
+      ).hasMatch('${buildId.stdout}'),
+      isTrue,
+      reason: 'Linux shim must carry one 20-byte GNU build ID note',
+    );
+    _auditLinuxVersionedExports(shim);
   } else {
     expect(output, contains('DLL Name: KERNEL32.dll'));
     expect(output.toLowerCase(), contains('dll name: bcrypt.dll'));
@@ -230,6 +248,42 @@ void _auditCrossBuiltShim(File shim, _CrossTarget target) {
     expect(output, contains('dort_get_abi_version'));
     expect(output, contains('dort_get_build_manifest_json'));
   }
+}
+
+void _auditLinuxVersionedExports(File shim) {
+  final report = Process.runSync('/usr/bin/objdump', <String>[
+    '--dynamic-syms',
+    shim.path,
+  ]);
+  expect(report.exitCode, 0, reason: '${report.stdout}\n${report.stderr}');
+  final actual = <String>{};
+  for (final line in '${report.stdout}'.split('\n')) {
+    final fields = line.trim().split(RegExp(r'\s+'));
+    if (fields.length < 7 || !RegExp(r'^[0-9a-f]+$').hasMatch(fields.first)) {
+      continue;
+    }
+    if (fields.contains('*UND*')) {
+      continue;
+    }
+    expect(fields[1], 'g', reason: 'non-global Linux export: $line');
+    expect(fields[2], 'DF', reason: 'non-function Linux export: $line');
+    final symbol = fields.last;
+    final version = fields[fields.length - 2];
+    expect(symbol, startsWith('dort_'), reason: 'stray Linux global: $symbol');
+    expect(
+      version,
+      fonixElfExportVersion,
+      reason: 'unversioned Linux export: $symbol',
+    );
+    expect(actual.add(symbol), isTrue, reason: 'duplicate Linux export');
+  }
+
+  final expected = RegExp(r'^    (dort_[a-z0-9_]+);$', multiLine: true)
+      .allMatches(File(fonixElfExportMapPath).readAsStringSync())
+      .map((entry) => entry.group(1)!)
+      .toSet();
+  expect(expected, hasLength(67));
+  expect(actual, expected);
 }
 
 final class _CrossTarget {

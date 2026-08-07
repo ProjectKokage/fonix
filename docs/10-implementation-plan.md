@@ -20,9 +20,11 @@ iOS CoreML/XNNPACK/GPU/Neural Engine qualification as separately evidenced
 follow-up work when hardware and credentials exist; they are not the next
 development slice.
 
-1. produce and exercise the Linux x86_64 CPU reference package on a clean
-   target host, then cover Linux arm64 or accelerated flavors only on matching
-   target hardware;
+1. execute and calibrate the implemented Linux x86_64 CPU reference-package
+   gate on the exact clean Ubuntu 18.04.6/glibc 2.27 target host, then cover
+   Linux arm64 or accelerated flavors only on matching target hardware; the
+   committed scaffold, export closure, final-tree/ELF/provenance auditor, and
+   gate tests are source evidence only until that run passes;
 2. finish cross-platform correctness and performance stabilization:
    cancellation/stale-work suppression, repeated initialization/disposal,
    bounded queues/profiles, public API/shim ABI review, representative model
@@ -41,7 +43,9 @@ Windows target-host inference, provider, final-application/package, installer,
 and clean-machine qualification work is deferred until a Windows development
 environment exists. Existing Android QNN contract/tamper checks and Windows
 source/cross-build/security checks remain required and must stay green; neither
-deferral creates a support claim.
+deferral creates a support claim. These are scheduling deferrals, not a support
+policy change: Windows x64 remains Tier-1 and its target-host lane must resume
+before a global `Release-ready` or 1.0 claim.
 
 ## Phase 0: repository and contracts
 
@@ -77,7 +81,9 @@ deferral creates a support claim.
 
 ### Acceptance
 
-- CPU runtime loads on Linux/macOS/Windows development targets.
+- CPU runtime loads on Linux and macOS development targets. Windows
+  source/cross-build and secure-loader regressions pass; its target-host load
+  requirement resumes with the deferred Windows lane.
 - Missing library, invalid path, missing symbol, and unsupported API return typed errors.
 - Intentionally requesting an unsupported API never dereferences a null table.
 - Runtime registry passes concurrent open/release stress.
@@ -494,13 +500,15 @@ Create independently reviewable issues:
     `PASS (2026-08-07)`; physical-device/provider qualification remains
     separate).
 15. Android standalone sample.
-16. Linux/macOS packaging samples; Windows final sample deferred.
+16. Linux/macOS packaging samples (Linux source/gate implemented; exact
+    target-host PASS pending); Windows final sample deferred.
 17. Generic provider API and diagnostics.
 18. XNNPACK qualification.
 19. CoreML qualification.
 20. Android sherpa external flavor.
 21. Android final-artifact verifier.
-22. Desktop provider flavors.
+22. Desktop provider flavors (non-Windows qualification may proceed; Windows
+    target-host/provider qualification is deferred).
 23. QNN aligned build (target qualification deferred).
 24. SBOM/release automation.
 

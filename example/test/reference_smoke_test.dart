@@ -26,6 +26,54 @@ void main() {
         .setMockMethodCallHandler(_iosReferenceLaunchChannel, null);
   });
 
+  test('desktop smoke activation is closed to macOS and Linux', () {
+    for (final ({bool isMacOS, bool isLinux}) platform
+        in <({bool isMacOS, bool isLinux})>[
+          (isMacOS: true, isLinux: false),
+          (isMacOS: false, isLinux: true),
+        ]) {
+      expect(
+        desktopReferenceSmokeEnabled(
+          isMacOS: platform.isMacOS,
+          isLinux: platform.isLinux,
+          environment: const <String, String>{referenceSmokeActivationKey: '1'},
+        ),
+        isTrue,
+      );
+    }
+    for (final Map<String, String> environment in <Map<String, String>>[
+      const <String, String>{},
+      const <String, String>{referenceSmokeActivationKey: ''},
+      const <String, String>{referenceSmokeActivationKey: '0'},
+      const <String, String>{referenceSmokeActivationKey: 'true'},
+      const <String, String>{referenceSmokeActivationKey: ' 1'},
+      const <String, String>{referenceSmokeActivationKey: '1\n'},
+    ]) {
+      expect(
+        desktopReferenceSmokeEnabled(
+          isMacOS: true,
+          isLinux: false,
+          environment: environment,
+        ),
+        isFalse,
+      );
+    }
+    for (final ({bool isMacOS, bool isLinux}) invalidPlatform
+        in <({bool isMacOS, bool isLinux})>[
+          (isMacOS: false, isLinux: false),
+          (isMacOS: true, isLinux: true),
+        ]) {
+      expect(
+        desktopReferenceSmokeEnabled(
+          isMacOS: invalidPlatform.isMacOS,
+          isLinux: invalidPlatform.isLinux,
+          environment: const <String, String>{referenceSmokeActivationKey: '1'},
+        ),
+        isFalse,
+      );
+    }
+  });
+
   test('settles one exact run and double-closes one backend', () async {
     final FakeInferenceBackend backend = FakeInferenceBackend();
     final Future<ReferenceSmokeReceipt> running = runReferenceSmoke(backend);

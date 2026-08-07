@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'inference_backend.dart';
 import 'reference_smoke.dart';
 
-const String androidSmokeDefine = 'FONIX_REFERENCE_SMOKE';
+const String androidSmokeDefine = referenceSmokeActivationKey;
 const bool androidSmokeEnabled = bool.fromEnvironment(androidSmokeDefine);
 const String androidSmokeProfileDefine = 'FONIX_REFERENCE_PROFILE';
 const String androidSmokeProfileValue = String.fromEnvironment(

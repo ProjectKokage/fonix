@@ -2,7 +2,7 @@
 
 This committed Flutter application demonstrates Fonix through
 `package:fonix/fonix.dart` only. It loads the linked, lock-selected ONNX Runtime
-on iOS and the bundled runtime on its existing macOS and Android paths, creates
+on iOS and the bundled runtime on its macOS, Android, and Linux paths, creates
 bounded worker-isolate sessions, runs the deterministic CPU smoke model,
 exposes cancellation and retry, and reports path-free runtime and per-run
 assignment evidence. Its bounded Android one-shot mode also exposes a closed
@@ -10,9 +10,10 @@ assignment evidence. Its bounded Android one-shot mode also exposes a closed
 lifecycle evidence.
 
 The app is a development reference for macOS arm64 at a 14.0 deployment floor
-and Android arm64-v8a with a manifest/build floor of API 24. Its pinned Flutter
-iOS scaffold is arm64-only for both device and simulator and declares a 15.1
-deployment floor. It is not a release artifact. The included 130-byte CPU
+and Android arm64-v8a with a manifest/build floor of API 24. Its Linux x86_64
+baseline is glibc 2.27. Its pinned Flutter iOS scaffold is arm64-only for both
+device and simulator and declares a 15.1 deployment floor. It is not a release
+artifact. The included 130-byte CPU
 model and 311-byte static-weight MatMul assignment model are bounded functional
 fixtures, not representative performance workloads.
 
@@ -32,13 +33,15 @@ promoted into a signed device or distribution claim.
 The committed `example/` directory is a source template. Do not build it in
 place: a consuming app's native-asset output must be outside the Fonix package
 checkout, while this template is intentionally nested inside that checkout.
-Each gate makes a bounded clean copy at a new absolute path, patches only the
-local Fonix dependency and its platform hook configuration, and keeps every
-generated native byte outside source. The committed `pubspec.yaml` remains the
-macOS-default source template; the Android gate first uses an external hook for
-host tests, then selects application-owned bundled Android assets in its copy.
-The iOS gate likewise selects the linked runtime and 15.1 application-floor
-hook only in its clean copy.
+Each gate makes a bounded clean copy at a new absolute path and keeps every
+generated native byte outside source. The Android gate first uses an external
+hook for host tests, then selects application-owned bundled Android assets in
+its copy. The iOS gate selects the linked runtime and 15.1 application-floor
+hook only in its clean copy. The Linux gate changes only the local Fonix path
+dependency: it retains the committed three-key bundled/cache/Apple-floor hook
+configuration unchanged, ignores the Apple floor on the non-Apple target, and
+regenerates the Linux-specific native manifest and notices in the external
+copy.
 
 On iOS, the app delegate accepts only `FONIX_REFERENCE_SMOKE=1` together with
 an exact 64-character lowercase-hex `FONIX_REFERENCE_CHALLENGE`. It exposes
@@ -48,8 +51,9 @@ within five seconds. Partial or malformed activation fails closed with
 `FONIX_REFERENCE_ACTIVATION_FAILURE`. Once activated, backend failures publish
 one path-free `FONIX_REFERENCE_FAILURE=` payload; publication-transport
 failures emit only `FONIX_REFERENCE_PUBLICATION_FAILURE`. No raw environment
-map or smoke flag reaches Dart, and the environment-driven exit path remains
-macOS-only. The iOS smoke remains resident so the Flutter runner owns shutdown.
+map or smoke flag reaches Dart, and the environment-driven deterministic exit
+path remains desktop-only on macOS and Linux. The iOS smoke remains resident
+so the Flutter runner owns shutdown.
 
 ## macOS gate
 
@@ -134,6 +138,56 @@ exactly-one static archive linkage. It also does not prove physical-device
 execution, approved signing/provisioning, IPA/App Store distribution,
 CoreML/XNNPACK/GPU/Neural Engine qualification, performance, or transferability
 to another tuple.
+
+## Linux x86_64 gate
+
+Provision the exact lock-selected Linux x86_64 archive and run the gate on the
+required Ubuntu 18.04.6 (Bionic) x86_64 host with glibc 2.27:
+
+```sh
+/usr/local/bin/python3.11 -I -S -B tool/ci/run_linux_reference_app_gate.py \
+  --repository /absolute/path/to/fonix \
+  --flutter /absolute/flutter/bin/flutter \
+  --artifact-cache /absolute/verified/cache \
+  --pub-cache /absolute/offline/pub-cache \
+  --work-dir /absolute/new/fonix-linux-reference-gate
+```
+
+The cache must contain `onnxruntime-linux-x64-1.27.1.tgz`, exactly 8,828,892
+bytes with SHA-256
+`25b1ef1fea1acd210d63f8f24dc870ad6e077795ce1f54876252c6d3803c15af`.
+The gate requires Flutter `3.47.0-0.1.pre` at revision
+`bd1e75d918605c91b411e8789fb911e6c9a84534`, Python 3.11.9 invoked with
+`-I -S -B`, Clang/LLVM 10.0.0, CMake
+3.22.1, Ninja 1.10.2, GNU binutils 2.30, pkg-config 0.29.1, GTK 3.22.30,
+and the Ubuntu `xvfb` package `2:1.19.6-1ubuntu4.15` owning
+`/usr/bin/Xvfb`. Alternate absolute tool paths can be supplied through the
+gate's explicit tool arguments, except that the Xvfb package/path identity is
+part of the target profile. This is a required profile, not evidence that the
+tuple has already passed.
+
+Before creating its work directory, the gate rejects every foreign or newer
+host. On the exact host it freezes one source-manifest epoch, creates verified
+tool aliases, and forces both shim and runner links through the bound LLVM 10
+`ld.lld` using `-fuse-ld=lld`. It makes the external app copy, verifies the
+offline archive, and
+resolves the enforced lockfile twice from only the supplied offline pub cache.
+It regenerates Linux assets, analyzes and tests the app, performs a clean
+re-resolution, and produces a Release bundle. The independent
+auditor then binds the final no-link tree to the hook input/output and compiler
+identities, checks the exact native-asset mappings and notices, audits every
+ELF's architecture, SONAME, dependencies, RUNPATH, interpreter, symbol-version
+floors, GNU build ID, RELRO/NOW/NX/PIE properties, and enforces the exact
+67-symbol `FONIX_DORT_1.0` shim surface. Finally, the gate launches the packaged
+executable under the verified Xvfb server directly (without a wrapper) from an
+unrelated working directory with a positive-allowlist private environment,
+requires one exact CPU/full-assignment receipt, settles
+the complete process group, rejects residual private state, and proves the
+application and frozen-source trees remained unchanged.
+
+No target-host PASS is recorded in this source snapshot. The focused auditor
+and gate tests and the foreign-host refusal have run on macOS arm64, but that
+cannot establish a Linux build, loader, GTK, glibc-floor, or inference claim.
 
 ## Android arm64-v8a gate
 

@@ -24,6 +24,9 @@ migration:
     - platform: android
       create_revision: bd1e75d918605c91b411e8789fb911e6c9a84534
       base_revision: bd1e75d918605c91b411e8789fb911e6c9a84534
+    - platform: linux
+      create_revision: bd1e75d918605c91b411e8789fb911e6c9a84534
+      base_revision: bd1e75d918605c91b411e8789fb911e6c9a84534
 
   # User provided section
 
@@ -34,3 +37,5 @@ migration:
   unmanaged_files:
     - 'lib/main.dart'
     - 'ios/Runner.xcodeproj/project.pbxproj'
+    - 'linux/CMakeLists.txt'
+    - 'linux/runner/CMakeLists.txt'

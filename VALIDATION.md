@@ -6,15 +6,21 @@
 
 ## Result
 
-The source implementation is complete for Fonix's declared development API
-and locally controllable package boundary. No known source, analysis, unit,
-native-shim, exact-runtime, artifact-audit, macOS application-gate, Android
-standalone reference-gate, or sherpa runtime-provisioned static-gate failure
-remains in this snapshot. The iOS reference source additionally passes 68/68
-application tests and analysis, including 24/24 resident-publication tests and
-5/5 iOS project-contract tests, and its linked simulator application passes
-two consecutive Debug builds. The complete manifest-bound iOS gate result is
-`PASS (2026-08-07)`.
+The declared development API and locally controllable package boundary pass
+the completed validation recorded below. The current shared reference source
+passes 72/72 application tests and analysis. The earlier manifest-bound iOS
+gate source epoch passed 68/68 application tests, including 24/24
+resident-publication tests and 5/5 iOS project-contract tests, and its linked
+simulator application passed two consecutive Debug builds. The complete iOS
+gate result remains `PASS (2026-08-07)` for that exact frozen epoch.
+
+This snapshot is not implementation-complete. The Linux x86_64 source path is
+implemented but has no exact target-host PASS, and the next local stabilization
+slice must still close four known resource/lifecycle boundaries: ordered worker
+retirement after malformed replies or native work instead of unsafe immediate
+force-kill, a startup timeout that includes isolate spawning, an aggregate
+outstanding-input byte budget, and hard subprocess/CTest time limits in native
+CI orchestration.
 
 The macOS gate applications and independently audited Android arm64-v8a
 Release APKs load and execute their exact packaged CPU paths. A separate
@@ -54,17 +60,21 @@ the active documentation:
 - five-OS build-hook paths, exact offline artifact resolution, final-package
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
-  release-evidence checks; and
-- a committed iOS arm64, macOS arm64, and Android arm64-v8a Flutter reference
-  app over the public Fonix library, with bounded worker ownership, exact
+  release-evidence checks;
+- a committed iOS arm64, macOS arm64, Android arm64-v8a, and Linux x86_64
+  Flutter reference app over the public Fonix library, with bounded worker
+  ownership, exact
   model/runtime identity, cancellation, retry, lifecycle replacement,
   stale-result suppression, deterministic cleanup, and platform-specific
-  final-package gates; the iOS path uses linked runtime ownership and a
-  resident, challenge/PID-bound receipt. Its app-owned native launch channel
+  final-package gates; the Linux source adds a relocatable `$ORIGIN/lib`
+  layout, closed GNU-versioned exports, and a strict final-tree/ELF/provenance
+  auditor, but has no target-host PASS. The iOS path uses linked runtime
+  ownership and a resident, challenge/PID-bound receipt. Its app-owned native
+  launch channel
   exposes only a cached null-or-closed activation to Dart, which revalidates it
   with a bounded wait and never receives the raw process environment. The
-  Android one-shot mode has
-  separate exact CPU and XNNPACK profiles, with the latter owning strict
+  Android one-shot mode has separate exact CPU and XNNPACK profiles, with the
+  latter owning strict
   assignment, exact CPU parity, explicit fallback report/rejection,
   post-rejection recovery, and deterministic five-session cleanup; and
 - a separate sherpa-owned Android arm64-v8a reference scaffold with
@@ -89,13 +99,14 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 185 passed, 16 explicitly provisioned skips |
+| Ordinary offline Dart suite | 190 passed, 17 explicitly provisioned skips |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 487/487 passed |
+| Python CI-script tests | 523/523 passed |
+| Linux final-app auditor/reference-gate focused tests | 36/36 passed; source-side synthetic coverage only |
 | Apple final-application auditor focused tests | 50/50 passed |
 | iOS reference-gate focused tests | 87/87 passed |
 | Standalone Python verifier tests | 54/54 passed |
@@ -115,7 +126,8 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 31 app tests, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Committed iOS arm64 public-API reference gate | 68 app tests and analysis; unsigned device Release static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
+| Current shared public-API reference source | 72/72 app tests and analysis passed in a clean external copy |
+| Committed iOS arm64 public-API reference gate | Frozen source epoch: 68 app tests and analysis; unsigned device Release static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
 | Closed source checksum manifest | Historical Android records retain their commit-bound manifest; the current iOS gate source-epoch binding is `PASS (2026-08-07)` |
 
@@ -451,10 +463,11 @@ records and the aggregate compatibility manifest remain
 This evidence is limited to the exact API 35 emulator, arm64-v8a, Release APK,
 and named 4 KiB/16 KiB tuples. It does not prove API 24 execution, a physical
 device, an AAB-derived installed split, x86_64, performance, thermal behavior,
-signing, distribution, or another tuple. The roadmap now moves to Linux x86_64
-target-host work and then stabilization/scoped pre-1.0 release engineering for
-only exact advertised tuples. Android QNN and all Windows target-host,
-provider, final-package, installer, and clean-machine work remain deferred.
+signing, distribution, or another tuple. The next target-evidence step is the
+exact Linux x86_64 target-host run, while lifecycle/resource stabilization and
+scoped pre-1.0 release engineering can proceed locally in parallel for only
+exact advertised tuples. Android QNN and all Windows target-host, provider,
+final-package, installer, and clean-machine work remain deferred.
 
 ## Required CI coverage
 

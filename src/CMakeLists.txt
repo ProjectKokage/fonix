@@ -154,7 +154,9 @@ if(FONIX_SHIM_LIBRARY_TYPE STREQUAL "SHARED")
     )
     target_link_options(
       fonix_shim PRIVATE
-      "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/fonix_exports.map"
+      "$<$<PLATFORM_ID:Linux>:-fuse-ld=lld>"
+      "-Xlinker"
+      "--version-script=${CMAKE_CURRENT_LIST_DIR}/fonix_exports.map"
       "-Wl,--no-undefined"
       "-Wl,-z,relro"
       "-Wl,-z,now"

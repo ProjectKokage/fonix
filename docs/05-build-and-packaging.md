@@ -516,6 +516,25 @@ only to the exact installed APK.
 
 ## 5.11 Linux packaging
 
+The committed reference source now includes the pinned Flutter Linux scaffold,
+an `$ORIGIN/lib` bundle layout, a GNU-versioned 67-symbol shim export map, and
+`tool/ci/run_linux_reference_app_gate.py`. The gate is closed to the required
+Ubuntu 18.04.6 x86_64/glibc 2.27 profile and independently audits the final
+installed tree, hook provenance, native assets, exact ELF dependency and
+loader metadata, symbol-version floors, and hardening before one isolated
+Xvfb CPU run. It has focused source-side tests but no target-host PASS in this
+snapshot; do not promote Linux support from the gate implementation or the
+portable Zig cross-build.
+
+The target invocation and exact provisioned profile are owned by
+`example/README.md`. In particular, use Python 3.11.9 with `-I -S -B`, supply
+an offline pub cache explicitly, retain the enforced lockfile, bind both the
+canonical and versioned LLVM archiver names to LLVM 10, and use the exact
+Ubuntu Bionic Xvfb package through `/usr/bin/Xvfb`. Linux shim and runner links
+must retain `-fuse-ld=lld`; recording a linker path without forcing the Clang
+driver to use it is not linker provenance. A source-side synthetic
+test or foreign-host refusal is not a substitute for this target run.
+
 - Provide x86_64 and arm64 artifacts where advertised.
 - Use `$ORIGIN`-relative RPATH/RUNPATH for application-local dependencies when appropriate.
 - Do not require root installation.

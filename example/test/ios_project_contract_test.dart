@@ -459,28 +459,40 @@ void main() {
     expect(source, isNot(contains('result(environment)')));
   });
 
-  test('iOS packaged smoke is resident and desktop exit stays macOS-only', () {
-    final String source = File('lib/main.dart').readAsStringSync();
-    expect(source, contains('if (Platform.isIOS)'));
-    expect(
-      source,
-      contains('challenge = await readIosResidentReferenceChallenge()'),
-    );
-    expect(
-      source,
-      contains('_runResidentPackagedSmoke(challenge, pid).catchError'),
-    );
-    expect(source, contains('unawaited('));
-    expect(source, isNot(contains('.ignore()')));
-    expect(source, contains('residentReferenceActivationFailureDiagnostic'));
-    expect(source, contains('residentReferencePublicationFailureDiagnostic'));
-    expect(source, contains('runResidentReferenceSmoke('));
-    expect(source, contains('publishResidentReferenceLine'));
-    expect(source, contains('runApp(const SizedBox.shrink())'));
-    expect(source, contains('Platform.isMacOS &&'));
-    expect('Platform.environment'.allMatches(source), hasLength(1));
-    expect('exit(status);'.allMatches(source), hasLength(1));
-  });
+  test(
+    'iOS packaged smoke is resident and desktop exit stays desktop-only',
+    () {
+      final String source = File('lib/main.dart').readAsStringSync();
+      expect(source, contains('if (Platform.isIOS)'));
+      expect(
+        source,
+        contains('challenge = await readIosResidentReferenceChallenge()'),
+      );
+      expect(
+        source,
+        contains('_runResidentPackagedSmoke(challenge, pid).catchError'),
+      );
+      expect(source, contains('unawaited('));
+      expect(source, isNot(contains('.ignore()')));
+      expect(source, contains('residentReferenceActivationFailureDiagnostic'));
+      expect(source, contains('residentReferencePublicationFailureDiagnostic'));
+      expect(source, contains('runResidentReferenceSmoke('));
+      expect(source, contains('publishResidentReferenceLine'));
+      expect(source, contains('runApp(const SizedBox.shrink())'));
+      expect(
+        source,
+        contains(
+          'if ((Platform.isMacOS || Platform.isLinux) &&\n'
+          '      desktopReferenceSmokeEnabled(',
+        ),
+      );
+      expect(source, contains('isMacOS: Platform.isMacOS'));
+      expect(source, contains('isLinux: Platform.isLinux'));
+      expect(source, contains('environment: Platform.environment'));
+      expect('Platform.environment'.allMatches(source), hasLength(1));
+      expect('exit(status);'.allMatches(source), hasLength(1));
+    },
+  );
 }
 
 String _projectObjectBlock(String project, String objectName) {

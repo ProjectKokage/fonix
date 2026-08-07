@@ -9,8 +9,6 @@ import 'src/android_xnnpack_qualification.dart';
 import 'src/fonix_inference_backend.dart';
 import 'src/reference_smoke.dart';
 
-const String _smokeEnvironmentKey = androidSmokeDefine;
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isAndroid && androidSmokeEnabled) {
@@ -36,7 +34,12 @@ Future<void> main() async {
       return;
     }
   }
-  if (Platform.isMacOS && Platform.environment[_smokeEnvironmentKey] == '1') {
+  if ((Platform.isMacOS || Platform.isLinux) &&
+      desktopReferenceSmokeEnabled(
+        isMacOS: Platform.isMacOS,
+        isLinux: Platform.isLinux,
+        environment: Platform.environment,
+      )) {
     final int status = await _runPackagedSmoke();
     await stdout.flush();
     await stderr.flush();

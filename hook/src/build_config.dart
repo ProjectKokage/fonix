@@ -26,9 +26,12 @@ const int fonixRequiredOrtApiVersion = 27;
 const int fonixAndroidLockedMinimumNdkApi = 24;
 const String fonixIosLockedMinimumOs = '15.1';
 const String fonixMacosLockedMinimumOs = '14.0';
+const String fonixElfExportMapPath = 'src/fonix_exports.map';
+const String fonixElfExportVersion = 'FONIX_DORT_1.0';
 
-const List<String> fonixRequiredHeaderPaths = <String>[
+const List<String> fonixRequiredNativeInputPaths = <String>[
   'src/dort.h',
+  fonixElfExportMapPath,
   'src/fonix_exports.apple',
   'third_party/onnxruntime/include/onnxruntime_c_api.h',
   'third_party/onnxruntime/include/onnxruntime_ep_c_api.h',
@@ -356,7 +359,7 @@ List<String> discoverFonixNativeSources(Uri packageRoot) {
 List<Uri> validateFonixNativeInputs(Uri packageRoot, List<String> sources) {
   final relativePaths = <String>{
     ...sources,
-    ...fonixRequiredHeaderPaths,
+    ...fonixRequiredNativeInputPaths,
   }.toList(growable: false)..sort();
   final dependencies = <Uri>[];
   for (final relativePath in relativePaths) {
@@ -380,6 +383,26 @@ List<Uri> validateFonixNativeInputs(Uri packageRoot, List<String> sources) {
     );
   }
   return List<Uri>.unmodifiable(dependencies);
+}
+
+/// Returns the closed ELF export-version contract for Linux shim links.
+///
+/// Android retains its existing native package policy. Its final-package
+/// auditor owns that platform's export checks independently, while Linux uses
+/// the GNU version script as a link input for every external or bundled shim.
+List<String> fonixLinuxVersionScriptFlags(OS targetOS, Uri packageRoot) {
+  if (targetOS != OS.linux) {
+    return const <String>[];
+  }
+  final exportMap = packageRoot.resolve(fonixElfExportMapPath);
+  if (!exportMap.isScheme('file')) {
+    throw BuildError(
+      message:
+          'The Fonix package root must resolve Linux linker inputs from '
+          'a local filesystem URI.',
+    );
+  }
+  return <String>['-Xlinker', '--version-script=${exportMap.toFilePath()}'];
 }
 
 int readFonixOrtApiVersion(Uri packageRoot) {
@@ -531,6 +554,8 @@ List<String> fonixCompilerFlags(OS targetOS) {
     if (targetOS == OS.android || targetOS == OS.linux) '-Wl,-z,relro',
     if (targetOS == OS.android || targetOS == OS.linux) '-Wl,-z,now',
     if (targetOS == OS.android || targetOS == OS.linux) '-Wl,-z,noexecstack',
+    if (targetOS == OS.linux) '-fuse-ld=lld',
+    if (targetOS == OS.linux) '-Wl,--build-id=sha1',
     if (targetOS == OS.android || targetOS == OS.linux)
       '-Wl,-soname,libfonix_shim.so',
     if (targetOS == OS.android) '-Wl,-z,max-page-size=16384',
@@ -548,6 +573,9 @@ List<String> fonixPinnedAppleDeploymentFlags(
   FonixBuildOptions options, {
   required String lockedMinimumOs,
 }) {
+  if (options.targetOS != OS.iOS && options.targetOS != OS.macOS) {
+    return const <String>[];
+  }
   validateFonixApplicationMinimumOs(options, lockedMinimumOs);
   if (options.targetOS == OS.iOS && options.linksOnnxRuntime) {
     return <String>['-mios-version-min=$lockedMinimumOs'];

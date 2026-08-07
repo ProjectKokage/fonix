@@ -18,7 +18,9 @@ the target.
 | Release-ready / 1.0 | Every Tier-1 target and advertised provider gate, licensing, signing, SBOM, security, and reproducibility requirement passed, including the Windows target-host lane. |
 
 Fonix is not currently a scoped pre-1.0 candidate or release-ready. No row may
-be promoted by inference from a lower status.
+be promoted by inference from a lower status. Windows x64 remains a Tier-1
+target while its target-host lane is deferred; changing that tier requires a
+separate product decision.
 
 ## 13.2 Baseline platform matrix
 
@@ -31,9 +33,9 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 | iOS arm64 simulator, minimum 15.1 | linked CPU | Complete reference gate `PASS (2026-08-07)`: two consecutive Debug builds and exact install-transport identity on an arm64-capable iPhone 17 Pro/iOS 26.5 simulator; every path/byte and the Runner executable bit remain bound while only the three exact framework executable bits are normalized; ORT 1.27.1 CPU output `[1,4,9,16,25,36]`, full assignment, double close, process settlement, and uninstall | Exact-simulator functional evidence only. Simulator Release, another tuple, physical device, approved signing/distribution, iOS CoreML/XNNPACK/GPU/Neural Engine qualification, and performance remain open |
 | Android arm64-v8a, API 24 | application-owned locked `cpu` artifact with compiled XNNPACK or sherpa-owned process shim | Final-app tested for the application-owned path: independent development-signed R8 Release APK/AAB audits and installed APK inference for the CPU and closed XNNPACK functional profiles on an API 35 arm64/4096-byte emulator. The sherpa-owned path has an exact commit-bound static audit and a passing four-record schema-2 matrix for both load orders on API 35 arm64 4 KiB/16 KiB emulators against one release-minified APK | API 24 execution, physical device, installed AAB-derived splits, x86_64, physical-device/performance/thermal XNNPACK qualification, approved distribution signing, and release approval; QNN is deferred |
 | Android x86_64, API 24 | application-owned CPU or sherpa-owned process shim | NDK cross-build, ELF/16 KiB static audit, and synthetic final native inventory | Flutter APK/AAB, emulator runtime/inference, sherpa coexistence, and release/R8 |
-| Linux x86_64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
+| Linux x86_64, glibc 2.27 | bundled CPU | GNU-versioned shim cross-built and statically audited; committed Flutter reference scaffold plus final-tree/ELF/hook-provenance gate implemented and synthetically tested on macOS arm64 | Exact Ubuntu 18.04.6/glibc 2.27 Release build, auditor PASS, clean target-host executable/package load, and real inference |
 | Linux arm64, glibc 2.27 | bundled CPU | Cross-built and statically audited | Clean target-host executable/package load and real inference |
-| Windows x64, Windows 10 | bundled CPU | Cross-built PE/DLL layout and Windows shim-contract CI path | Deferred until a Windows environment exists: clean target-host final application load, real inference, and installer/DLL-search evidence |
+| Windows x64, Windows 10 (Tier-1) | bundled CPU | Cross-built PE/DLL layout and Windows shim-contract CI path | Deferred until a Windows environment exists: all target-host CPU/provider qualification, clean final-application/package load, real inference, installer/DLL-search evidence, and clean-machine validation |
 
 macOS x86_64, Windows arm64, Android armeabi-v7a, and every unlisted tuple
 have no locked baseline artifact and are not supported by this snapshot.
@@ -217,7 +219,9 @@ Windows target-host/provider/package/install path, and other unadvertised rows
 remain explicitly unsupported and outside that completion scope. They remain
 blockers for unqualified `Release-ready`, five-platform, and 1.0 claims. Shared
 source/static/tamper/cross-build/security regressions remain mandatory whether
-or not their target row is advertised.
+or not their target row is advertised. Windows x64 remains Tier-1 throughout
+the deferral; the deferral changes the development schedule, not the global
+release definition.
 
 - The repository has no project-level `LICENSE`; the ONNX Runtime license and
   third-party notices do not authorize Fonix distribution by themselves.
@@ -241,10 +245,11 @@ or not their target row is advertised.
   deferred. Their existing source and cross-build evidence does not promote a
   support row.
 
-With the exact iOS arm64 CPU baseline closed and frozen, the next active
-non-deferred target is the Linux x86_64 target-host package, followed by
-cross-platform stabilization and release engineering for the qualified
-targets. iOS physical-device/provider qualification remains a separately
+With the exact iOS arm64 CPU baseline closed and frozen, the Linux x86_64
+source package and fail-closed gate are implemented; the next target-evidence
+step is running that gate on the exact target host. Cross-platform stabilization
+and release engineering can proceed locally in parallel. iOS
+physical-device/provider qualification remains a separately
 evidenced follow-up rather than the next development slice. Android QNN and all
 Windows target-host, provider, final-application/package, installer, and
 clean-machine work remain explicitly deferred.

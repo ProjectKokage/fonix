@@ -502,7 +502,10 @@ coverage; adding a pinned cross-platform analyzer remains separate work.
 
 The iOS final-application gate has the exact local result
 `PASS (2026-08-07)`; it is not a hosted CI job, and its device branch is
-not physical-device execution. Flutter Linux/Windows final-application smoke
+not physical-device execution. The Linux x86_64 final-application gate,
+independent ELF/tree/provenance auditor, reference scaffold, and focused
+synthetic tests are implemented, but the gate has not passed on its exact
+Ubuntu 18.04.6/glibc 2.27 host. Flutter Linux/Windows final-application smoke
 and Windows/Linux target-host real-ORT inference are not present CI jobs. The
 Android standalone CPU and XNNPACK gates have local API 35
 arm64/4 KiB final-package evidence. The sherpa-owned path now also has local
@@ -516,9 +519,10 @@ requirements before promoting the corresponding support rows; a cross-build,
 source test, static package audit, or tiny emulator fixture must not be
 reported as a substitute.
 
-The iOS arm64 baseline is now a standing regression. The next active target
-slice is Linux x86_64, followed by
-stabilization/release work. Android aligned/QNN device work is deferred until
+The iOS arm64 baseline is now a standing regression. The next target-evidence
+step is executing and calibrating the implemented Linux x86_64 gate on its
+exact host; local stabilization/release work can proceed while that environment
+is provisioned. Android aligned/QNN device work is deferred until
 its exact licensed SDK/hardware tuple exists. All Windows
 target-host, provider, final-app/package, installer, and clean-machine work is
 deferred until a Windows environment exists. Their portable/static/source,

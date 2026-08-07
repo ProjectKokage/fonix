@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'inference_backend.dart';
 
 const int referenceSmokeSchemaVersion = 1;
+const String referenceSmokeActivationKey = 'FONIX_REFERENCE_SMOKE';
 const String referenceSmokeReceiptPrefix = 'FONIX_REFERENCE_RECEIPT=';
 const String referenceSmokeFailurePrefix = 'FONIX_REFERENCE_FAILURE=';
 const String residentReferenceLaunchChannelName = 'dev.fonix.reference/launch';
@@ -23,6 +24,17 @@ const int maximumResidentReferenceProcessId = 0x7fffffff;
 const Duration maximumResidentReferenceActivationWait = Duration(seconds: 5);
 
 typedef ResidentReferenceActivationReader = Future<Object?> Function();
+
+/// Whether this process requested the closed desktop one-shot smoke path.
+///
+/// macOS and Linux share the same receipt contract. Other platforms and every
+/// value except the exact ASCII string `1` retain their platform-specific or
+/// interactive startup path.
+bool desktopReferenceSmokeEnabled({
+  required bool isMacOS,
+  required bool isLinux,
+  required Map<String, String> environment,
+}) => isMacOS != isLinux && environment[referenceSmokeActivationKey] == '1';
 
 /// A fresh, path-safe identity for one resident iOS smoke launch.
 final class ResidentReferenceChallenge {
