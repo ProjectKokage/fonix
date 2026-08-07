@@ -223,6 +223,20 @@ row keeps application-owned ORT 1.27.1 separate from the sherpa-owned ORT
 matrix and does not establish support or readiness; the external evidence and
 approval gate remains required.
 
+That gate is the external-only
+[`scoped_release_approval.schema.json`](../templates/ci/scoped_release_approval.schema.json)
+contract and `tool/ci/validate_scoped_release_approval.py`. Readiness requires
+non-empty target, provider, package, SBOM, audit, reproducibility, notices, and
+signing evidence for all five selected compositions, every shared portable
+regression, and externally verified API/ABI, licensing, security, signing, and
+publication approvals over one canonical candidate subject. Missing or
+rejected evidence remains an explicit blocker. The bundle cannot add Android
+QNN, Windows, or another unsupported tuple, and the repository does not carry
+or synthesize an approved bundle. The closed Android inventory includes the
+standalone API-24 device and delivered-split records and, separately, all four
+sherpa load-order/page-size target records plus its APK/AAB static audit and
+aggregate; a smaller emulator-only subset cannot become scoped-ready by label.
+
 For the planned scoped pre-1.0 release, a missing gate is a blocker only when
 its exact tuple is selected for advertising. Deferred Android QNN, every
 Windows target-host/provider/package/install path, and other unadvertised rows

@@ -1173,6 +1173,7 @@ class ReleaseEvidenceWorkflowTests(unittest.TestCase):
         self.assertIn("Offline deterministic release-evidence verification", section)
         self.assertIn("test_release_evidence.py", section)
         self.assertIn("test_scoped_release_scope.py", section)
+        self.assertIn("test_scoped_release_approval.py", section)
         self.assertIn("validate_scoped_release_scope.py", section)
         self.assertIn("release/scoped-pre-1.0-v1.json", section)
         self.assertIn("source_checksum_manifest.py check", section)

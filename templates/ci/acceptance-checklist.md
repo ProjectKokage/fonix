@@ -85,3 +85,24 @@
 - [ ] Artifact inspection reports are attached.
 - [ ] Failure/diagnostics logs are redacted.
 - [ ] Support matrix and reference snapshot are updated when needed.
+
+## Scoped release candidate
+
+- [ ] The frozen scope-only policy validates against the exact source and lock
+      baseline; unsupported and deferred rows are unchanged.
+- [ ] Every selected composition has target-execution, provider-assignment,
+      final-package, SBOM, audit, reproducibility, notices, and signing
+      records in one external evidence root.
+- [ ] Source closure, Dart, binding, native/sanitizer,
+      lifecycle/cancellation, QNN contract/tamper, and Windows
+      source/cross-build/loader-security regression records are present.
+- [ ] Detached API/ABI, licensing, security, signing, and publication approval
+      statements and externally produced signature-verification receipts bind
+      the exact canonical candidate subject.
+- [ ] The expected candidate-bundle SHA-256 arrived through the independently
+      controlled release channel; no bundle or approval was committed to the
+      source tree.
+- [ ] `validate_scoped_release_approval.py --require-scoped-ready` passes with
+      a new external output and reports no blockers.
+- [ ] The scoped result is not described as five-platform, unqualified
+      `Release-ready`, or 1.0 evidence.

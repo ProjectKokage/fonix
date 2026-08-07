@@ -384,3 +384,62 @@ packages, target/runtime receipts, SBOMs, shared gates, and independent
 licensing, security, signing, API/ABI, and publication approvals before a
 scoped release can be called ready. That approval gate is distinct from, and
 cannot weaken, global `--require-release-ready`.
+
+## 9.16 Scoped candidate evidence and approval gate
+
+The external bundle contract is
+[`templates/ci/scoped_release_approval.schema.json`](../templates/ci/scoped_release_approval.schema.json).
+Keep the candidate bundle, every referenced evidence byte, approval statement,
+detached signature, verification receipt, and validation output outside the
+source repository. The release authority must communicate the expected bundle
+SHA-256 out of band. Validate one candidate with:
+
+```bash
+python3 -B tool/ci/validate_scoped_release_approval.py \
+  --repository . \
+  --scope release/scoped-pre-1.0-v1.json \
+  --bundle /absolute/external/candidate.json \
+  --bundle-sha256 "$EXPECTED_BUNDLE_SHA256" \
+  --evidence-root /absolute/external/evidence \
+  --output /absolute/external/new-validation.json \
+  --require-scoped-ready
+```
+
+The candidate statement repeats the frozen scope and current source baseline,
+then inventories the exact five selected compositions. Each composition has
+separate bounded record sets for target execution, provider assignment, final
+packages, SBOMs, audits, reproducibility, notices, and signing. Shared records
+cover source closure, Dart analysis/tests, binding reproduction, native
+sanitizers, lifecycle/cancellation stress, the deferred QNN contract/tamper
+suite, and the deferred Windows source/cross-build/loader-security suite. The
+candidate subject is the SHA-256 of canonical JSON for that statement.
+
+Schema version 1 freezes the record IDs, order, and media type as well as the
+categories. In particular, the standalone Android composition requires both
+API-24 device execution and AAB-derived split-install execution, APK and AAB
+packages, and separate APK/AAB audits. The sherpa-owned composition requires
+the four exact `dart-first`/`sherpa-first` by 4 KiB/16 KiB target records, its
+CPU-assignment aggregate, APK and AAB, the static APK/AAB audit, and the
+four-record validation aggregate. A missing exact record is a named blocker;
+an unknown, duplicate, reordered, or media-substituted record is malformed.
+The other selected targets likewise require their frozen clean-machine or
+device execution, CPU assignment, final archive, SPDX SBOM, package audit,
+reproducibility, notices, and distribution-signing records.
+
+Five detached approval domains are required for readiness: API/ABI, licensing,
+security, signing, and publication. Each approval statement binds the exact
+candidate subject, decision, time, approver, key, and signature algorithm. Its
+external verification receipt must bind the exact statement and signature
+bytes. This repository deliberately contains neither approval identities nor a
+candidate bundle. The validator verifies the closed inventory, hashes, external
+receipt bindings, and out-of-band bundle digest; it does not implement or claim
+the external authority's cryptographic signature verification.
+
+A well-formed incomplete or explicitly rejected bundle produces a
+deterministic, path-free result with ordered blockers. Malformed JSON, identity
+drift, byte drift, unsafe paths, links, repository-contained inputs, reordered
+scope, QNN/Windows overclaim, output aliasing, or an existing output fail
+without a readiness result. `--require-scoped-ready` additionally returns
+failure when any blocker remains. A successful scoped result is limited to the
+four selected targets and five CPU compositions; it neither promotes excluded
+rows nor changes the global five-platform `--require-release-ready` gate.

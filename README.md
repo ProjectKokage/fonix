@@ -351,7 +351,10 @@ gate on its exact target host. The committed
 exact CPU-only candidate and unsupported rows for scoped release work. A
 `selected` row is a development target, not a support, readiness, signing, or
 publication claim; every selected composition still needs its owning evidence
-and external approval bundle. Local development can proceed in parallel with
+and an externally controlled bundle conforming to
+[`scoped_release_approval.schema.json`](templates/ci/scoped_release_approval.schema.json).
+The repository contains the fail-closed validator but no approved bundle or
+publication authority. Local development can proceed in parallel with
 lifecycle/performance stabilization for those exact macOS, iOS-device, Linux,
 and Android-without-QNN candidates. Android
 QNN/aligned-runtime device qualification and all Windows target-host,

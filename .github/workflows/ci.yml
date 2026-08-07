@@ -110,6 +110,8 @@ jobs:
             -s tool/ci/tests -p 'test_release_evidence.py' -v
           python -B -m unittest discover \
             -s tool/ci/tests -p 'test_scoped_release_scope.py' -v
+          python -B -m unittest discover \
+            -s tool/ci/tests -p 'test_scoped_release_approval.py' -v
       - name: Validate the committed scoped pre-1.0 policy
         run: >-
           python -B tool/ci/validate_scoped_release_scope.py

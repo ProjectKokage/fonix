@@ -79,6 +79,12 @@ qualification. The package remains `publish_to: none`, and the external
 licensing, signing, target-host, physical-device, performance, and provider-
 qualification boundaries listed below remain authoritative.
 
+The repository now validates a separately supplied scoped pre-1.0 candidate
+bundle against the frozen scope, exact evidence inventory, out-of-band bundle
+digest, and five detached approval domains. No external candidate bundle,
+evidence directory, signatures, or approvals have been produced for this
+snapshot, so this is a validation capability rather than a readiness claim.
+
 ## Implemented boundary
 
 The checked source contains the complete app-owned wrapper layer described by
@@ -102,7 +108,9 @@ the active documentation:
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, and closed source and
   release-evidence checks, plus an exact scope-only pre-1.0 policy validator
-  that preserves global five-platform release semantics;
+  and a separate external candidate-approval validator that requires 55 exact
+  evidence slots and five detached approval categories without weakening
+  global five-platform release semantics;
 - a shared bounded-command helper for trusted POSIX native, Phase-3,
   Linux/desktop audit, binding, macOS runtime, and Apple application/gate
   commands, with online per-stream caps, strict UTF-8, monotonic deadlines,
@@ -153,9 +161,10 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 633/633 passed |
+| Python CI-script tests | 659/659 passed |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `38b298fcb36e6f0eb5390485f15db6f1bb7c9b8acdb372ad1e3f83cd4878652f` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
-| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 633-test Python suite |
+| Scoped candidate approval validator | 26/26 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, hostile Git environment isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
+| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 659-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -701,6 +710,15 @@ not completion gates for that narrower release. They remain gates for
 five-platform, unqualified `Release-ready`, and 1.0 claims. Existing portable,
 static, source, tamper, cross-build, and loader-security regressions remain
 mandatory even for excluded tuples.
+
+The scoped candidate validator does not itself unpack opaque evidence archives
+or perform cryptographic signature verification. It binds every evidence file
+by exact ID, media type, size, and SHA-256, binds the candidate statement to an
+out-of-band bundle SHA-256, and requires the corresponding external
+verification and approval receipts. Those receipts, their authority, and the
+actual detached-signature verification remain external release inputs. Until
+the complete external bundle passes with `--require-scoped-ready`, scoped
+publication remains blocked.
 
 In particular, the reference app's local ad-hoc build disables library
 validation because it has no authorized Team ID shared with FlutterMacOS. That

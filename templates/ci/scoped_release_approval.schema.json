@@ -1,0 +1,2251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/scoped-release-approval-v1.json",
+  "title": "Fonix scoped pre-1.0 candidate evidence and approval bundle",
+  "description": "A closed inventory of exact evidence references and independently produced detached approvals for one scoped candidate. Missing exact records are permitted only so validation can enumerate them; no field in this document asserts readiness or authorizes publication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "claimStatus",
+    "candidateStatement",
+    "candidateSubjectSha256",
+    "detachedApprovals",
+    "claimBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "claimStatus": { "const": "candidate-evidence-only" },
+    "candidateStatement": { "$ref": "#/$defs/candidateStatement" },
+    "candidateSubjectSha256": {
+      "$comment": "The validator recomputes this digest from canonical JSON of candidateStatement.",
+      "$ref": "#/$defs/sha256"
+    },
+    "detachedApprovals": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/apiAbiApproval" },
+          { "$ref": "#/$defs/licensingApproval" },
+          { "$ref": "#/$defs/securityApproval" },
+          { "$ref": "#/$defs/signingApproval" },
+          { "$ref": "#/$defs/publicationApproval" }
+        ]
+      },
+      "allOf": [
+        {
+          "contains": { "$ref": "#/$defs/apiAbiApproval" },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": { "$ref": "#/$defs/licensingApproval" },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": { "$ref": "#/$defs/securityApproval" },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": { "$ref": "#/$defs/signingApproval" },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": { "$ref": "#/$defs/publicationApproval" },
+          "minContains": 0,
+          "maxContains": 1
+        }
+      ]
+    },
+    "claimBoundary": {
+      "const": "This bundle binds candidate evidence and detached approval artifacts only. It does not itself establish readiness, verify signatures, authorize publication or distribution, or weaken the global five-platform release gate."
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "identityToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+@-]{0,127}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F-\\u009F])[^/]+(?:/[^/]+)*$"
+    },
+    "mediaType": {
+      "enum": [
+        "application/gzip",
+        "application/json",
+        "application/octet-stream",
+        "application/spdx+json",
+        "application/vnd.android.package-archive",
+        "application/zip",
+        "text/plain"
+      ]
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256", "sizeBytes", "mediaType"],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "mediaType": { "$ref": "#/$defs/mediaType" }
+      }
+    },
+    "jsonEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": { "const": "application/json" }
+          }
+        }
+      ]
+    },
+    "spdxEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": { "const": "application/spdx+json" }
+          }
+        }
+      ]
+    },
+    "zipEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": { "const": "application/zip" }
+          }
+        }
+      ]
+    },
+    "gzipEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": { "const": "application/gzip" }
+          }
+        }
+      ]
+    },
+    "apkEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": {
+              "const": "application/vnd.android.package-archive"
+            }
+          }
+        }
+      ]
+    },
+    "textEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": { "const": "text/plain" }
+          }
+        }
+      ]
+    },
+    "binaryEvidenceReference": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceReference" },
+        {
+          "properties": {
+            "mediaType": { "const": "application/octet-stream" }
+          }
+        }
+      ]
+    },
+    "iosTargetExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-target-execution" }
+          }
+        }
+      ]
+    },
+    "iosProviderAssignmentReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-cpu-full-assignment" }
+          }
+        }
+      ]
+    },
+    "iosFinalPackageReference": {
+      "allOf": [
+        { "$ref": "#/$defs/zipEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-release-ipa" }
+          }
+        }
+      ]
+    },
+    "iosSbomReference": {
+      "allOf": [
+        { "$ref": "#/$defs/spdxEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-spdx-sbom" }
+          }
+        }
+      ]
+    },
+    "iosAuditReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-final-package-audit" }
+          }
+        }
+      ]
+    },
+    "iosReproducibilityReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-reproducibility" }
+          }
+        }
+      ]
+    },
+    "iosNoticesReference": {
+      "allOf": [
+        { "$ref": "#/$defs/textEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-third-party-notices" }
+          }
+        }
+      ]
+    },
+    "iosSigningReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "ios-device-distribution-signing" }
+          }
+        }
+      ]
+    },
+    "macosTargetExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-clean-machine-execution" }
+          }
+        }
+      ]
+    },
+    "macosProviderAssignmentReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-cpu-full-assignment" }
+          }
+        }
+      ]
+    },
+    "macosFinalPackageReference": {
+      "allOf": [
+        { "$ref": "#/$defs/zipEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-release-archive" }
+          }
+        }
+      ]
+    },
+    "macosSbomReference": {
+      "allOf": [
+        { "$ref": "#/$defs/spdxEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-spdx-sbom" }
+          }
+        }
+      ]
+    },
+    "macosAuditReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-final-package-audit" }
+          }
+        }
+      ]
+    },
+    "macosReproducibilityReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-reproducibility" }
+          }
+        }
+      ]
+    },
+    "macosNoticesReference": {
+      "allOf": [
+        { "$ref": "#/$defs/textEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-third-party-notices" }
+          }
+        }
+      ]
+    },
+    "macosSigningReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-distribution-signing" }
+          }
+        }
+      ]
+    },
+    "androidBundledApi24ExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-api24-device-execution" }
+          }
+        }
+      ]
+    },
+    "androidBundledAabInstallExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": {
+              "const": "android-bundled-aab-split-install-execution"
+            }
+          }
+        }
+      ]
+    },
+    "androidBundledProviderAssignmentReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-cpu-full-assignment" }
+          }
+        }
+      ]
+    },
+    "androidBundledApkReference": {
+      "allOf": [
+        { "$ref": "#/$defs/apkEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-release-apk" }
+          }
+        }
+      ]
+    },
+    "androidBundledAabReference": {
+      "allOf": [
+        { "$ref": "#/$defs/zipEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-release-aab" }
+          }
+        }
+      ]
+    },
+    "androidBundledSbomReference": {
+      "allOf": [
+        { "$ref": "#/$defs/spdxEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-spdx-sbom" }
+          }
+        }
+      ]
+    },
+    "androidBundledApkAuditReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-apk-audit" }
+          }
+        }
+      ]
+    },
+    "androidBundledAabAuditReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-aab-audit" }
+          }
+        }
+      ]
+    },
+    "androidBundledReproducibilityReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-reproducibility" }
+          }
+        }
+      ]
+    },
+    "androidBundledNoticesReference": {
+      "allOf": [
+        { "$ref": "#/$defs/textEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-third-party-notices" }
+          }
+        }
+      ]
+    },
+    "androidBundledSigningReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-bundled-distribution-signing" }
+          }
+        }
+      ]
+    },
+    "androidSherpaDart4kExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-dart-first-4k-target" }
+          }
+        }
+      ]
+    },
+    "androidSherpaSherpa4kExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-sherpa-first-4k-target" }
+          }
+        }
+      ]
+    },
+    "androidSherpaDart16kExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-dart-first-16k-target" }
+          }
+        }
+      ]
+    },
+    "androidSherpaSherpa16kExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-sherpa-first-16k-target" }
+          }
+        }
+      ]
+    },
+    "androidSherpaProviderAssignmentReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": {
+              "const": "android-sherpa-cpu-full-assignment-aggregate"
+            }
+          }
+        }
+      ]
+    },
+    "androidSherpaApkReference": {
+      "allOf": [
+        { "$ref": "#/$defs/apkEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-release-apk" }
+          }
+        }
+      ]
+    },
+    "androidSherpaAabReference": {
+      "allOf": [
+        { "$ref": "#/$defs/zipEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-release-aab" }
+          }
+        }
+      ]
+    },
+    "androidSherpaSbomReference": {
+      "allOf": [
+        { "$ref": "#/$defs/spdxEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-spdx-sbom" }
+          }
+        }
+      ]
+    },
+    "androidSherpaStaticAuditReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-apk-aab-static-audit" }
+          }
+        }
+      ]
+    },
+    "androidSherpaValidationAggregateReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": {
+              "const": "android-sherpa-four-record-validation-aggregate"
+            }
+          }
+        }
+      ]
+    },
+    "androidSherpaReproducibilityReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-reproducibility" }
+          }
+        }
+      ]
+    },
+    "androidSherpaNoticesReference": {
+      "allOf": [
+        { "$ref": "#/$defs/textEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-third-party-notices" }
+          }
+        }
+      ]
+    },
+    "androidSherpaSigningReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "android-sherpa-distribution-signing" }
+          }
+        }
+      ]
+    },
+    "linuxTargetExecutionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-clean-machine-execution" }
+          }
+        }
+      ]
+    },
+    "linuxProviderAssignmentReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-cpu-full-assignment" }
+          }
+        }
+      ]
+    },
+    "linuxFinalPackageReference": {
+      "allOf": [
+        { "$ref": "#/$defs/gzipEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-release-archive" }
+          }
+        }
+      ]
+    },
+    "linuxSbomReference": {
+      "allOf": [
+        { "$ref": "#/$defs/spdxEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-spdx-sbom" }
+          }
+        }
+      ]
+    },
+    "linuxAuditReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-final-package-audit" }
+          }
+        }
+      ]
+    },
+    "linuxReproducibilityReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-reproducibility" }
+          }
+        }
+      ]
+    },
+    "linuxNoticesReference": {
+      "allOf": [
+        { "$ref": "#/$defs/textEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-third-party-notices" }
+          }
+        }
+      ]
+    },
+    "linuxSigningReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-distribution-signing" }
+          }
+        }
+      ]
+    },
+    "recordArray": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/evidenceReference" }
+    },
+    "scopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policyId",
+        "scopePath",
+        "scopeSha256",
+        "validationRecord"
+      ],
+      "properties": {
+        "policyId": { "const": "scoped-pre-1.0-cpu-v1" },
+        "scopePath": { "const": "release/scoped-pre-1.0-v1.json" },
+        "scopeSha256": {
+          "const": "c2e96a0f91036b848a9df50e1aa008c604b5571726a149b925e2e87f0d2eaf78"
+        },
+        "validationRecord": {
+          "allOf": [
+            { "$ref": "#/$defs/jsonEvidenceReference" },
+            {
+              "properties": {
+                "id": { "const": "scope-validation" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRevision",
+        "sourceArchive",
+        "sourceManifest",
+        "dartPubspecLock",
+        "nativeLock",
+        "sherpaPubspecLock",
+        "packageName",
+        "packageVersion"
+      ],
+      "properties": {
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceArchive": {
+          "allOf": [
+            { "$ref": "#/$defs/evidenceReference" },
+            {
+              "properties": {
+                "id": { "const": "source-archive" },
+                "mediaType": {
+                  "enum": ["application/gzip", "application/zip"]
+                }
+              }
+            }
+          ]
+        },
+        "sourceManifest": {
+          "allOf": [
+            { "$ref": "#/$defs/evidenceReference" },
+            {
+              "properties": {
+                "id": { "const": "source-manifest" },
+                "path": { "const": "MANIFEST.sha256" },
+                "mediaType": { "const": "text/plain" }
+              }
+            }
+          ]
+        },
+        "dartPubspecLock": {
+          "allOf": [
+            { "$ref": "#/$defs/evidenceReference" },
+            {
+              "properties": {
+                "id": { "const": "dart-pubspec-lock" },
+                "path": { "const": "pubspec.lock" },
+                "mediaType": { "const": "text/plain" }
+              }
+            }
+          ]
+        },
+        "nativeLock": {
+          "allOf": [
+            { "$ref": "#/$defs/evidenceReference" },
+            {
+              "properties": {
+                "id": { "const": "native-lock" },
+                "path": { "const": "native/versions.lock.yaml" },
+                "sha256": {
+                  "const": "6a9a8a7b3fcca9c08843b2ebeb51fabfb215ec5693426c2cd23d4c16851f3e83"
+                },
+                "sizeBytes": { "const": 20375 },
+                "mediaType": { "const": "application/json" }
+              }
+            }
+          ]
+        },
+        "sherpaPubspecLock": {
+          "allOf": [
+            { "$ref": "#/$defs/evidenceReference" },
+            {
+              "properties": {
+                "id": { "const": "sherpa-pubspec-lock" },
+                "path": {
+                  "const": "templates/android/sherpa_reference_app/pubspec.lock"
+                },
+                "sha256": {
+                  "const": "46e348c45c3b5fa7db647f89eb5bdd16aed3cfc15ac61704aca52b423c50bb4a"
+                },
+                "sizeBytes": { "const": 11029 },
+                "mediaType": { "const": "text/plain" }
+              }
+            }
+          ]
+        },
+        "packageName": { "const": "fonix" },
+        "packageVersion": { "const": "0.1.0-dev.1" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "variant", "flavor", "minimumOs"],
+      "properties": {
+        "os": { "enum": ["android", "ios", "linux", "macos"] },
+        "architecture": { "enum": ["arm64", "arm64-v8a", "x86_64"] },
+        "variant": { "enum": ["default", "device"] },
+        "flavor": { "const": "cpu" },
+        "minimumOs": {
+          "enum": ["15.1", "14.0", "24", "glibc-2.27"]
+        }
+      }
+    },
+    "iosDeviceTarget": {
+      "allOf": [
+        { "$ref": "#/$defs/target" },
+        {
+          "properties": {
+            "os": { "const": "ios" },
+            "architecture": { "const": "arm64" },
+            "variant": { "const": "device" },
+            "flavor": { "const": "cpu" },
+            "minimumOs": { "const": "15.1" }
+          }
+        }
+      ]
+    },
+    "macosArm64Target": {
+      "allOf": [
+        { "$ref": "#/$defs/target" },
+        {
+          "properties": {
+            "os": { "const": "macos" },
+            "architecture": { "const": "arm64" },
+            "variant": { "const": "default" },
+            "flavor": { "const": "cpu" },
+            "minimumOs": { "const": "14.0" }
+          }
+        }
+      ]
+    },
+    "androidArm64Target": {
+      "allOf": [
+        { "$ref": "#/$defs/target" },
+        {
+          "properties": {
+            "os": { "const": "android" },
+            "architecture": { "const": "arm64-v8a" },
+            "variant": { "const": "default" },
+            "flavor": { "const": "cpu" },
+            "minimumOs": { "const": "24" }
+          }
+        }
+      ]
+    },
+    "linuxX64Target": {
+      "allOf": [
+        { "$ref": "#/$defs/target" },
+        {
+          "properties": {
+            "os": { "const": "linux" },
+            "architecture": { "const": "x86_64" },
+            "variant": { "const": "default" },
+            "flavor": { "const": "cpu" },
+            "minimumOs": { "const": "glibc-2.27" }
+          }
+        }
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "requirement"],
+      "properties": {
+        "id": { "const": "cpu" },
+        "requirement": { "const": "full-assignment" }
+      }
+    },
+    "runtimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ownerPackage",
+        "ownerPackageVersion",
+        "onnxRuntimeVersion"
+      ],
+      "properties": {
+        "ownerPackage": { "const": "sherpa_onnx" },
+        "ownerPackageVersion": { "const": "1.13.4" },
+        "onnxRuntimeVersion": { "const": "1.27.0" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "artifactId", "runtimeOwner", "runtimeMode"],
+      "properties": {
+        "kind": { "enum": ["locked-artifact", "android-sherpa-process"] },
+        "artifactId": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,255}$"
+        },
+        "runtimeOwner": { "enum": ["wrapper", "sherpa"] },
+        "runtimeMode": { "enum": ["linked", "bundled", "process"] },
+        "runtimeIdentity": { "$ref": "#/$defs/runtimeIdentity" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "locked-artifact" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "artifactId": { "type": "string" },
+              "runtimeOwner": { "const": "wrapper" },
+              "runtimeMode": { "enum": ["linked", "bundled"] }
+            },
+            "not": { "required": ["runtimeIdentity"] }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "const": "android-sherpa-process" }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["runtimeIdentity"],
+            "properties": {
+              "artifactId": { "const": null },
+              "runtimeOwner": { "const": "sherpa" },
+              "runtimeMode": { "const": "process" }
+            }
+          }
+        }
+      ]
+    },
+    "compositionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetExecutionRecords",
+        "providerAssignmentRecords",
+        "finalPackageRecords",
+        "sbomRecords",
+        "auditRecords",
+        "reproducibilityRecords",
+        "noticesRecords",
+        "signingRecords"
+      ],
+      "properties": {
+        "targetExecutionRecords": { "$ref": "#/$defs/recordArray" },
+        "providerAssignmentRecords": { "$ref": "#/$defs/recordArray" },
+        "finalPackageRecords": { "$ref": "#/$defs/recordArray" },
+        "sbomRecords": { "$ref": "#/$defs/recordArray" },
+        "auditRecords": { "$ref": "#/$defs/recordArray" },
+        "reproducibilityRecords": { "$ref": "#/$defs/recordArray" },
+        "noticesRecords": { "$ref": "#/$defs/recordArray" },
+        "signingRecords": { "$ref": "#/$defs/recordArray" }
+      }
+    },
+    "iosCompositionEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/compositionEvidence" },
+        {
+          "properties": {
+            "targetExecutionRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosTargetExecutionReference" }
+            },
+            "providerAssignmentRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosProviderAssignmentReference" }
+            },
+            "finalPackageRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosFinalPackageReference" }
+            },
+            "sbomRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosSbomReference" }
+            },
+            "auditRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosAuditReference" }
+            },
+            "reproducibilityRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosReproducibilityReference" }
+            },
+            "noticesRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosNoticesReference" }
+            },
+            "signingRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/iosSigningReference" }
+            }
+          }
+        }
+      ]
+    },
+    "macosCompositionEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/compositionEvidence" },
+        {
+          "properties": {
+            "targetExecutionRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosTargetExecutionReference" }
+            },
+            "providerAssignmentRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosProviderAssignmentReference" }
+            },
+            "finalPackageRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosFinalPackageReference" }
+            },
+            "sbomRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosSbomReference" }
+            },
+            "auditRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosAuditReference" }
+            },
+            "reproducibilityRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosReproducibilityReference" }
+            },
+            "noticesRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosNoticesReference" }
+            },
+            "signingRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/macosSigningReference" }
+            }
+          }
+        }
+      ]
+    },
+    "androidBundledCompositionEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/compositionEvidence" },
+        {
+          "properties": {
+            "targetExecutionRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/androidBundledApi24ExecutionReference"
+                  },
+                  {
+                    "$ref": "#/$defs/androidBundledAabInstallExecutionReference"
+                  }
+                ]
+              },
+              "allOf": [
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidBundledApi24ExecutionReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidBundledAabInstallExecutionReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "providerAssignmentRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/androidBundledProviderAssignmentReference"
+              }
+            },
+            "finalPackageRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/androidBundledApkReference" },
+                  { "$ref": "#/$defs/androidBundledAabReference" }
+                ]
+              },
+              "allOf": [
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidBundledApkReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidBundledAabReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "sbomRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/androidBundledSbomReference" }
+            },
+            "auditRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/androidBundledApkAuditReference" },
+                  { "$ref": "#/$defs/androidBundledAabAuditReference" }
+                ]
+              },
+              "allOf": [
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidBundledApkAuditReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidBundledAabAuditReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "reproducibilityRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/androidBundledReproducibilityReference"
+              }
+            },
+            "noticesRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/androidBundledNoticesReference"
+              }
+            },
+            "signingRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/androidBundledSigningReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "androidSherpaCompositionEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/compositionEvidence" },
+        {
+          "properties": {
+            "targetExecutionRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/androidSherpaDart4kExecutionReference"
+                  },
+                  {
+                    "$ref": "#/$defs/androidSherpaSherpa4kExecutionReference"
+                  },
+                  {
+                    "$ref": "#/$defs/androidSherpaDart16kExecutionReference"
+                  },
+                  {
+                    "$ref": "#/$defs/androidSherpaSherpa16kExecutionReference"
+                  }
+                ]
+              },
+              "allOf": [
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaDart4kExecutionReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaSherpa4kExecutionReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaDart16kExecutionReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaSherpa16kExecutionReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "providerAssignmentRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/androidSherpaProviderAssignmentReference"
+              }
+            },
+            "finalPackageRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/androidSherpaApkReference" },
+                  { "$ref": "#/$defs/androidSherpaAabReference" }
+                ]
+              },
+              "allOf": [
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaApkReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaAabReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "sbomRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/androidSherpaSbomReference" }
+            },
+            "auditRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/androidSherpaStaticAuditReference" },
+                  {
+                    "$ref": "#/$defs/androidSherpaValidationAggregateReference"
+                  }
+                ]
+              },
+              "allOf": [
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaStaticAuditReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "$ref": "#/$defs/androidSherpaValidationAggregateReference"
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "reproducibilityRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/androidSherpaReproducibilityReference"
+              }
+            },
+            "noticesRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/androidSherpaNoticesReference" }
+            },
+            "signingRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/androidSherpaSigningReference" }
+            }
+          }
+        }
+      ]
+    },
+    "linuxCompositionEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/compositionEvidence" },
+        {
+          "properties": {
+            "targetExecutionRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxTargetExecutionReference" }
+            },
+            "providerAssignmentRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/linuxProviderAssignmentReference"
+              }
+            },
+            "finalPackageRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxFinalPackageReference" }
+            },
+            "sbomRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxSbomReference" }
+            },
+            "auditRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxAuditReference" }
+            },
+            "reproducibilityRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxReproducibilityReference" }
+            },
+            "noticesRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxNoticesReference" }
+            },
+            "signingRecords": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/linuxSigningReference" }
+            }
+          }
+        }
+      ]
+    },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "target", "runtime", "provider", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "target": { "$ref": "#/$defs/target" },
+        "runtime": { "$ref": "#/$defs/runtime" },
+        "provider": { "$ref": "#/$defs/provider" },
+        "evidence": { "$ref": "#/$defs/compositionEvidence" }
+      }
+    },
+    "iosComposition": {
+      "allOf": [
+        { "$ref": "#/$defs/composition" },
+        {
+          "properties": {
+            "id": { "const": "ios-arm64-device-cpu-linked" },
+            "target": { "$ref": "#/$defs/iosDeviceTarget" },
+            "runtime": {
+              "allOf": [
+                { "$ref": "#/$defs/runtime" },
+                {
+                  "properties": {
+                    "kind": { "const": "locked-artifact" },
+                    "artifactId": {
+                      "const": "onnxruntime-1.27.1-ios-arm64-device-cpu"
+                    },
+                    "runtimeOwner": { "const": "wrapper" },
+                    "runtimeMode": { "const": "linked" }
+                  }
+                }
+              ]
+            },
+            "evidence": { "$ref": "#/$defs/iosCompositionEvidence" }
+          }
+        }
+      ]
+    },
+    "macosComposition": {
+      "allOf": [
+        { "$ref": "#/$defs/composition" },
+        {
+          "properties": {
+            "id": { "const": "macos-arm64-default-cpu-bundled" },
+            "target": { "$ref": "#/$defs/macosArm64Target" },
+            "runtime": {
+              "allOf": [
+                { "$ref": "#/$defs/runtime" },
+                {
+                  "properties": {
+                    "kind": { "const": "locked-artifact" },
+                    "artifactId": {
+                      "const": "onnxruntime-1.27.1-macos-arm64-cpu"
+                    },
+                    "runtimeOwner": { "const": "wrapper" },
+                    "runtimeMode": { "const": "bundled" }
+                  }
+                }
+              ]
+            },
+            "evidence": { "$ref": "#/$defs/macosCompositionEvidence" }
+          }
+        }
+      ]
+    },
+    "androidBundledComposition": {
+      "allOf": [
+        { "$ref": "#/$defs/composition" },
+        {
+          "properties": {
+            "id": { "const": "android-arm64-v8a-default-cpu-bundled" },
+            "target": { "$ref": "#/$defs/androidArm64Target" },
+            "runtime": {
+              "allOf": [
+                { "$ref": "#/$defs/runtime" },
+                {
+                  "properties": {
+                    "kind": { "const": "locked-artifact" },
+                    "artifactId": {
+                      "const": "onnxruntime-1.27.1-android-arm64-v8a-cpu"
+                    },
+                    "runtimeOwner": { "const": "wrapper" },
+                    "runtimeMode": { "const": "bundled" }
+                  }
+                }
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/androidBundledCompositionEvidence"
+            }
+          }
+        }
+      ]
+    },
+    "androidSherpaComposition": {
+      "allOf": [
+        { "$ref": "#/$defs/composition" },
+        {
+          "properties": {
+            "id": {
+              "const": "android-arm64-v8a-default-cpu-sherpa-process"
+            },
+            "target": { "$ref": "#/$defs/androidArm64Target" },
+            "runtime": {
+              "allOf": [
+                { "$ref": "#/$defs/runtime" },
+                {
+                  "required": ["runtimeIdentity"],
+                  "properties": {
+                    "kind": { "const": "android-sherpa-process" },
+                    "artifactId": { "const": null },
+                    "runtimeOwner": { "const": "sherpa" },
+                    "runtimeMode": { "const": "process" },
+                    "runtimeIdentity": { "$ref": "#/$defs/runtimeIdentity" }
+                  }
+                }
+              ]
+            },
+            "evidence": { "$ref": "#/$defs/androidSherpaCompositionEvidence" }
+          }
+        }
+      ]
+    },
+    "linuxComposition": {
+      "allOf": [
+        { "$ref": "#/$defs/composition" },
+        {
+          "properties": {
+            "id": { "const": "linux-x86_64-default-cpu-bundled" },
+            "target": { "$ref": "#/$defs/linuxX64Target" },
+            "runtime": {
+              "allOf": [
+                { "$ref": "#/$defs/runtime" },
+                {
+                  "properties": {
+                    "kind": { "const": "locked-artifact" },
+                    "artifactId": {
+                      "const": "onnxruntime-1.27.1-linux-x86_64-cpu"
+                    },
+                    "runtimeOwner": { "const": "wrapper" },
+                    "runtimeMode": { "const": "bundled" }
+                  }
+                }
+              ]
+            },
+            "evidence": { "$ref": "#/$defs/linuxCompositionEvidence" }
+          }
+        }
+      ]
+    },
+    "sharedSourceClosureReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "shared-source-closure" }
+          }
+        }
+      ]
+    },
+    "sharedDartAnalysisTestsReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "shared-dart-analysis-tests" }
+          }
+        }
+      ]
+    },
+    "sharedBindingsReproductionReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "shared-bindings-reproduction" }
+          }
+        }
+      ]
+    },
+    "sharedNativeTestsSanitizersReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "shared-native-tests-sanitizers" }
+          }
+        }
+      ]
+    },
+    "sharedLifecycleCancellationStressReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "shared-lifecycle-cancellation-stress" }
+          }
+        }
+      ]
+    },
+    "sharedAndroidQnnContractTamperReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "shared-android-qnn-contract-tamper" }
+          }
+        }
+      ]
+    },
+    "sharedWindowsLoaderSecurityReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": {
+              "const": "shared-windows-source-cross-build-loader-security"
+            }
+          }
+        }
+      ]
+    },
+    "sharedRegression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "records"],
+      "properties": {
+        "category": {
+          "enum": [
+            "source-closure",
+            "dart-analysis-tests",
+            "bindings-reproduction",
+            "native-tests-sanitizers",
+            "lifecycle-cancellation-stress",
+            "android-qnn-contract-tamper",
+            "windows-source-cross-build-loader-security"
+          ]
+        },
+        "records": { "$ref": "#/$defs/recordArray" }
+      }
+    },
+    "sourceClosureRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": { "const": "source-closure" },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/sharedSourceClosureReference" }
+            }
+          }
+        }
+      ]
+    },
+    "dartRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": { "const": "dart-analysis-tests" },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/sharedDartAnalysisTestsReference" }
+            }
+          }
+        }
+      ]
+    },
+    "bindingsRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": { "const": "bindings-reproduction" },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/sharedBindingsReproductionReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nativeRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": { "const": "native-tests-sanitizers" },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/sharedNativeTestsSanitizersReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "lifecycleRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": { "const": "lifecycle-cancellation-stress" },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/sharedLifecycleCancellationStressReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "qnnRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": { "const": "android-qnn-contract-tamper" },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/sharedAndroidQnnContractTamperReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "windowsRegression": {
+      "allOf": [
+        { "$ref": "#/$defs/sharedRegression" },
+        {
+          "properties": {
+            "category": {
+              "const": "windows-source-cross-build-loader-security"
+            },
+            "records": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/sharedWindowsLoaderSecurityReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "approvalCategory": {
+      "enum": ["api-abi", "licensing", "security", "signing", "publication"]
+    },
+    "signatureAlgorithm": {
+      "enum": ["ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"]
+    },
+    "apiAbiApprovalStatementReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-api-abi-statement" }
+          }
+        }
+      ]
+    },
+    "apiAbiApprovalSignatureReference": {
+      "allOf": [
+        { "$ref": "#/$defs/binaryEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-api-abi-signature" }
+          }
+        }
+      ]
+    },
+    "apiAbiApprovalVerificationReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-api-abi-verification" }
+          }
+        }
+      ]
+    },
+    "licensingApprovalStatementReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-licensing-statement" }
+          }
+        }
+      ]
+    },
+    "licensingApprovalSignatureReference": {
+      "allOf": [
+        { "$ref": "#/$defs/binaryEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-licensing-signature" }
+          }
+        }
+      ]
+    },
+    "licensingApprovalVerificationReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-licensing-verification" }
+          }
+        }
+      ]
+    },
+    "securityApprovalStatementReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-security-statement" }
+          }
+        }
+      ]
+    },
+    "securityApprovalSignatureReference": {
+      "allOf": [
+        { "$ref": "#/$defs/binaryEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-security-signature" }
+          }
+        }
+      ]
+    },
+    "securityApprovalVerificationReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-security-verification" }
+          }
+        }
+      ]
+    },
+    "signingApprovalStatementReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-signing-statement" }
+          }
+        }
+      ]
+    },
+    "signingApprovalSignatureReference": {
+      "allOf": [
+        { "$ref": "#/$defs/binaryEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-signing-signature" }
+          }
+        }
+      ]
+    },
+    "signingApprovalVerificationReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-signing-verification" }
+          }
+        }
+      ]
+    },
+    "publicationApprovalStatementReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-publication-statement" }
+          }
+        }
+      ]
+    },
+    "publicationApprovalSignatureReference": {
+      "allOf": [
+        { "$ref": "#/$defs/binaryEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-publication-signature" }
+          }
+        }
+      ]
+    },
+    "publicationApprovalVerificationReference": {
+      "allOf": [
+        { "$ref": "#/$defs/jsonEvidenceReference" },
+        {
+          "properties": {
+            "id": { "const": "approval-publication-verification" }
+          }
+        }
+      ]
+    },
+    "approvalEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "approverId",
+        "keyId",
+        "signatureAlgorithm",
+        "statement",
+        "signature",
+        "verificationReceipt"
+      ],
+      "properties": {
+        "category": { "$ref": "#/$defs/approvalCategory" },
+        "approverId": { "$ref": "#/$defs/identityToken" },
+        "keyId": { "$ref": "#/$defs/identityToken" },
+        "signatureAlgorithm": { "$ref": "#/$defs/signatureAlgorithm" },
+        "statement": { "$ref": "#/$defs/jsonEvidenceReference" },
+        "signature": { "$ref": "#/$defs/binaryEvidenceReference" },
+        "verificationReceipt": { "$ref": "#/$defs/jsonEvidenceReference" }
+      }
+    },
+    "apiAbiApproval": {
+      "allOf": [
+        { "$ref": "#/$defs/approvalEntry" },
+        {
+          "properties": {
+            "category": { "const": "api-abi" },
+            "statement": {
+              "$ref": "#/$defs/apiAbiApprovalStatementReference"
+            },
+            "signature": {
+              "$ref": "#/$defs/apiAbiApprovalSignatureReference"
+            },
+            "verificationReceipt": {
+              "$ref": "#/$defs/apiAbiApprovalVerificationReference"
+            }
+          }
+        }
+      ]
+    },
+    "licensingApproval": {
+      "allOf": [
+        { "$ref": "#/$defs/approvalEntry" },
+        {
+          "properties": {
+            "category": { "const": "licensing" },
+            "statement": {
+              "$ref": "#/$defs/licensingApprovalStatementReference"
+            },
+            "signature": {
+              "$ref": "#/$defs/licensingApprovalSignatureReference"
+            },
+            "verificationReceipt": {
+              "$ref": "#/$defs/licensingApprovalVerificationReference"
+            }
+          }
+        }
+      ]
+    },
+    "securityApproval": {
+      "allOf": [
+        { "$ref": "#/$defs/approvalEntry" },
+        {
+          "properties": {
+            "category": { "const": "security" },
+            "statement": {
+              "$ref": "#/$defs/securityApprovalStatementReference"
+            },
+            "signature": {
+              "$ref": "#/$defs/securityApprovalSignatureReference"
+            },
+            "verificationReceipt": {
+              "$ref": "#/$defs/securityApprovalVerificationReference"
+            }
+          }
+        }
+      ]
+    },
+    "signingApproval": {
+      "allOf": [
+        { "$ref": "#/$defs/approvalEntry" },
+        {
+          "properties": {
+            "category": { "const": "signing" },
+            "statement": {
+              "$ref": "#/$defs/signingApprovalStatementReference"
+            },
+            "signature": {
+              "$ref": "#/$defs/signingApprovalSignatureReference"
+            },
+            "verificationReceipt": {
+              "$ref": "#/$defs/signingApprovalVerificationReference"
+            }
+          }
+        }
+      ]
+    },
+    "publicationApproval": {
+      "allOf": [
+        { "$ref": "#/$defs/approvalEntry" },
+        {
+          "properties": {
+            "category": { "const": "publication" },
+            "statement": {
+              "$ref": "#/$defs/publicationApprovalStatementReference"
+            },
+            "signature": {
+              "$ref": "#/$defs/publicationApprovalSignatureReference"
+            },
+            "verificationReceipt": {
+              "$ref": "#/$defs/publicationApprovalVerificationReference"
+            }
+          }
+        }
+      ]
+    },
+    "approvalStatement": {
+      "$comment": "Detached approval statement bytes are parsed and compared with their bundle entry by the validator.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "category",
+        "candidateSubjectSha256",
+        "decision",
+        "decidedAt",
+        "approverId",
+        "keyId",
+        "signatureAlgorithm"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "category": { "$ref": "#/$defs/approvalCategory" },
+        "candidateSubjectSha256": { "$ref": "#/$defs/sha256" },
+        "decision": { "enum": ["approved", "rejected"] },
+        "decidedAt": { "$ref": "#/$defs/utcTimestamp" },
+        "approverId": { "$ref": "#/$defs/identityToken" },
+        "keyId": { "$ref": "#/$defs/identityToken" },
+        "signatureAlgorithm": { "$ref": "#/$defs/signatureAlgorithm" }
+      }
+    },
+    "signatureVerificationReceipt": {
+      "$comment": "This receipt is an externally produced trust input; this schema does not perform cryptographic verification.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "category",
+        "candidateSubjectSha256",
+        "approvalStatementSha256",
+        "signatureSha256",
+        "approverId",
+        "keyId",
+        "signatureAlgorithm",
+        "verified",
+        "verifiedAt",
+        "verifierId"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "category": { "$ref": "#/$defs/approvalCategory" },
+        "candidateSubjectSha256": { "$ref": "#/$defs/sha256" },
+        "approvalStatementSha256": { "$ref": "#/$defs/sha256" },
+        "signatureSha256": { "$ref": "#/$defs/sha256" },
+        "approverId": { "$ref": "#/$defs/identityToken" },
+        "keyId": { "$ref": "#/$defs/identityToken" },
+        "signatureAlgorithm": { "$ref": "#/$defs/signatureAlgorithm" },
+        "verified": { "const": true },
+        "verifiedAt": { "$ref": "#/$defs/utcTimestamp" },
+        "verifierId": { "$ref": "#/$defs/identityToken" }
+      }
+    },
+    "candidateStatement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundleId",
+        "scope",
+        "source",
+        "compositions",
+        "sharedRegressionEvidence"
+      ],
+      "properties": {
+        "bundleId": { "$ref": "#/$defs/token" },
+        "scope": { "$ref": "#/$defs/scopeBinding" },
+        "source": { "$ref": "#/$defs/sourceBinding" },
+        "compositions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "prefixItems": [
+            { "$ref": "#/$defs/iosComposition" },
+            { "$ref": "#/$defs/macosComposition" },
+            { "$ref": "#/$defs/androidBundledComposition" },
+            { "$ref": "#/$defs/androidSherpaComposition" },
+            { "$ref": "#/$defs/linuxComposition" }
+          ],
+          "items": false
+        },
+        "sharedRegressionEvidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/sourceClosureRegression" },
+              { "$ref": "#/$defs/dartRegression" },
+              { "$ref": "#/$defs/bindingsRegression" },
+              { "$ref": "#/$defs/nativeRegression" },
+              { "$ref": "#/$defs/lifecycleRegression" },
+              { "$ref": "#/$defs/qnnRegression" },
+              { "$ref": "#/$defs/windowsRegression" }
+            ]
+          },
+          "allOf": [
+            {
+              "contains": { "$ref": "#/$defs/sourceClosureRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            },
+            {
+              "contains": { "$ref": "#/$defs/dartRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            },
+            {
+              "contains": { "$ref": "#/$defs/bindingsRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            },
+            {
+              "contains": { "$ref": "#/$defs/nativeRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            },
+            {
+              "contains": { "$ref": "#/$defs/lifecycleRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            },
+            {
+              "contains": { "$ref": "#/$defs/qnnRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            },
+            {
+              "contains": { "$ref": "#/$defs/windowsRegression" },
+              "minContains": 0,
+              "maxContains": 1
+            }
+          ]
+        }
+      }
+    }
+  }
+}
