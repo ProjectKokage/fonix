@@ -371,3 +371,22 @@ Required native tests:
 - loader errors preserve platform error details;
 - exported-symbol audit matches an allowlist;
 - process mode has no link-time ORT dependency.
+
+The canonical structural review record is
+[`../release/native-c-abi-v1.json`](../release/native-c-abi-v1.json). It binds
+the complete tokenized header and preprocessor surface, ABI constants, opaque
+types, enum values, ordered struct fields, function prototypes, C-linkage and
+platform calling/export directives, symbol version, and the ELF, Apple,
+Windows, and Python export inventories. The native CTest contract also binds
+the export and dependency auditors to isolated Python mode so a repository
+file cannot shadow their standard-library imports. Verify it with:
+
+```bash
+python3 -B tool/ci/verify_native_c_abi_baseline.py --repository .
+```
+
+Header comments and declaration formatting alone do not change the structural
+record. Any other header or export drift fails until the ABI impact is
+reviewed and the canonical record is intentionally regenerated. A match does
+not prove a target binary's layout or compatibility and does not replace
+target ABI tests or external API/ABI approval.

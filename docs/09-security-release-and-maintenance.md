@@ -221,6 +221,13 @@ Rules:
 - Bundled ORT patch/minor update: package release with full regression/manifest change even if Dart API is unchanged.
 - Provider SDK update: new flavor artifact and qualification evidence.
 
+The committed public Dart API and native C ABI baselines are deterministic
+review inputs for these decisions. A proposed change must reproduce both
+records first, classify any drift against the versioning rules above, and
+regenerate a record only after that classification is accepted. An unchanged
+record is not a compatibility proof for a target binary, while an updated
+record is not approval by itself.
+
 ## 9.11 Release contents
 
 A scoped pre-1.0 release may include only exact target/provider tuples that are
@@ -253,7 +260,8 @@ Do not publish a flavor whose artifact hashes or dependency licenses are unknown
 1. Update dated upstream snapshot and determine whether compatibility floor changes.
 2. Review ORT release security/breaking changes.
 3. Refresh lockfile URLs/hashes/toolchains.
-4. Regenerate bindings and verify shim ABI.
+4. Reconstruct and review the public Dart API and native C ABI baselines, then
+   regenerate bindings and verify the shim ABI.
 5. Rebuild every affected target/flavor.
 6. Run every exact target matrix selected for advertising. Run the complete
    Tier-1 matrix for unqualified `Release-ready` or 1.0.

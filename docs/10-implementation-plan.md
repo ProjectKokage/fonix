@@ -507,6 +507,13 @@ blocked on the explicit target/provider rows above, project licensing, private
 security contact, signing/publication authority, reviewed stable performance
 baselines/thresholds, and API/ABI release approval.
 
+The 2026-08-08 scoped-release stabilization checkpoint freezes the resolved
+public Dart declaration surface and the structural native C ABI/export surface
+in separate canonical review records. Minimum-SDK CI reconstructs both records
+before binding regeneration. These drift gates support review and versioning;
+they do not classify compatibility, prove a target binary, or replace the
+external API/ABI approval required by the scoped candidate gate.
+
 ## Suggested issue breakdown
 
 Create independently reviewable issues:

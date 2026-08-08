@@ -325,6 +325,7 @@ add_test(
   NAME exported-symbol-allowlist
   COMMAND
     "${Python3_EXECUTABLE}"
+    -I
     "${CMAKE_CURRENT_LIST_DIR}/check_exports.py"
     "$<TARGET_FILE:fonix_shim>"
 )
@@ -332,6 +333,7 @@ add_test(
   NAME external-shim-has-no-ort-link
   COMMAND
     "${Python3_EXECUTABLE}"
+    -I
     "${CMAKE_CURRENT_LIST_DIR}/check_no_ort_dependency.py"
     "$<TARGET_FILE:fonix_shim>"
 )

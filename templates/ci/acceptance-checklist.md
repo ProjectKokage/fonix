@@ -3,6 +3,8 @@
 ## API and ownership
 
 - [ ] Public API change is documented and versioned.
+- [ ] The minimum-SDK public Dart API baseline reproduces exactly; any drift
+      was classified and intentionally reviewed before regeneration.
 - [ ] Every synchronous native owner has idempotent `dispose()`; every isolate
       session/pool has idempotent awaited `close()`.
 - [ ] Finalizer behavior is a safety net and has stress coverage.
@@ -19,6 +21,8 @@
 - [ ] Unsupported ORT API test passes.
 - [ ] Exported symbols match the allowlist.
 - [ ] C/C++ ABI leakage is absent.
+- [ ] The structural native C ABI/export baseline reproduces exactly; any
+      drift was classified and intentionally reviewed before regeneration.
 - [ ] Native status preserves ORT/platform errors safely.
 - [ ] Each retained native reference is released exactly once; null release behavior is tested.
 

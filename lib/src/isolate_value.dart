@@ -408,14 +408,12 @@ final class OrtIsolateMap extends OrtIsolateValue {
 
 /// A copied optional value. [value] is null for Optional None.
 final class OrtIsolateOptional extends OrtIsolateValue {
-  OrtIsolateOptional.none({required OrtTypeInfo elementType})
+  OrtIsolateOptional.none({required this.elementType})
     : value = null,
-      elementType = elementType,
       type = OrtTypeInfo.optional(elementType);
 
-  OrtIsolateOptional.some(OrtIsolateValue value)
-    : value = value,
-      elementType = value.type,
+  OrtIsolateOptional.some(OrtIsolateValue this.value)
+    : elementType = value.type,
       type = OrtTypeInfo.optional(value.type);
 
   final OrtIsolateValue? value;

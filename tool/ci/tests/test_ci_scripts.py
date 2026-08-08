@@ -170,6 +170,61 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("-s tool/tests -p 'test_*.py' -v", verifier_job)
         self.assertNotIn("-p 'test_verify_native_libs.py'", verifier_job)
 
+    def test_reviewed_api_and_abi_baselines_use_the_minimum_sdk_job(self) -> None:
+        source = (REPOSITORY / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        bindings_job = self._job(source, "bindings-regenerate")
+        dart_step = self._step(
+            bindings_job,
+            "Verify the reviewed public Dart API baseline",
+        )
+        native_step = self._step(
+            bindings_job,
+            "Verify the reviewed native C ABI baseline",
+        )
+
+        self.assertEqual(bindings_job.count('sdk: "3.11.5"'), 1)
+        self.assertIn(
+            "dart --packages=.dart_tool/package_config.json\n"
+            "          tool/ci/verify_public_dart_api.dart",
+            dart_step,
+        )
+        self.assertIn(
+            "python -B tool/ci/verify_native_c_abi_baseline.py\n"
+            "          --repository .",
+            native_step,
+        )
+        self.assertEqual(
+            source.count("tool/ci/verify_public_dart_api.dart"),
+            1,
+        )
+        self.assertEqual(
+            source.count("tool/ci/verify_native_c_abi_baseline.py"),
+            1,
+        )
+
+    def test_pure_dart_resolution_does_not_enter_the_flutter_example(self) -> None:
+        source = (REPOSITORY / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        for job_name in (
+            "dart",
+            "bindings-regenerate",
+            "real-ort-macos-arm64",
+        ):
+            job = self._job(source, job_name)
+            resolution = self._step(job, "Resolve the committed dependency graph")
+            self.assertIn(
+                "dart pub get --enforce-lockfile --no-example",
+                resolution,
+            )
+        self.assertEqual(
+            source.count("dart pub get --enforce-lockfile --no-example"),
+            3,
+        )
+
     def test_windows_security_contracts_are_required_ctests(self) -> None:
         source = (REPOSITORY / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"

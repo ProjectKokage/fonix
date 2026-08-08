@@ -35,7 +35,7 @@ jobs:
         with:
           sdk: ${{ matrix.sdk }}
       - name: Resolve the committed dependency graph
-        run: dart pub get --enforce-lockfile
+        run: dart pub get --enforce-lockfile --no-example
       - name: Check Dart formatting
         run: dart format --output=none --set-exit-if-changed .
       - name: Analyze with fatal infos
@@ -61,7 +61,15 @@ jobs:
         with:
           python-version: "3.12.10"
       - name: Resolve the committed dependency graph
-        run: dart pub get --enforce-lockfile
+        run: dart pub get --enforce-lockfile --no-example
+      - name: Verify the reviewed public Dart API baseline
+        run: >-
+          dart --packages=.dart_tool/package_config.json
+          tool/ci/verify_public_dart_api.dart
+      - name: Verify the reviewed native C ABI baseline
+        run: >-
+          python -B tool/ci/verify_native_c_abi_baseline.py
+          --repository .
       - name: Compare isolated ffigen outputs
         run: python -B tool/ci/verify_bindings.py
 
@@ -270,7 +278,7 @@ jobs:
           "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics
           "$RUNNER_TEMP/flutter/bin/flutter" precache --macos
       - name: Resolve the committed dependency graph
-        run: dart pub get --enforce-lockfile
+        run: dart pub get --enforce-lockfile --no-example
       - name: Download and verify only the lock-pinned ORT archive
         id: ort
         run: >-

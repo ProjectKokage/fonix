@@ -1,0 +1,1523 @@
+{
+  "claimBoundary": "This record freezes the reviewed native C ABI structure only. It does not approve a Dart API, prove binary compatibility on a target, authorize publication, or replace external API/ABI approval.",
+  "claimStatus": "native-c-abi-baseline-only",
+  "contract": {
+    "abiConstants": [
+      {
+        "name": "DORT_ABI_VERSION",
+        "value": "1u"
+      },
+      {
+        "name": "DORT_ORT_API_COMPATIBILITY_FLOOR",
+        "value": "27u"
+      },
+      {
+        "name": "DORT_RUNTIME_CONFIG_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_runtime_config_t ) )"
+      },
+      {
+        "name": "DORT_SESSION_CONFIG_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_session_config_t ) )"
+      },
+      {
+        "name": "DORT_STRING_PAIR_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_string_pair_t ) )"
+      },
+      {
+        "name": "DORT_PROVIDER_CONFIG_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_provider_config_t ) )"
+      },
+      {
+        "name": "DORT_NAMED_VALUE_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_named_value_t ) )"
+      },
+      {
+        "name": "DORT_UTF8_SPAN_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_utf8_span_t ) )"
+      },
+      {
+        "name": "DORT_EXTERNAL_DATA_V1_SIZE",
+        "value": "( ( uint32_t ) sizeof ( dort_external_data_t ) )"
+      }
+    ],
+    "abiMacroDefinitions": [
+      {
+        "name": "DORT_API",
+        "value": ""
+      },
+      {
+        "name": "DORT_API",
+        "value": "__declspec ( dllexport )"
+      },
+      {
+        "name": "DORT_API",
+        "value": "__declspec ( dllimport )"
+      },
+      {
+        "name": "DORT_CALL",
+        "value": "__cdecl"
+      },
+      {
+        "name": "DORT_API",
+        "value": "__attribute__ ( ( visibility ( \"default\" ) ) )"
+      },
+      {
+        "name": "DORT_CALL",
+        "value": ""
+      }
+    ],
+    "abiVersion": 1,
+    "cLinkageDirectives": [
+      {
+        "directives": [
+          "# ifdef __cplusplus",
+          "extern \"C\" {",
+          "# endif"
+        ],
+        "position": "beforePublicDeclarations"
+      },
+      {
+        "directives": [
+          "# ifdef __cplusplus",
+          "}",
+          "# endif"
+        ],
+        "position": "afterPublicDeclarations"
+      }
+    ],
+    "canonicalHeaderSha256": "c96d5f66a0a69e3d7a768d262156927c7e7ca38069946ea5666ec1472440df96",
+    "elfSymbolVersion": "FONIX_DORT_1.0",
+    "enums": [
+      {
+        "alias": "dort_runtime_source_kind_t",
+        "tag": "dort_runtime_source_kind",
+        "values": [
+          {
+            "name": "DORT_RUNTIME_SOURCE_LINKED",
+            "value": "1"
+          },
+          {
+            "name": "DORT_RUNTIME_SOURCE_BUNDLED",
+            "value": "2"
+          },
+          {
+            "name": "DORT_RUNTIME_SOURCE_PROCESS",
+            "value": "3"
+          },
+          {
+            "name": "DORT_RUNTIME_SOURCE_FILE",
+            "value": "4"
+          }
+        ]
+      },
+      {
+        "alias": "dort_log_severity_t",
+        "tag": "dort_log_severity",
+        "values": [
+          {
+            "name": "DORT_LOG_VERBOSE",
+            "value": "0"
+          },
+          {
+            "name": "DORT_LOG_INFO",
+            "value": "1"
+          },
+          {
+            "name": "DORT_LOG_WARNING",
+            "value": "2"
+          },
+          {
+            "name": "DORT_LOG_ERROR",
+            "value": "3"
+          },
+          {
+            "name": "DORT_LOG_FATAL",
+            "value": "4"
+          }
+        ]
+      },
+      {
+        "alias": "dort_error_domain_t",
+        "tag": "dort_error_domain",
+        "values": [
+          {
+            "name": "DORT_ERROR_DOMAIN_NONE",
+            "value": "0"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_SHIM",
+            "value": "1"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_LOADER",
+            "value": "2"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_ORT_API",
+            "value": "3"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_ALLOCATION",
+            "value": "4"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_UNSUPPORTED",
+            "value": "5"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_ORT_STATUS",
+            "value": "6"
+          },
+          {
+            "name": "DORT_ERROR_DOMAIN_PROVIDER",
+            "value": "7"
+          }
+        ]
+      },
+      {
+        "alias": "dort_error_code_t",
+        "tag": "dort_error_code",
+        "values": [
+          {
+            "name": "DORT_ERROR_NONE",
+            "value": "0"
+          },
+          {
+            "name": "DORT_ERROR_INVALID_ARGUMENT",
+            "value": "1"
+          },
+          {
+            "name": "DORT_ERROR_ABI_MISMATCH",
+            "value": "2"
+          },
+          {
+            "name": "DORT_ERROR_API_REQUEST_UNSUPPORTED",
+            "value": "3"
+          },
+          {
+            "name": "DORT_ERROR_SOURCE_UNSUPPORTED",
+            "value": "4"
+          },
+          {
+            "name": "DORT_ERROR_PATH_NOT_ABSOLUTE",
+            "value": "5"
+          },
+          {
+            "name": "DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT",
+            "value": "6"
+          },
+          {
+            "name": "DORT_ERROR_RUNTIME_NOT_FOUND",
+            "value": "7"
+          },
+          {
+            "name": "DORT_ERROR_SYMBOL_NOT_FOUND",
+            "value": "8"
+          },
+          {
+            "name": "DORT_ERROR_ORT_API_UNAVAILABLE",
+            "value": "9"
+          },
+          {
+            "name": "DORT_ERROR_ALLOCATION_FAILED",
+            "value": "10"
+          },
+          {
+            "name": "DORT_ERROR_INVALID_UTF8",
+            "value": "11"
+          },
+          {
+            "name": "DORT_ERROR_LIMIT_EXCEEDED",
+            "value": "12"
+          },
+          {
+            "name": "DORT_ERROR_PLATFORM",
+            "value": "13"
+          },
+          {
+            "name": "DORT_ERROR_RUNTIME_IDENTITY_MISMATCH",
+            "value": "14"
+          },
+          {
+            "name": "DORT_ERROR_MODEL_INVALID",
+            "value": "15"
+          },
+          {
+            "name": "DORT_ERROR_TENSOR_INVALID",
+            "value": "16"
+          },
+          {
+            "name": "DORT_ERROR_RUN_FAILED",
+            "value": "17"
+          },
+          {
+            "name": "DORT_ERROR_BUFFER_TOO_SMALL",
+            "value": "18"
+          },
+          {
+            "name": "DORT_ERROR_OVERFLOW",
+            "value": "19"
+          },
+          {
+            "name": "DORT_ERROR_PROVIDER_UNSUPPORTED",
+            "value": "20"
+          },
+          {
+            "name": "DORT_ERROR_NOT_TENSOR",
+            "value": "21"
+          },
+          {
+            "name": "DORT_ERROR_VALUE_KIND_UNSUPPORTED",
+            "value": "22"
+          },
+          {
+            "name": "DORT_ERROR_NOT_COMPOSITE",
+            "value": "23"
+          },
+          {
+            "name": "DORT_ERROR_DATA_LEASE_UNSUPPORTED",
+            "value": "24"
+          },
+          {
+            "name": "DORT_ERROR_MEMORY_DOMAIN_UNSUPPORTED",
+            "value": "25"
+          },
+          {
+            "name": "DORT_ERROR_EXTERNAL_DATA_INVALID",
+            "value": "26"
+          },
+          {
+            "name": "DORT_ERROR_CANCEL_TOKEN_UNKNOWN",
+            "value": "27"
+          },
+          {
+            "name": "DORT_ERROR_CANCEL_REGISTRY_FULL",
+            "value": "28"
+          }
+        ]
+      },
+      {
+        "alias": "dort_graph_optimization_level_t",
+        "tag": "dort_graph_optimization_level",
+        "values": [
+          {
+            "name": "DORT_GRAPH_OPTIMIZATION_DISABLED",
+            "value": "0"
+          },
+          {
+            "name": "DORT_GRAPH_OPTIMIZATION_BASIC",
+            "value": "1"
+          },
+          {
+            "name": "DORT_GRAPH_OPTIMIZATION_EXTENDED",
+            "value": "2"
+          },
+          {
+            "name": "DORT_GRAPH_OPTIMIZATION_ALL",
+            "value": "3"
+          }
+        ]
+      },
+      {
+        "alias": "dort_execution_mode_t",
+        "tag": "dort_execution_mode",
+        "values": [
+          {
+            "name": "DORT_EXECUTION_SEQUENTIAL",
+            "value": "0"
+          },
+          {
+            "name": "DORT_EXECUTION_PARALLEL",
+            "value": "1"
+          }
+        ]
+      },
+      {
+        "alias": "dort_tensor_element_type_t",
+        "tag": "dort_tensor_element_type",
+        "values": [
+          {
+            "name": "DORT_TENSOR_FLOAT32",
+            "value": "1"
+          },
+          {
+            "name": "DORT_TENSOR_UINT8",
+            "value": "2"
+          },
+          {
+            "name": "DORT_TENSOR_INT8",
+            "value": "3"
+          },
+          {
+            "name": "DORT_TENSOR_UINT16",
+            "value": "4"
+          },
+          {
+            "name": "DORT_TENSOR_INT16",
+            "value": "5"
+          },
+          {
+            "name": "DORT_TENSOR_INT32",
+            "value": "6"
+          },
+          {
+            "name": "DORT_TENSOR_INT64",
+            "value": "7"
+          },
+          {
+            "name": "DORT_TENSOR_STRING",
+            "value": "8"
+          },
+          {
+            "name": "DORT_TENSOR_BOOL",
+            "value": "9"
+          },
+          {
+            "name": "DORT_TENSOR_FLOAT16",
+            "value": "10"
+          },
+          {
+            "name": "DORT_TENSOR_FLOAT64",
+            "value": "11"
+          },
+          {
+            "name": "DORT_TENSOR_UINT32",
+            "value": "12"
+          },
+          {
+            "name": "DORT_TENSOR_UINT64",
+            "value": "13"
+          },
+          {
+            "name": "DORT_TENSOR_BFLOAT16",
+            "value": "16"
+          }
+        ]
+      },
+      {
+        "alias": "dort_value_kind_t",
+        "tag": "dort_value_kind",
+        "values": [
+          {
+            "name": "DORT_VALUE_KIND_TENSOR",
+            "value": "1"
+          },
+          {
+            "name": "DORT_VALUE_KIND_SEQUENCE",
+            "value": "2"
+          },
+          {
+            "name": "DORT_VALUE_KIND_MAP",
+            "value": "3"
+          },
+          {
+            "name": "DORT_VALUE_KIND_OPTIONAL",
+            "value": "6"
+          }
+        ]
+      }
+    ],
+    "exports": [
+      "dort_get_abi_version",
+      "dort_get_ort_api_compatibility_floor",
+      "dort_get_build_manifest_json",
+      "dort_string_release",
+      "dort_status_domain",
+      "dort_status_code",
+      "dort_status_ort_code",
+      "dort_status_operation",
+      "dort_status_message",
+      "dort_status_release",
+      "dort_runtime_open",
+      "dort_runtime_retain",
+      "dort_runtime_release",
+      "dort_runtime_info_json",
+      "dort_runtime_available_providers_json",
+      "dort_session_options_create",
+      "dort_session_options_retain",
+      "dort_session_options_release",
+      "dort_session_create_from_bytes",
+      "dort_session_create_from_file",
+      "dort_session_create_from_bytes_with_external_data",
+      "dort_session_retain",
+      "dort_session_release",
+      "dort_session_metadata_json",
+      "dort_session_type_metadata_json",
+      "dort_session_model_metadata_json",
+      "dort_buffer_allocate",
+      "dort_buffer_retain",
+      "dort_buffer_release",
+      "dort_buffer_byte_length",
+      "dort_buffer_write",
+      "dort_buffer_read",
+      "dort_buffer_data_acquire",
+      "dort_tensor_create_copy",
+      "dort_tensor_create_with_buffer",
+      "dort_tensor_create_strings_copy",
+      "dort_value_retain",
+      "dort_value_release",
+      "dort_value_kind",
+      "dort_value_child_count",
+      "dort_value_child_get",
+      "dort_sequence_create",
+      "dort_map_create",
+      "dort_optional_none_create",
+      "dort_optional_some_create",
+      "dort_tensor_info_json",
+      "dort_tensor_copy_data",
+      "dort_tensor_string_count",
+      "dort_tensor_string_get",
+      "dort_tensor_data_acquire",
+      "dort_data_lease_retain",
+      "dort_data_lease_release",
+      "dort_run_options_create",
+      "dort_run_options_retain",
+      "dort_run_options_release",
+      "dort_run_options_set_terminate",
+      "dort_run_options_unset_terminate",
+      "dort_run_options_profiling_start",
+      "dort_run_options_profiling_finish",
+      "dort_cancel_token_register",
+      "dort_cancel_token_request",
+      "dort_cancel_token_finish",
+      "dort_session_run",
+      "dort_run_result_retain",
+      "dort_run_result_release",
+      "dort_run_result_count",
+      "dort_run_result_get"
+    ],
+    "functions": [
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_get_abi_version",
+        "parameters": [
+          "void"
+        ],
+        "returnType": "uint32_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_get_ort_api_compatibility_floor",
+        "parameters": [
+          "void"
+        ],
+        "returnType": "uint32_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_get_build_manifest_json",
+        "parameters": [
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_string_release",
+        "parameters": [
+          "dort_string_t * string_value"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_status_domain",
+        "parameters": [
+          "const dort_status_t * status"
+        ],
+        "returnType": "uint32_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_status_code",
+        "parameters": [
+          "const dort_status_t * status"
+        ],
+        "returnType": "int32_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_status_ort_code",
+        "parameters": [
+          "const dort_status_t * status"
+        ],
+        "returnType": "int32_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_status_operation",
+        "parameters": [
+          "const dort_status_t * status"
+        ],
+        "returnType": "const char *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_status_message",
+        "parameters": [
+          "const dort_status_t * status"
+        ],
+        "returnType": "const char *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_status_release",
+        "parameters": [
+          "dort_status_t * status"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_runtime_open",
+        "parameters": [
+          "const dort_runtime_config_t * config",
+          "dort_runtime_t * * out_runtime"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_runtime_retain",
+        "parameters": [
+          "dort_runtime_t * runtime"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_runtime_release",
+        "parameters": [
+          "dort_runtime_t * runtime"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_runtime_info_json",
+        "parameters": [
+          "const dort_runtime_t * runtime",
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_runtime_available_providers_json",
+        "parameters": [
+          "const dort_runtime_t * runtime",
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_options_create",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_session_config_t * config",
+          "dort_session_options_t * * out_options"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_options_retain",
+        "parameters": [
+          "dort_session_options_t * options"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_options_release",
+        "parameters": [
+          "dort_session_options_t * options"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_create_from_bytes",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_session_options_t * options",
+          "const void * model_data",
+          "size_t model_data_length",
+          "dort_session_t * * out_session"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_create_from_file",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_session_options_t * options",
+          "const char * model_path_utf8",
+          "const char * allowed_root_utf8",
+          "dort_session_t * * out_session"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_create_from_bytes_with_external_data",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_session_options_t * options",
+          "const void * model_data",
+          "size_t model_data_length",
+          "const dort_external_data_t * external_data",
+          "size_t external_data_count",
+          "dort_session_t * * out_session"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_retain",
+        "parameters": [
+          "dort_session_t * session"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_release",
+        "parameters": [
+          "dort_session_t * session"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_metadata_json",
+        "parameters": [
+          "const dort_session_t * session",
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_type_metadata_json",
+        "parameters": [
+          "const dort_session_t * session",
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_model_metadata_json",
+        "parameters": [
+          "const dort_session_t * session",
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_allocate",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "size_t byte_length",
+          "size_t alignment",
+          "dort_buffer_t * * out_buffer"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_retain",
+        "parameters": [
+          "dort_buffer_t * buffer"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_release",
+        "parameters": [
+          "dort_buffer_t * buffer"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_byte_length",
+        "parameters": [
+          "const dort_buffer_t * buffer"
+        ],
+        "returnType": "size_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_write",
+        "parameters": [
+          "dort_buffer_t * buffer",
+          "size_t offset",
+          "const void * source",
+          "size_t byte_length"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_read",
+        "parameters": [
+          "const dort_buffer_t * buffer",
+          "size_t offset",
+          "void * destination",
+          "size_t byte_length"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_buffer_data_acquire",
+        "parameters": [
+          "dort_buffer_t * buffer",
+          "dort_data_lease_t * * out_lease",
+          "void * * out_data",
+          "size_t * out_byte_length"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_create_copy",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const void * data",
+          "size_t byte_length",
+          "const int64_t * dimensions",
+          "size_t dimension_count",
+          "uint32_t element_type",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_create_with_buffer",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "dort_buffer_t * buffer",
+          "size_t byte_offset",
+          "size_t byte_length",
+          "const int64_t * dimensions",
+          "size_t dimension_count",
+          "uint32_t element_type",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_create_strings_copy",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_utf8_span_t * strings",
+          "size_t string_count",
+          "const int64_t * dimensions",
+          "size_t dimension_count",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_value_retain",
+        "parameters": [
+          "dort_value_t * value"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_value_release",
+        "parameters": [
+          "dort_value_t * value"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_value_kind",
+        "parameters": [
+          "const dort_value_t * value",
+          "uint32_t * out_kind"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_value_child_count",
+        "parameters": [
+          "const dort_value_t * value",
+          "size_t * out_count"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_value_child_get",
+        "parameters": [
+          "const dort_value_t * value",
+          "size_t index",
+          "dort_value_t * * out_child"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_sequence_create",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_value_t * const * values",
+          "size_t value_count",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_map_create",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "const dort_value_t * keys",
+          "const dort_value_t * values",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_optional_none_create",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_optional_some_create",
+        "parameters": [
+          "const dort_value_t * contained_value",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_info_json",
+        "parameters": [
+          "const dort_value_t * value",
+          "dort_string_t * out_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_copy_data",
+        "parameters": [
+          "const dort_value_t * value",
+          "void * destination",
+          "size_t destination_capacity",
+          "size_t * out_required_bytes"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_string_count",
+        "parameters": [
+          "const dort_value_t * value",
+          "size_t * out_count"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_string_get",
+        "parameters": [
+          "const dort_value_t * value",
+          "size_t index",
+          "dort_string_t * out_string"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_tensor_data_acquire",
+        "parameters": [
+          "const dort_value_t * value",
+          "dort_data_lease_t * * out_lease",
+          "const void * * out_data",
+          "size_t * out_byte_length"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_data_lease_retain",
+        "parameters": [
+          "dort_data_lease_t * lease"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_data_lease_release",
+        "parameters": [
+          "dort_data_lease_t * lease"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_create",
+        "parameters": [
+          "dort_runtime_t * runtime",
+          "dort_run_options_t * * out_options"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_retain",
+        "parameters": [
+          "dort_run_options_t * options"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_release",
+        "parameters": [
+          "dort_run_options_t * options"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_set_terminate",
+        "parameters": [
+          "dort_run_options_t * options"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_unset_terminate",
+        "parameters": [
+          "dort_run_options_t * options"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_profiling_start",
+        "parameters": [
+          "dort_run_options_t * options",
+          "const char * artifact_root_utf8"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_options_profiling_finish",
+        "parameters": [
+          "dort_run_options_t * options",
+          "dort_string_t * out_profile_json"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_cancel_token_register",
+        "parameters": [
+          "dort_run_options_t * run_options",
+          "uint64_t * out_token"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_cancel_token_request",
+        "parameters": [
+          "uint64_t token",
+          "uint32_t * out_did_request"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_cancel_token_finish",
+        "parameters": [
+          "uint64_t token",
+          "uint32_t * out_was_requested"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_session_run",
+        "parameters": [
+          "dort_session_t * session",
+          "dort_run_options_t * run_options",
+          "const dort_named_value_t * inputs",
+          "size_t input_count",
+          "const char * const * output_names_utf8",
+          "size_t output_count",
+          "dort_run_result_t * * out_result"
+        ],
+        "returnType": "dort_status_t *"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_result_retain",
+        "parameters": [
+          "dort_run_result_t * result"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_result_release",
+        "parameters": [
+          "dort_run_result_t * result"
+        ],
+        "returnType": "void"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_result_count",
+        "parameters": [
+          "const dort_run_result_t * result"
+        ],
+        "returnType": "size_t"
+      },
+      {
+        "callingConvention": "DORT_CALL",
+        "name": "dort_run_result_get",
+        "parameters": [
+          "const dort_run_result_t * result",
+          "size_t index",
+          "dort_string_t * out_name",
+          "dort_value_t * * out_value"
+        ],
+        "returnType": "dort_status_t *"
+      }
+    ],
+    "nativeCTestCMakeSha256": "bc0e9acdea22da91ae322148148d768f90dd7783768e2844844e487438d69bbb",
+    "opaqueTypes": [
+      {
+        "alias": "dort_status_t",
+        "tag": "dort_status"
+      },
+      {
+        "alias": "dort_runtime_t",
+        "tag": "dort_runtime"
+      },
+      {
+        "alias": "dort_session_options_t",
+        "tag": "dort_session_options"
+      },
+      {
+        "alias": "dort_session_t",
+        "tag": "dort_session"
+      },
+      {
+        "alias": "dort_run_options_t",
+        "tag": "dort_run_options"
+      },
+      {
+        "alias": "dort_buffer_t",
+        "tag": "dort_buffer"
+      },
+      {
+        "alias": "dort_value_t",
+        "tag": "dort_value"
+      },
+      {
+        "alias": "dort_run_result_t",
+        "tag": "dort_run_result"
+      },
+      {
+        "alias": "dort_data_lease_t",
+        "tag": "dort_data_lease"
+      }
+    ],
+    "ortApiCompatibilityFloor": 27,
+    "platformMacroDirectives": [
+      "# if defined ( _WIN32 )",
+      "# if defined ( FONIX_SHIM_STATIC )",
+      "# define DORT_API",
+      "# elif defined ( FONIX_SHIM_BUILDING )",
+      "# define DORT_API __declspec ( dllexport )",
+      "# else",
+      "# define DORT_API __declspec ( dllimport )",
+      "# endif",
+      "# define DORT_CALL __cdecl",
+      "# else",
+      "# define DORT_API __attribute__ ( ( visibility ( \"default\" ) ) )",
+      "# define DORT_CALL",
+      "# endif"
+    ],
+    "preprocessorDirectives": [
+      "# ifndef FONIX_DORT_H_",
+      "# define FONIX_DORT_H_",
+      "# include < stddef . h >",
+      "# include < stdint . h >",
+      "# if defined ( _WIN32 )",
+      "# if defined ( FONIX_SHIM_STATIC )",
+      "# define DORT_API",
+      "# elif defined ( FONIX_SHIM_BUILDING )",
+      "# define DORT_API __declspec ( dllexport )",
+      "# else",
+      "# define DORT_API __declspec ( dllimport )",
+      "# endif",
+      "# define DORT_CALL __cdecl",
+      "# else",
+      "# define DORT_API __attribute__ ( ( visibility ( \"default\" ) ) )",
+      "# define DORT_CALL",
+      "# endif",
+      "# ifdef __cplusplus",
+      "# endif",
+      "# define DORT_ABI_VERSION 1u",
+      "# define DORT_ORT_API_COMPATIBILITY_FLOOR 27u",
+      "# define DORT_RUNTIME_CONFIG_V1_SIZE ( ( uint32_t ) sizeof ( dort_runtime_config_t ) )",
+      "# define DORT_SESSION_CONFIG_V1_SIZE ( ( uint32_t ) sizeof ( dort_session_config_t ) )",
+      "# define DORT_STRING_PAIR_V1_SIZE ( ( uint32_t ) sizeof ( dort_string_pair_t ) )",
+      "# define DORT_PROVIDER_CONFIG_V1_SIZE ( ( uint32_t ) sizeof ( dort_provider_config_t ) )",
+      "# define DORT_NAMED_VALUE_V1_SIZE ( ( uint32_t ) sizeof ( dort_named_value_t ) )",
+      "# define DORT_UTF8_SPAN_V1_SIZE ( ( uint32_t ) sizeof ( dort_utf8_span_t ) )",
+      "# define DORT_EXTERNAL_DATA_V1_SIZE ( ( uint32_t ) sizeof ( dort_external_data_t ) )",
+      "# ifdef __cplusplus",
+      "# endif",
+      "# endif"
+    ],
+    "pythonAllowlistSourceSha256": "37e1bfbfd6186c72efa32dbf2ac8642809aff3f2b55697f08a2186d70dc2b721",
+    "pythonAuditInvocations": [
+      {
+        "id": "exportAllowlist",
+        "pythonMode": "isolated",
+        "script": "test/native/check_exports.py"
+      },
+      {
+        "id": "externalDependency",
+        "pythonMode": "isolated",
+        "script": "test/native/check_no_ort_dependency.py"
+      }
+    ],
+    "sourcePaths": {
+      "appleExportList": "src/fonix_exports.apple",
+      "elfExportMap": "src/fonix_exports.map",
+      "header": "src/dort.h",
+      "nativeCTestCMake": "test/native/CMakeLists.txt",
+      "pythonAllowlist": "test/native/check_exports.py",
+      "windowsDefinition": "src/fonix_shim.def"
+    },
+    "structs": [
+      {
+        "alias": "dort_string_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "const uint8_t * data",
+            "name": "data"
+          },
+          {
+            "declaration": "size_t length",
+            "name": "length"
+          },
+          {
+            "declaration": "void * private_owner",
+            "name": "private_owner"
+          }
+        ],
+        "tag": "dort_string"
+      },
+      {
+        "alias": "dort_runtime_config_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t shim_abi_version",
+            "name": "shim_abi_version"
+          },
+          {
+            "declaration": "uint32_t required_ort_api_version",
+            "name": "required_ort_api_version"
+          },
+          {
+            "declaration": "uint32_t source_kind",
+            "name": "source_kind"
+          },
+          {
+            "declaration": "uint32_t flags",
+            "name": "flags"
+          },
+          {
+            "declaration": "uint32_t log_severity",
+            "name": "log_severity"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const char * log_id_utf8",
+            "name": "log_id_utf8"
+          },
+          {
+            "declaration": "const char * library_path_utf8",
+            "name": "library_path_utf8"
+          },
+          {
+            "declaration": "const char * const * preferred_library_names_utf8",
+            "name": "preferred_library_names_utf8"
+          },
+          {
+            "declaration": "size_t preferred_library_name_count",
+            "name": "preferred_library_name_count"
+          },
+          {
+            "declaration": "const char * allowed_root_utf8",
+            "name": "allowed_root_utf8"
+          }
+        ],
+        "tag": "dort_runtime_config"
+      },
+      {
+        "alias": "dort_string_pair_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const char * key_utf8",
+            "name": "key_utf8"
+          },
+          {
+            "declaration": "const char * value_utf8",
+            "name": "value_utf8"
+          }
+        ],
+        "tag": "dort_string_pair"
+      },
+      {
+        "alias": "dort_provider_config_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const char * provider_id_utf8",
+            "name": "provider_id_utf8"
+          },
+          {
+            "declaration": "const dort_string_pair_t * options",
+            "name": "options"
+          },
+          {
+            "declaration": "size_t option_count",
+            "name": "option_count"
+          }
+        ],
+        "tag": "dort_provider_config"
+      },
+      {
+        "alias": "dort_session_config_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t graph_optimization_level",
+            "name": "graph_optimization_level"
+          },
+          {
+            "declaration": "uint32_t execution_mode",
+            "name": "execution_mode"
+          },
+          {
+            "declaration": "int32_t intra_op_thread_count",
+            "name": "intra_op_thread_count"
+          },
+          {
+            "declaration": "int32_t inter_op_thread_count",
+            "name": "inter_op_thread_count"
+          },
+          {
+            "declaration": "uint32_t enable_cpu_memory_arena",
+            "name": "enable_cpu_memory_arena"
+          },
+          {
+            "declaration": "uint32_t enable_memory_pattern",
+            "name": "enable_memory_pattern"
+          },
+          {
+            "declaration": "uint32_t deterministic_compute",
+            "name": "deterministic_compute"
+          },
+          {
+            "declaration": "uint32_t enable_profiling",
+            "name": "enable_profiling"
+          },
+          {
+            "declaration": "uint32_t log_severity",
+            "name": "log_severity"
+          },
+          {
+            "declaration": "int32_t log_verbosity",
+            "name": "log_verbosity"
+          },
+          {
+            "declaration": "uint32_t optimized_model_overwrite",
+            "name": "optimized_model_overwrite"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const char * log_id_utf8",
+            "name": "log_id_utf8"
+          },
+          {
+            "declaration": "const char * profile_path_prefix_utf8",
+            "name": "profile_path_prefix_utf8"
+          },
+          {
+            "declaration": "const char * optimized_model_path_utf8",
+            "name": "optimized_model_path_utf8"
+          },
+          {
+            "declaration": "const char * artifact_root_utf8",
+            "name": "artifact_root_utf8"
+          },
+          {
+            "declaration": "size_t max_model_bytes",
+            "name": "max_model_bytes"
+          },
+          {
+            "declaration": "const dort_provider_config_t * providers",
+            "name": "providers"
+          },
+          {
+            "declaration": "size_t provider_count",
+            "name": "provider_count"
+          },
+          {
+            "declaration": "const dort_string_pair_t * config_entries",
+            "name": "config_entries"
+          },
+          {
+            "declaration": "size_t config_entry_count",
+            "name": "config_entry_count"
+          }
+        ],
+        "tag": "dort_session_config"
+      },
+      {
+        "alias": "dort_named_value_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const char * name_utf8",
+            "name": "name_utf8"
+          },
+          {
+            "declaration": "const dort_value_t * value",
+            "name": "value"
+          }
+        ],
+        "tag": "dort_named_value"
+      },
+      {
+        "alias": "dort_utf8_span_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const uint8_t * data",
+            "name": "data"
+          },
+          {
+            "declaration": "size_t length",
+            "name": "length"
+          }
+        ],
+        "tag": "dort_utf8_span"
+      },
+      {
+        "alias": "dort_external_data_t",
+        "fields": [
+          {
+            "declaration": "uint32_t struct_size",
+            "name": "struct_size"
+          },
+          {
+            "declaration": "uint32_t reserved0",
+            "name": "reserved0"
+          },
+          {
+            "declaration": "const uint8_t * relative_name_utf8",
+            "name": "relative_name_utf8"
+          },
+          {
+            "declaration": "size_t relative_name_length",
+            "name": "relative_name_length"
+          },
+          {
+            "declaration": "const void * data",
+            "name": "data"
+          },
+          {
+            "declaration": "size_t data_length",
+            "name": "data_length"
+          }
+        ],
+        "tag": "dort_external_data"
+      }
+    ],
+    "windowsLibrary": "fonix_shim"
+  },
+  "contractSha256": "376d161ebff9780d6f55b44e4a578fb311760a4225d1a5864ed26e0b7351afc8",
+  "schemaVersion": 1
+}

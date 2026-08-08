@@ -479,8 +479,12 @@ automatically by the existing `tool/ci/tests/test_*.py` unittest command.
 The checked-in pull-request/push workflow currently runs:
 
 - Dart format, analysis, and ordinary tests on the current minimum and stable
-  SDKs;
-- isolated binding regeneration and an exact diff;
+  SDKs; these pure-Dart jobs resolve only the root package, while the separate
+  platform application gates resolve `example/` with their selected Flutter
+  toolchain;
+- deterministic reconstruction of the reviewed public Dart API and native C
+  ABI records on the minimum SDK, followed by isolated binding regeneration
+  and an exact diff;
 - Python CI-script and standalone verifier tests, the C source-quality gate,
   release-evidence checks, and the closed source checksum;
 - deterministic Phase-3 fixture-byte checks on Linux, macOS, and Windows;
@@ -676,6 +680,11 @@ scope. Their portable/static/source/tamper/cross-build/security regressions stay
 mandatory. An unqualified `Release-ready` or 1.0 claim additionally requires
 all Tier-1 packages and sample apps, including the deferred Windows lane, and
 every other five-platform release gate.
+
+The API/ABI baseline checks are shared portable regressions, so both remain
+mandatory even though Windows execution and Android QNN qualification are
+deferred. They expose declaration drift for review but do not satisfy the
+detached API/ABI approval or any target-execution record.
 
 ## 8.13 Suggested CI job names
 

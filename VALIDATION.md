@@ -85,6 +85,15 @@ digest, and five detached approval domains. No external candidate bundle,
 evidence directory, signatures, or approvals have been produced for this
 snapshot, so this is a validation capability rather than a readiness claim.
 
+This checkpoint also adds deterministic, reviewable records for the resolved
+public Dart API and structural native C ABI. The Dart record is reconstructed
+only by Dart 3.11.5 with analyzer 14.1.0 and fails closed on unsupported source
+patterns or constants before comparing canonical bytes. The C record binds the
+complete parsed header/export surface and the isolated native audit invocation
+contract. A matching record exposes declaration drift for review; it neither
+classifies compatibility nor supplies the detached API/ABI approval or any
+target-execution evidence.
+
 ## Implemented boundary
 
 The checked source contains the complete app-owned wrapper layer described by
@@ -96,6 +105,10 @@ the active documentation:
 - a typed Dart API for trusted runtime sources, file/byte/external-data models,
   dense tensors, strings, float16/bfloat16 storage, sequences, maps, optionals,
   copied metadata, native-backed leases, and named synchronous inference;
+- canonical public-Dart-API and native-C-ABI review records, reconstructed in
+  minimum-SDK CI before binding regeneration, with exact nominal type,
+  constant/default, annotation, redirect-chain, header, preprocessor, export,
+  and native-auditor integrity boundaries;
 - bounded worker-isolate sessions and pools using wire protocol version 4,
   paused-spawn parent ownership, early authoritative command-port transfer,
   correlated readiness, cooperative cancellation, graceful timeout cleanup,
@@ -155,16 +168,18 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 210 passed, 17 explicitly provisioned skips |
+| Ordinary offline Dart suite | 248 passed, 17 explicitly provisioned skips on exact Dart 3.11.5 |
+| Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
+| Native C ABI baseline | 16/16 focused tests and the 12/12 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `376d161ebff9780d6f55b44e4a578fb311760a4225d1a5864ed26e0b7351afc8` and canonical file SHA-256 `a86b60485050028ffba66915d862f84d3a1943d2bec2c74dc74e63f0703a6878` |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 659/659 passed |
+| Python CI-script tests | 677/677 passed |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `38b298fcb36e6f0eb5390485f15db6f1bb7c9b8acdb372ad1e3f83cd4878652f` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Scoped candidate approval validator | 26/26 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, hostile Git environment isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 659-test Python suite |
+| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 677-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -193,7 +208,7 @@ paths.
 | Current shared public-API reference source | 72/72 app tests and analysis passed in a clean external copy |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
-| Closed source checksum manifest | Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |
+| Closed source checksum manifest | The current API/ABI checkpoint reproduces exactly after regeneration. Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |
 
 The ordinary Dart skips are environment gates, not ignored failures. Their
 real-runtime, fake-runtime, exact-archive, cross-build, and CoreML cases were

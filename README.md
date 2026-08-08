@@ -363,6 +363,17 @@ until their required SDK/hardware or Windows environment exists. Their
 existing portable, static, source, tamper, cross-build, and loader-security
 gates remain required.
 
+The reviewed declaration boundaries are committed separately as
+[`public-dart-api-v1.json`](release/public-dart-api-v1.json) and
+[`native-c-abi-v1.json`](release/native-c-abi-v1.json). CI reconstructs the
+Dart surface with Dart 3.11.5 and analyzer 14.1.0, and reconstructs the C
+surface from `src/dort.h`, every platform export inventory, and the native
+audit invocation contract. Any drift must be reviewed as an intentional
+compatibility change before either canonical record is regenerated. These
+records expose changes for review; they do not classify compatibility, prove
+target behavior, or supply the independently controlled API/ABI approval
+required for a scoped release.
+
 ## Documentation
 
 - [Scope and Requirements](docs/01-scope-and-requirements.md)
