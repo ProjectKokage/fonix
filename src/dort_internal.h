@@ -80,6 +80,8 @@ struct dort_status {
   char* operation;
   char* message;
   int is_static;
+  int owns_operation;
+  int owns_message;
 };
 
 dort_status_t* dort_status_create(

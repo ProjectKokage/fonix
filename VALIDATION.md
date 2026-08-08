@@ -108,7 +108,7 @@ and dedicated ThreadSanitizer modes, with a separate Linux x64 TSan workflow.
 If native profiling disable fails, run-options reuse is rejected before another
 native `Run`; finish may be retried, and disposal releases the native owner
 before removing the retained private directory. The Linux TSan workflow was
-not executed from this macOS host; the same 16-test TSan suite passed locally
+not executed from this macOS host; the same 17-test TSan suite passed locally
 with AppleClang and the exact pinned ORT.
 
 The follow-up portable-lifecycle checkpoint orders worker errors and exit on a
@@ -122,7 +122,7 @@ the exact configured container depth for empty leaves and passes 4,096
 deterministic generated mutations. Provider discovery and model/custom
 metadata fault injection prove that bounded partial ORT owners are released on
 error without allowing corrupt oversized counts to authorize entry iteration.
-The integrated exact-ORT native suite passed 16/16 in each of normal,
+The integrated exact-ORT native suite passed 17/17 in each of normal,
 Address/UndefinedBehavior, and ThreadSanitizer modes on this host. Apple
 LeakSanitizer remains unavailable, and the prebuilt ORT binary itself is not
 sanitizer-instrumented.
@@ -150,18 +150,26 @@ and lock-pinned exact ORT 1.27.1 worker.
 
 The native-allocation checkpoint routes wrapper-requested heap, aligned, and
 returned canonical-path owners through an internal seam whose fail-Nth
-activation exists only in the POSIX test build. It deterministically injected
-63 success-path failures: one build-manifest, eight runtime-open/
-canonicalization, five provider-discovery, one run-options, five complete
-profiling-cycle, one session-options, fourteen session-construction/metadata,
-twenty-two two-entry external-data session, three tensor-creation, and three
-two-child sequence/composite allocations. Each failure left its public output
-neutral, returned the allocation-domain or static emergency status, and
-permitted an immediate clean retry. Fake owner guards made run-options,
-external-initializer, metadata, and composite retries conditional on prior
-partial-owner release. A separate fake ORT `Run` returned one owned output with
-an error; the shim released it exactly once, preserved the ORT-domain run
-failure, then completed and disposed a successful recovery run.
+activation exists only in the POSIX test build. Its portable operation matrix
+now injects 76 success-path failures: the prior 63 build-manifest, runtime,
+provider, run-options/profiling, session, external-data, tensor, and composite
+points plus eight synchronous-run and one each run-result,
+cancellation-registration, buffer-lease, tensor-lease, and tensor-info points.
+A separate three-point status target proves that status-object OOM uses the
+static allocation emergency while operation/message-copy OOM preserves the
+original domain, wrapper code, and ORT code with an ownership-safe static
+fallback. Each failure left its public output neutral and permitted an
+immediate clean retry. Fake owner guards made run-options,
+external-initializer, metadata, composite, and returned-run-output retries
+conditional on prior partial-owner release. A separate provisioned ORT 1.27.1
+matrix injected 50 failures across dense, nonempty-string, ZipMap
+sequence/map, optional Some/None, string-element, and tensor-info paths, with a
+count-plus-one success sentinel for every operation. The exact harness began
+under hostile inherited fault variables and cleared them before its first shim
+call. Another fake ORT `Run`
+returned one owned output with an error; the shim released it exactly once,
+preserved the ORT-domain run failure, then completed and disposed a successful
+recovery run.
 
 The same POSIX suite rejected a renamed-and-replaced private profiling
 directory without reading forged bytes or touching the replacement, withheld
@@ -175,11 +183,11 @@ The root check rejected a final symlink even with a trailing separator. An
 exact-name FIFO was rejected without blocking or publishing bytes and was
 retired completely. Exact filename, descriptor, device/inode, link-count,
 regular-file type, size, bounded-read, and checked cleanup conditions precede
-evidence publication. The 14-test source POSIX suite and its
+evidence publication. The 15-test source POSIX suite and its
 Address/UndefinedBehavior and ThreadSanitizer variants passed on this host;
 Apple LeakSanitizer remains unavailable.
 
-The provisioned 16-test native suite used the exact locked macOS arm64 ORT
+The provisioned 17-test native suite used the exact locked macOS arm64 ORT
 1.27.1 and now includes a real CPU run-options profile cycle. It accepted the
 runtime's exact `profile_YYYY-MM-DD_HH-MM-SS_mmm.json` basename, returned a
 non-empty JSON event array from the deliberately poisoned output, and left its
@@ -288,9 +296,9 @@ paths.
 | Ordinary offline Dart suite | 260 passed, 18 explicitly provisioned skips on exact Dart 3.11.5 |
 | Provisioned Dart suite | 298 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
-| Native C ABI baseline | 16/16 focused tests and the 14/14 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `6916f71dea873d6ec1e0db85e1cd8530edb51c922bef7ddbbf3d60eb54dc64b1` and canonical file SHA-256 `6e8083359626e4d5b6760bdaa0838598333b78185e34cab68ff74c2fb0328895` |
+| Native C ABI baseline | 16/16 focused tests and the 15/15 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `50612f5c51070212216aafb68e1ca5e2447acbd18dcdbf3608bdf9aa69128c20` and canonical file SHA-256 `02985575cc126370feb2a736ee0fca334e741d1d11da9437d4fa86aef9abab6c` |
 | Worker lifecycle and strict JSON with strict fake and exact ORT | 55/55 focused tests passed, including eight unique bounded composed lifecycle traces, positive-int64 request-ID exhaustion, ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
-| Shim allocation and partial-output fault injection | 63/63 representative success-path allocation points plus the emergency-status allocation passed with neutral outputs, partial-owner release, and clean retry; ORT error-plus-owned-output cleanup released exactly once and recovered on the next successful run; POSIX profile replacement, restrictive-umask, nonregular-file, and cleanup failures published no bytes and retained or retired ownership as required |
+| Shim allocation and partial-output fault injection | 76/76 portable operation points, 3/3 status-construction points, and 50/50 provisioned exact-ORT branch points passed with neutral outputs, partial-owner release, exact count sentinels, and clean retry; status field OOM preserved original numeric diagnostics; ORT error-plus-owned-output cleanup released exactly once and recovered on the next successful run; POSIX profile replacement, restrictive-umask, nonregular-file, and cleanup failures published no bytes and retained or retired ownership as required |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
@@ -308,15 +316,15 @@ paths.
 | iOS reference-gate focused tests | 97/97 passed |
 | macOS reference/final-app gate focused tests | 32/32 passed |
 | Standalone Python verifier tests | 62/62 passed |
-| C source quality | 37/37 files passed the closed byte/style gate |
+| C source quality | 38/38 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
 | Deterministic fixture inventory | 23 files and 23 closed model/data paths |
 | Deterministic XNNPACK MatMul fixture | Generator check and exact-ORT packaged-asset identity/inference test passed |
 | Deterministic CPU benchmark MatMul fixture | 8/8 generator tests, deflated Android package audit coverage, and exact-ORT packaged-asset identity/inference passed for the 4.29-GFLOP model, input, and exact reference output |
 | Exact ORT standalone fixture CTests | 2/2 passed |
-| Native POSIX CTests with exact ORT | 16/16 passed |
-| Native POSIX ASan+UBSan CTests with exact ORT | 16/16 passed; Apple LeakSanitizer unavailable |
-| Native POSIX ThreadSanitizer CTests with exact ORT | 16/16 passed locally with AppleClang; the new required Linux x64 TSan workflow remains pending CI-host execution |
+| Native POSIX CTests with exact ORT | 17/17 passed |
+| Native POSIX ASan+UBSan CTests with exact ORT | 17/17 passed; Apple LeakSanitizer unavailable |
+| Native POSIX ThreadSanitizer CTests with exact ORT | 17/17 passed locally with AppleClang; the required Linux x64 TSan workflow remains pending CI-host execution |
 | Adjacent/bundled-loader CTests | 5/5 passed, including Android arm64/x86_64 APK namespace paths and desktop regressions |
 | Five-artifact offline audit | 8/8 passed |
 | macOS/iOS build-hook suite with exact archives | 28/28 passed |

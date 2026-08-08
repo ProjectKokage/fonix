@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 #define MAX_FAULT_POINT 256u
-#define EXPECTED_TOTAL_ALLOCATION_FAULTS 63u
+#define EXPECTED_TOTAL_ALLOCATION_FAULTS 76u
 
 #define CHECK(condition, message)                                              \
   do {                                                                         \
@@ -101,6 +101,44 @@ typedef struct run_options_context {
   dort_runtime_t* runtime;
   dort_run_options_t* output;
 } run_options_context_t;
+
+typedef struct run_context {
+  dort_session_t* session;
+  dort_named_value_t input;
+  const char* output_names[1];
+  dort_run_result_t* output;
+} run_context_t;
+
+typedef struct run_result_get_context {
+  dort_run_result_t* result;
+  dort_string_t name;
+  dort_value_t* value;
+} run_result_get_context_t;
+
+typedef struct cancel_register_context {
+  dort_run_options_t* options;
+  uint64_t token;
+  int cleanup_ok;
+} cancel_register_context_t;
+
+typedef struct buffer_lease_context {
+  dort_buffer_t* buffer;
+  dort_data_lease_t* lease;
+  void* data;
+  size_t byte_length;
+} buffer_lease_context_t;
+
+typedef struct tensor_lease_context {
+  dort_value_t* value;
+  dort_data_lease_t* lease;
+  const void* data;
+  size_t byte_length;
+} tensor_lease_context_t;
+
+typedef struct tensor_info_context {
+  dort_value_t* value;
+  dort_string_t output;
+} tensor_info_context_t;
 
 static uint64_t fault_epoch = 0u;
 
@@ -427,6 +465,198 @@ static void run_options_cleanup(void* opaque_context) {
   context->output = NULL;
 }
 
+static dort_status_t* invoke_run(void* opaque_context) {
+  run_context_t* context = (run_context_t*)opaque_context;
+  context->output = (dort_run_result_t*)(uintptr_t)1u;
+  return dort_session_run(context->session, NULL, &context->input, 1u,
+                          context->output_names, 1u, &context->output);
+}
+
+static int run_is_neutral(const void* opaque_context) {
+  const run_context_t* context = (const run_context_t*)opaque_context;
+  return context->output == NULL;
+}
+
+static int run_is_success(const void* opaque_context) {
+  const run_context_t* context = (const run_context_t*)opaque_context;
+  return context->output != NULL &&
+         dort_run_result_count(context->output) == 1u;
+}
+
+static void run_cleanup(void* opaque_context) {
+  run_context_t* context = (run_context_t*)opaque_context;
+  dort_run_result_release(context->output);
+  context->output = NULL;
+}
+
+static dort_status_t* invoke_run_result_get(void* opaque_context) {
+  run_result_get_context_t* context =
+      (run_result_get_context_t*)opaque_context;
+  memset(&context->name, 0xff, sizeof(context->name));
+  context->value = (dort_value_t*)(uintptr_t)1u;
+  return dort_run_result_get(
+      context->result, 0u, &context->name, &context->value);
+}
+
+static int run_result_get_is_neutral(const void* opaque_context) {
+  const run_result_get_context_t* context =
+      (const run_result_get_context_t*)opaque_context;
+  return context->name.struct_size == sizeof(context->name) &&
+         context->name.data == NULL && context->name.length == 0u &&
+         context->name.private_owner == NULL && context->value == NULL;
+}
+
+static int run_result_get_is_success(const void* opaque_context) {
+  const run_result_get_context_t* context =
+      (const run_result_get_context_t*)opaque_context;
+  return context->name.struct_size == sizeof(context->name) &&
+         context->name.data != NULL && context->name.length == 1u &&
+         context->name.private_owner != NULL &&
+         memcmp(context->name.data, "Y", 1u) == 0 && context->value != NULL;
+}
+
+static void run_result_get_cleanup(void* opaque_context) {
+  run_result_get_context_t* context =
+      (run_result_get_context_t*)opaque_context;
+  dort_value_release(context->value);
+  context->value = NULL;
+  dort_string_release(&context->name);
+}
+
+static dort_status_t* invoke_cancel_register(void* opaque_context) {
+  cancel_register_context_t* context =
+      (cancel_register_context_t*)opaque_context;
+  context->token = UINT64_MAX;
+  return dort_cancel_token_register(context->options, &context->token);
+}
+
+static int cancel_register_is_neutral(const void* opaque_context) {
+  const cancel_register_context_t* context =
+      (const cancel_register_context_t*)opaque_context;
+  return context->token == 0u && context->cleanup_ok;
+}
+
+static int cancel_register_is_success(const void* opaque_context) {
+  const cancel_register_context_t* context =
+      (const cancel_register_context_t*)opaque_context;
+  return context->token != 0u && context->token != UINT64_MAX &&
+         context->cleanup_ok;
+}
+
+static void cancel_register_cleanup(void* opaque_context) {
+  cancel_register_context_t* context =
+      (cancel_register_context_t*)opaque_context;
+  if (context->token != 0u && context->token != UINT64_MAX) {
+    uint32_t was_requested = UINT32_MAX;
+    dort_status_t* status =
+        dort_cancel_token_finish(context->token, &was_requested);
+    if (status != NULL || was_requested != 0u) {
+      context->cleanup_ok = 0;
+    }
+    dort_status_release(status);
+  }
+  context->token = 0u;
+}
+
+static dort_status_t* invoke_buffer_lease(void* opaque_context) {
+  buffer_lease_context_t* context =
+      (buffer_lease_context_t*)opaque_context;
+  context->lease = (dort_data_lease_t*)(uintptr_t)1u;
+  context->data = (void*)(uintptr_t)1u;
+  context->byte_length = SIZE_MAX;
+  return dort_buffer_data_acquire(context->buffer, &context->lease,
+                                  &context->data, &context->byte_length);
+}
+
+static int buffer_lease_is_neutral(const void* opaque_context) {
+  const buffer_lease_context_t* context =
+      (const buffer_lease_context_t*)opaque_context;
+  return context->lease == NULL && context->data == NULL &&
+         context->byte_length == 0u;
+}
+
+static int buffer_lease_is_success(const void* opaque_context) {
+  const buffer_lease_context_t* context =
+      (const buffer_lease_context_t*)opaque_context;
+  return context->lease != NULL && context->data != NULL &&
+         context->byte_length == sizeof(float);
+}
+
+static void buffer_lease_cleanup(void* opaque_context) {
+  buffer_lease_context_t* context =
+      (buffer_lease_context_t*)opaque_context;
+  dort_data_lease_release(context->lease);
+  context->lease = NULL;
+  context->data = NULL;
+  context->byte_length = 0u;
+}
+
+static dort_status_t* invoke_tensor_lease(void* opaque_context) {
+  tensor_lease_context_t* context =
+      (tensor_lease_context_t*)opaque_context;
+  context->lease = (dort_data_lease_t*)(uintptr_t)1u;
+  context->data = (const void*)(uintptr_t)1u;
+  context->byte_length = SIZE_MAX;
+  return dort_tensor_data_acquire(context->value, &context->lease,
+                                  &context->data, &context->byte_length);
+}
+
+static int tensor_lease_is_neutral(const void* opaque_context) {
+  const tensor_lease_context_t* context =
+      (const tensor_lease_context_t*)opaque_context;
+  return context->lease == NULL && context->data == NULL &&
+         context->byte_length == 0u;
+}
+
+static int tensor_lease_is_success(const void* opaque_context) {
+  const tensor_lease_context_t* context =
+      (const tensor_lease_context_t*)opaque_context;
+  return context->lease != NULL && context->data != NULL &&
+         context->byte_length == sizeof(float) &&
+         *(const float*)context->data == 1.0f;
+}
+
+static void tensor_lease_cleanup(void* opaque_context) {
+  tensor_lease_context_t* context =
+      (tensor_lease_context_t*)opaque_context;
+  dort_data_lease_release(context->lease);
+  context->lease = NULL;
+  context->data = NULL;
+  context->byte_length = 0u;
+}
+
+static dort_status_t* invoke_tensor_info(void* opaque_context) {
+  tensor_info_context_t* context = (tensor_info_context_t*)opaque_context;
+  memset(&context->output, 0xff, sizeof(context->output));
+  return dort_tensor_info_json(context->value, &context->output);
+}
+
+static int tensor_info_is_neutral(const void* opaque_context) {
+  const tensor_info_context_t* context =
+      (const tensor_info_context_t*)opaque_context;
+  return context->output.struct_size == sizeof(context->output) &&
+         context->output.data == NULL && context->output.length == 0u &&
+         context->output.private_owner == NULL;
+}
+
+static int tensor_info_is_success(const void* opaque_context) {
+  static const char expected[] =
+      "{\"schemaVersion\":1,\"kind\":\"tensor\",\"elementType\":1,"
+      "\"dimensions\":[1],\"byteLength\":4}";
+  const tensor_info_context_t* context =
+      (const tensor_info_context_t*)opaque_context;
+  return context->output.struct_size == sizeof(context->output) &&
+         context->output.data != NULL &&
+         context->output.length == sizeof(expected) - 1u &&
+         context->output.private_owner != NULL &&
+         memcmp(context->output.data, expected, sizeof(expected) - 1u) == 0;
+}
+
+static void tensor_info_cleanup(void* opaque_context) {
+  tensor_info_context_t* context = (tensor_info_context_t*)opaque_context;
+  dort_string_release(&context->output);
+}
+
 static int profile_root_is_empty(const char* root) {
   DIR* stream = opendir(root);
   struct dirent* entry = NULL;
@@ -515,7 +745,10 @@ static int test_emergency_status(void) {
 }
 
 int main(int argc, char** argv) {
-  enum { fake_session_verify_metadata_owner = 5 };
+  enum {
+    fake_session_verify_metadata_owner = 5,
+    fake_session_run_dense = 9,
+  };
   string_context_t manifest_context;
   runtime_context_t runtime_fault_context;
   provider_context_t provider_context;
@@ -526,13 +759,25 @@ int main(int argc, char** argv) {
   external_data_context_t external_data_context;
   profile_context_t profile_context;
   run_options_context_t run_options_context;
+  run_context_t run_context;
+  run_result_get_context_t run_result_get_context;
+  cancel_register_context_t cancel_register_context;
+  buffer_lease_context_t buffer_lease_context;
+  tensor_lease_context_t tensor_lease_context;
+  tensor_info_context_t tensor_info_context;
   dort_runtime_t* provider_runtime = NULL;
   dort_runtime_t* session_runtime = NULL;
   dort_session_options_t* session_options = NULL;
+  dort_session_t* dense_session = NULL;
+  dort_value_t* dense_input = NULL;
+  dort_buffer_t* lease_buffer = NULL;
   dort_run_options_t* profile_options = NULL;
   dort_status_t* status = NULL;
   fault_case_t test_case;
   size_t verified_total = 0u;
+  uint8_t dense_model_data[1] = {fake_session_run_dense};
+  float dense_input_data = 1.0f;
+  int64_t dense_input_shape[1] = {1};
   char profile_root[] = "/tmp/fonix-allocation-profile-XXXXXX";
 
   CHECK(argc == 5,
@@ -741,9 +986,126 @@ int main(int argc, char** argv) {
         "sequence allocation faults failed");
   verified_total += test_case.expected_allocation_count;
 
+  CHECK(configure_fault(0u), "could not disable dense-run setup fault");
+  status = dort_session_create_from_bytes(
+      session_runtime, session_options, dense_model_data,
+      sizeof(dense_model_data), &dense_session);
+  CHECK(status == NULL && dense_session != NULL,
+        "could not create persistent dense-run session");
+  status = dort_tensor_create_copy(
+      session_runtime, &dense_input_data, sizeof(dense_input_data),
+      dense_input_shape, 1u, DORT_TENSOR_FLOAT32, &dense_input);
+  CHECK(status == NULL && dense_input != NULL,
+        "could not create persistent dense-run input");
+  status = dort_buffer_allocate(
+      session_runtime, sizeof(float), 64u, &lease_buffer);
+  CHECK(status == NULL && lease_buffer != NULL,
+        "could not create persistent lease buffer");
+
+  memset(&run_context, 0, sizeof(run_context));
+  run_context.session = dense_session;
+  run_context.input.struct_size = DORT_NAMED_VALUE_V1_SIZE;
+  run_context.input.name_utf8 = "X";
+  run_context.input.value = dense_input;
+  run_context.output_names[0] = "Y";
+  test_case = (fault_case_t){"dense session run",
+                             &run_context,
+                             invoke_run,
+                             run_is_neutral,
+                             run_is_success,
+                             run_cleanup,
+                             NULL,
+                             8u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "dense-run allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  CHECK(configure_fault(0u), "could not disable run-result setup fault");
+  status = invoke_run(&run_context);
+  CHECK(status == NULL && run_is_success(&run_context),
+        "could not create persistent run result");
+  memset(&run_result_get_context, 0, sizeof(run_result_get_context));
+  run_result_get_context.result = run_context.output;
+  run_context.output = NULL;
+  test_case = (fault_case_t){"run result get",
+                             &run_result_get_context,
+                             invoke_run_result_get,
+                             run_result_get_is_neutral,
+                             run_result_get_is_success,
+                             run_result_get_cleanup,
+                             NULL,
+                             1u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "run-result-get allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  memset(&cancel_register_context, 0, sizeof(cancel_register_context));
+  cancel_register_context.options = profile_options;
+  cancel_register_context.cleanup_ok = 1;
+  test_case = (fault_case_t){"cancel registration",
+                             &cancel_register_context,
+                             invoke_cancel_register,
+                             cancel_register_is_neutral,
+                             cancel_register_is_success,
+                             cancel_register_cleanup,
+                             NULL,
+                             1u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "cancel-register allocation faults failed");
+  CHECK(cancel_register_context.cleanup_ok &&
+            cancel_register_context.token == 0u,
+        "cancel-register cleanup did not retire its token");
+  verified_total += test_case.expected_allocation_count;
+
+  memset(&buffer_lease_context, 0, sizeof(buffer_lease_context));
+  buffer_lease_context.buffer = lease_buffer;
+  test_case = (fault_case_t){"buffer data lease",
+                             &buffer_lease_context,
+                             invoke_buffer_lease,
+                             buffer_lease_is_neutral,
+                             buffer_lease_is_success,
+                             buffer_lease_cleanup,
+                             NULL,
+                             1u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "buffer-lease allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  memset(&tensor_lease_context, 0, sizeof(tensor_lease_context));
+  tensor_lease_context.value = dense_input;
+  test_case = (fault_case_t){"tensor data lease",
+                             &tensor_lease_context,
+                             invoke_tensor_lease,
+                             tensor_lease_is_neutral,
+                             tensor_lease_is_success,
+                             tensor_lease_cleanup,
+                             NULL,
+                             1u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "tensor-lease allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  memset(&tensor_info_context, 0, sizeof(tensor_info_context));
+  tensor_info_context.value = dense_input;
+  test_case = (fault_case_t){"tensor info JSON",
+                             &tensor_info_context,
+                             invoke_tensor_info,
+                             tensor_info_is_neutral,
+                             tensor_info_is_success,
+                             tensor_info_cleanup,
+                             NULL,
+                             1u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "tensor-info allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
   CHECK(configure_fault(0u), "could not disable final allocation fault");
   CHECK(verified_total == EXPECTED_TOTAL_ALLOCATION_FAULTS,
         "allocation-fault total changed unexpectedly");
+  dort_run_result_release(run_result_get_context.result);
+  dort_buffer_release(lease_buffer);
+  dort_value_release(dense_input);
+  dort_session_release(dense_session);
   dort_value_release(sequence_context.children[1]);
   dort_value_release(sequence_context.children[0]);
   dort_run_options_release(profile_options);

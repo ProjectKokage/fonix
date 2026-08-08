@@ -546,15 +546,19 @@ count cannot authorize entry iteration.
 The follow-up native-allocation checkpoints route wrapper-requested heap,
 aligned, and returned canonical-path owners through one internal seam while
 leaving the public ABI and production activation unchanged. The bounded POSIX
-regression now enumerates 63 success-path fail-Nth points: one build-manifest,
-eight runtime-open/canonicalization, five provider-discovery, one run-options,
-five complete profiling-cycle, one session-options, fourteen
-session-construction/metadata, twenty-two two-entry external-data session,
-three tensor, and three two-child sequence/composite allocations.
-Every injected failure neutralizes outputs, returns an allocation or emergency
-status, releases partial owners, and permits a clean retry. A fake ORT `Run`
-also returns an owned output with an error; the shim releases it exactly once,
-preserves the authoritative ORT error, and recovers on the next successful run.
+regression now enumerates 76 portable success-path fail-Nth points: the prior
+63 build-manifest, runtime, provider, run-options/profiling, session,
+external-data, tensor, and composite points plus eight synchronous-run and one
+each run-result, cancellation-registration, buffer-lease, tensor-lease, and
+tensor-info points. A separate status target covers its object, operation, and
+message allocations; field-copy OOM preserves the original domain and numeric
+codes instead of erasing the primary error. The provisioned exact ORT 1.27.1
+matrix independently enumerates 50 dense, string, ZipMap sequence/map,
+optional Some/None, string-element, and tensor-info branch points.
+Every injected failure neutralizes outputs, releases partial owners, and
+permits a clean retry. A fake ORT `Run` also returns an owned output with an
+error; the shim releases it exactly once, preserves the authoritative ORT
+error, and recovers on the next successful run.
 POSIX profiling now binds its effective-user-owned root and randomized private
 child to retained descriptors and device/inode identities. Exact profile bytes
 are withheld until bounded non-recursive cleanup succeeds; replacement,
@@ -569,9 +573,10 @@ one controller connection-closure initiation per worker. Worker request IDs
 now admit positive `INT64_MAX` once and then permanently exhaust without wrap;
 pools skip that worker while retaining retriable backpressure from another
 live saturated peer and fail closed when every size-capable peer is permanently
-unavailable. Allocation enumeration for remaining synchronous-run, lease,
-string, status-diagnostic, and target-specific paths continues within this
-phase, as do target-specific pool throughput and RSS measurements.
+unavailable. Portable synchronous-run, lease, string-accessor, and
+status-diagnostic allocation paths are now enumerated; target-specific
+allocation paths and pool throughput/RSS measurements continue within this
+phase.
 
 The follow-up source-closure checkpoint validates release ZIP and gzip-compressed
 Git tar archives without extraction. It binds the archive's declared revision,

@@ -21,12 +21,17 @@
 - Released bounded ORT-owned provider and model-metadata outputs even when ORT
   also reports an error, while preventing malformed oversized counts from
   authorizing pointer-array cleanup iteration.
-- Expanded deterministic native fail-Nth coverage from 29 to 63 allocation
-  points, including canonical paths, run options, complete profiling,
-  external-data sessions, and sequence values. POSIX profiling now retains the
-  exact root/private child identity, publishes only after checked cleanup, and
-  keeps incomplete retirement retryable; POSIX profiling roots must be
-  effective-user-owned and private from group/world writers.
+- Expanded deterministic native fail-Nth coverage from 29 to 76 portable
+  operation points, including canonical paths, run options, complete profiling,
+  external-data sessions, sequence values, synchronous runs/results,
+  cancellation registration, data leases, and tensor diagnostics. A separate
+  provisioned matrix covers 50 exact-ORT dense, string, ZipMap, optional, and
+  string-accessor fail points. Status-field allocation failure now preserves
+  the original domain and numeric codes with static diagnostic fallbacks.
+  POSIX profiling retains the exact root/private child identity, publishes only
+  after checked cleanup, and keeps incomplete retirement retryable; POSIX
+  profiling roots must be effective-user-owned and private from group/world
+  writers.
 - Added execution-provider discovery, normalized diagnostics, strict per-run
   assignment evidence, typed mobile-provider configuration, and CoreML cache
   identity isolation.

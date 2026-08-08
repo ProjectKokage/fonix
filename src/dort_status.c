@@ -7,6 +7,8 @@
 static char dort_emergency_operation[] = "allocation";
 static char dort_emergency_message[] =
     "Native memory allocation failed while creating an error status.";
+static char dort_fallback_operation[] = "unknown";
+static char dort_fallback_message[] = "Native error details unavailable.";
 static dort_status_t dort_emergency_status = {
     DORT_ERROR_DOMAIN_ALLOCATION,
     DORT_ERROR_ALLOCATION_FAILED,
@@ -14,10 +16,16 @@ static dort_status_t dort_emergency_status = {
     dort_emergency_operation,
     dort_emergency_message,
     1,
+    0,
+    0,
 };
 
-static char* dort_copy_status_field(const char* value, const char* fallback) {
+static char* dort_copy_status_field(
+    const char* value,
+    char* fallback,
+    int* out_owned) {
   const char* selected = value == NULL ? fallback : value;
+  char* copy = NULL;
   size_t length = 0u;
   int validation = dort_bounded_utf8_length(
       selected, DORT_MAX_STATUS_MESSAGE_BYTES, 1, &length);
@@ -25,7 +33,13 @@ static char* dort_copy_status_field(const char* value, const char* fallback) {
     selected = fallback;
     length = strlen(fallback);
   }
-  return dort_copy_c_string(selected, length);
+  copy = dort_copy_c_string(selected, length);
+  if (copy == NULL) {
+    *out_owned = 0;
+    return fallback;
+  }
+  *out_owned = 1;
+  return copy;
 }
 
 dort_status_t* dort_status_create(
@@ -41,14 +55,10 @@ dort_status_t* dort_status_create(
   status->domain = domain;
   status->code = code;
   status->ort_code = ort_code;
-  status->operation = dort_copy_status_field(operation, "unknown");
-  status->message = dort_copy_status_field(message, "Native error details unavailable.");
-  if (status->operation == NULL || status->message == NULL) {
-    free(status->operation);
-    free(status->message);
-    free(status);
-    return &dort_emergency_status;
-  }
+  status->operation = dort_copy_status_field(
+      operation, dort_fallback_operation, &status->owns_operation);
+  status->message = dort_copy_status_field(
+      message, dort_fallback_message, &status->owns_message);
   return status;
 }
 
@@ -119,7 +129,11 @@ void DORT_CALL dort_status_release(dort_status_t* status) {
   if (status == NULL || status->is_static) {
     return;
   }
-  free(status->operation);
-  free(status->message);
+  if (status->owns_operation) {
+    free(status->operation);
+  }
+  if (status->owns_message) {
+    free(status->message);
+  }
   free(status);
 }

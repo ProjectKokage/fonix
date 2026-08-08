@@ -189,6 +189,159 @@ static dort_named_value_t named_value(
   return named;
 }
 
+static uint64_t allocation_fault_epoch = 0u;
+
+static int configure_allocation_fault(size_t fault_point) {
+  char epoch[32];
+  char fail_at[32];
+  int epoch_length = 0;
+  int fail_at_length = 0;
+  ++allocation_fault_epoch;
+  epoch_length = snprintf(
+      epoch,
+      sizeof(epoch),
+      "%llu",
+      (unsigned long long)allocation_fault_epoch);
+  fail_at_length = snprintf(fail_at, sizeof(fail_at), "%zu", fault_point);
+  return epoch_length > 0 && (size_t)epoch_length < sizeof(epoch) &&
+         fail_at_length > 0 && (size_t)fail_at_length < sizeof(fail_at) &&
+         setenv("FONIX_TEST_ALLOCATION_EPOCH", epoch, 1) == 0 &&
+         setenv("FONIX_TEST_ALLOCATION_FAIL_AT", fail_at, 1) == 0;
+}
+
+static int is_allocation_failure(const dort_status_t* status) {
+  return status != NULL &&
+         dort_status_domain(status) == DORT_ERROR_DOMAIN_ALLOCATION &&
+         dort_status_code(status) == DORT_ERROR_ALLOCATION_FAILED;
+}
+
+static int exercise_run_allocation_faults(
+    const char* label,
+    dort_session_t* session,
+    const dort_named_value_t* inputs,
+    size_t input_count,
+    const char* output_name,
+    size_t expected_allocation_count) {
+  const char* output_names[1] = {output_name};
+  size_t fault_point = 0u;
+  for (fault_point = 1u; fault_point <= expected_allocation_count;
+       ++fault_point) {
+    dort_run_result_t* result = (dort_run_result_t*)(uintptr_t)1u;
+    dort_status_t* status = NULL;
+    CHECK(
+        configure_allocation_fault(fault_point),
+        "could not configure exact-ORT run allocation fault");
+    status = dort_session_run(
+        session,
+        NULL,
+        inputs,
+        input_count,
+        output_names,
+        1u,
+        &result);
+    CHECK(result == NULL, "run allocation failure published a partial result");
+    CHECK(
+        is_allocation_failure(status),
+        "run allocation fault returned a non-allocation status");
+    dort_status_release(status);
+
+    CHECK(
+        configure_allocation_fault(0u),
+        "could not disable exact-ORT run allocation fault");
+    status = dort_session_run(
+        session,
+        NULL,
+        inputs,
+        input_count,
+        output_names,
+        1u,
+        &result);
+    CHECK(status == NULL, "clean exact-ORT retry failed after allocation fault");
+    CHECK(
+        result != NULL && dort_run_result_count(result) == 1u,
+        "clean exact-ORT retry returned a malformed result");
+    dort_run_result_release(result);
+  }
+
+  {
+    dort_run_result_t* result = (dort_run_result_t*)(uintptr_t)1u;
+    dort_status_t* status = NULL;
+    CHECK(
+        configure_allocation_fault(expected_allocation_count + 1u),
+        "could not configure exact-ORT run allocation sentinel");
+    status = dort_session_run(
+        session,
+        NULL,
+        inputs,
+        input_count,
+        output_names,
+        1u,
+        &result);
+    CHECK(status == NULL, "exact-ORT run allocation count exceeded expectation");
+    CHECK(
+        result != NULL && dort_run_result_count(result) == 1u,
+        "exact-ORT run sentinel returned a malformed result");
+    dort_run_result_release(result);
+  }
+  CHECK(
+      configure_allocation_fault(0u),
+      "could not disable exact-ORT run allocation sentinel");
+  printf(
+      "%s: %zu exact-ORT run allocation faults verified.\n",
+      label,
+      expected_allocation_count);
+  return 0;
+}
+
+static int exercise_owned_string_allocation_fault(
+    const char* label,
+    const dort_value_t* value,
+    int tensor_info) {
+  dort_string_t output;
+  dort_status_t* status = NULL;
+  memset(&output, 0xff, sizeof(output));
+  CHECK(
+      configure_allocation_fault(1u),
+      "could not configure exact-ORT owned-string allocation fault");
+  status = tensor_info ? dort_tensor_info_json(value, &output)
+                       : dort_tensor_string_get(value, 1u, &output);
+  CHECK(
+      output.struct_size == sizeof(output) && output.data == NULL &&
+          output.length == 0u && output.private_owner == NULL,
+      "owned-string allocation failure published partial output");
+  CHECK(
+      is_allocation_failure(status),
+      "owned-string allocation fault returned a non-allocation status");
+  dort_status_release(status);
+
+  CHECK(
+      configure_allocation_fault(0u),
+      "could not disable exact-ORT owned-string allocation fault");
+  status = tensor_info ? dort_tensor_info_json(value, &output)
+                       : dort_tensor_string_get(value, 1u, &output);
+  CHECK(status == NULL, "owned-string clean retry failed");
+  CHECK(
+      output.data != NULL && output.private_owner != NULL,
+      "owned-string clean retry returned malformed output");
+  dort_string_release(&output);
+
+  CHECK(
+      configure_allocation_fault(2u),
+      "could not configure exact-ORT owned-string allocation sentinel");
+  status = tensor_info ? dort_tensor_info_json(value, &output)
+                       : dort_tensor_string_get(value, 1u, &output);
+  CHECK(status == NULL, "owned-string allocation count exceeded expectation");
+  CHECK(
+      output.data != NULL && output.private_owner != NULL,
+      "owned-string sentinel returned malformed output");
+  dort_string_release(&output);
+  CHECK(
+      configure_allocation_fault(0u),
+      "could not disable exact-ORT owned-string allocation sentinel");
+  printf("%s: 1 exact-ORT allocation fault verified.\n", label);
+  return 0;
+}
+
 static int tensor_copy_equals(
     const dort_value_t* value,
     const void* expected,
@@ -1288,6 +1441,250 @@ static int test_external_data(
   return 0;
 }
 
+static int test_exact_ort_allocation_faults(
+    dort_runtime_t* runtime,
+    const dort_session_options_t* options,
+    const char* fixture_root) {
+  enum {
+    DENSE_RUN_ALLOCATIONS = 8,
+    STRING_RUN_ALLOCATIONS = 12,
+    ZIPMAP_RUN_ALLOCATIONS = 13,
+    OPTIONAL_SOME_RUN_ALLOCATIONS = 9,
+    OPTIONAL_NONE_RUN_ALLOCATIONS = 6,
+  };
+  dort_session_t* dense_session = NULL;
+  dort_session_t* string_session = NULL;
+  dort_session_t* zipmap_session = NULL;
+  dort_session_t* optional_some_session = NULL;
+  dort_session_t* optional_none_session = NULL;
+  dort_value_t* dense_input = NULL;
+  dort_value_t* string_input = NULL;
+  dort_value_t* string_output = NULL;
+  dort_value_t* probabilities = NULL;
+  dort_value_t* optional_input = NULL;
+  dort_run_result_t* string_result = NULL;
+  dort_named_value_t dense_named;
+  dort_named_value_t string_named;
+  dort_named_value_t zipmap_named;
+  dort_named_value_t optional_named;
+  dort_utf8_span_t string_spans[4];
+  dort_string_t copied_name;
+  dort_status_t* status = NULL;
+  const char* string_output_names[1] = {"echo"};
+  float dense_data[2] = {1.0f, 2.0f};
+  float probabilities_data[2] = {0.25f, 0.75f};
+  float optional_data[2] = {5.0f, 6.0f};
+  int64_t dense_shape[2] = {1, 2};
+  int64_t probabilities_shape[2] = {1, 2};
+  int64_t optional_shape[1] = {2};
+  int64_t string_shape[1] = {4};
+  const uint8_t ascii[] = "ASCII";
+  const uint8_t unicode[] = "こんにちは🌿";
+  uint8_t large[4096];
+  size_t index = 0u;
+
+  CHECK(
+      configure_allocation_fault(0u),
+      "could not disable allocation faults for exact-ORT setup");
+  CHECK(
+      create_fixture_session(
+          runtime,
+          options,
+          fixture_root,
+          "metadata_identity.onnx",
+          &dense_session) == 0,
+      "dense allocation session setup failed");
+  CHECK(
+      check_ok(
+          dort_tensor_create_copy(
+              runtime,
+              dense_data,
+              sizeof(dense_data),
+              dense_shape,
+              2u,
+              DORT_TENSOR_FLOAT32,
+              &dense_input),
+          "create dense allocation input") == 0,
+      "dense allocation input setup failed");
+  dense_named = named_value("入力", dense_input);
+  CHECK(
+      exercise_run_allocation_faults(
+          "dense output",
+          dense_session,
+          &dense_named,
+          1u,
+          "出力",
+          DENSE_RUN_ALLOCATIONS) == 0,
+      "dense exact-ORT allocation matrix failed");
+
+  memset(large, 'x', sizeof(large));
+  memset(string_spans, 0, sizeof(string_spans));
+  for (index = 0u; index < 4u; ++index) {
+    string_spans[index].struct_size = DORT_UTF8_SPAN_V1_SIZE;
+  }
+  string_spans[1].data = ascii;
+  string_spans[1].length = sizeof(ascii) - 1u;
+  string_spans[2].data = unicode;
+  string_spans[2].length = sizeof(unicode) - 1u;
+  string_spans[3].data = large;
+  string_spans[3].length = sizeof(large);
+  CHECK(
+      create_fixture_session(
+          runtime,
+          options,
+          fixture_root,
+          "string_identity.onnx",
+          &string_session) == 0,
+      "string allocation session setup failed");
+  CHECK(
+      check_ok(
+          dort_tensor_create_strings_copy(
+              runtime,
+              string_spans,
+              4u,
+              string_shape,
+              1u,
+              &string_input),
+          "create string allocation input") == 0,
+      "string allocation input setup failed");
+  string_named = named_value("text", string_input);
+  CHECK(
+      exercise_run_allocation_faults(
+          "string output",
+          string_session,
+          &string_named,
+          1u,
+          "echo",
+          STRING_RUN_ALLOCATIONS) == 0,
+      "string exact-ORT allocation matrix failed");
+
+  CHECK(
+      configure_allocation_fault(0u),
+      "could not disable allocation faults for string accessor setup");
+  status = dort_session_run(
+      string_session,
+      NULL,
+      &string_named,
+      1u,
+      string_output_names,
+      1u,
+      &string_result);
+  CHECK(status == NULL && string_result != NULL, "string accessor run failed");
+  memset(&copied_name, 0, sizeof(copied_name));
+  CHECK(
+      check_ok(
+          dort_run_result_get(
+              string_result,
+              0u,
+              &copied_name,
+              &string_output),
+          "get string allocation output") == 0,
+      "string accessor output setup failed");
+  dort_string_release(&copied_name);
+  dort_run_result_release(string_result);
+  string_result = NULL;
+  CHECK(
+      exercise_owned_string_allocation_fault(
+          "string tensor element copy", string_output, 0) == 0,
+      "string element allocation matrix failed");
+  CHECK(
+      exercise_owned_string_allocation_fault(
+          "string tensor info copy", string_output, 1) == 0,
+      "string tensor-info allocation matrix failed");
+
+  CHECK(
+      create_fixture_session(
+          runtime,
+          options,
+          fixture_root,
+          "zipmap_string.onnx",
+          &zipmap_session) == 0,
+      "ZipMap allocation session setup failed");
+  CHECK(
+      check_ok(
+          dort_tensor_create_copy(
+              runtime,
+              probabilities_data,
+              sizeof(probabilities_data),
+              probabilities_shape,
+              2u,
+              DORT_TENSOR_FLOAT32,
+              &probabilities),
+          "create ZipMap allocation input") == 0,
+      "ZipMap allocation input setup failed");
+  zipmap_named = named_value("probabilities", probabilities);
+  CHECK(
+      exercise_run_allocation_faults(
+          "sequence-map output",
+          zipmap_session,
+          &zipmap_named,
+          1u,
+          "scores",
+          ZIPMAP_RUN_ALLOCATIONS) == 0,
+      "ZipMap exact-ORT allocation matrix failed");
+
+  CHECK(
+      create_fixture_session(
+          runtime,
+          options,
+          fixture_root,
+          "optional_tensor.onnx",
+          &optional_some_session) == 0,
+      "optional Some allocation session setup failed");
+  CHECK(
+      check_ok(
+          dort_tensor_create_copy(
+              runtime,
+              optional_data,
+              sizeof(optional_data),
+              optional_shape,
+              1u,
+              DORT_TENSOR_FLOAT32,
+              &optional_input),
+          "create optional allocation input") == 0,
+      "optional allocation input setup failed");
+  optional_named = named_value("value", optional_input);
+  CHECK(
+      exercise_run_allocation_faults(
+          "optional Some output",
+          optional_some_session,
+          &optional_named,
+          1u,
+          "maybe_value",
+          OPTIONAL_SOME_RUN_ALLOCATIONS) == 0,
+      "optional Some exact-ORT allocation matrix failed");
+
+  CHECK(
+      create_fixture_session(
+          runtime,
+          options,
+          fixture_root,
+          "optional_empty_tensor.onnx",
+          &optional_none_session) == 0,
+      "optional None allocation session setup failed");
+  CHECK(
+      exercise_run_allocation_faults(
+          "optional None output",
+          optional_none_session,
+          NULL,
+          0u,
+          "maybe_value",
+          OPTIONAL_NONE_RUN_ALLOCATIONS) == 0,
+      "optional None exact-ORT allocation matrix failed");
+
+  dort_value_release(optional_input);
+  dort_session_release(optional_none_session);
+  dort_session_release(optional_some_session);
+  dort_value_release(probabilities);
+  dort_session_release(zipmap_session);
+  dort_value_release(string_output);
+  dort_value_release(string_input);
+  dort_session_release(string_session);
+  dort_value_release(dense_input);
+  dort_session_release(dense_session);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   dort_runtime_t* runtime = NULL;
   dort_session_options_t* options = NULL;
@@ -1295,6 +1692,10 @@ int main(int argc, char** argv) {
   dort_provider_config_t provider;
   dort_session_config_t native_session_config;
   CHECK(argc == 4, "expected ORT library, ORT root, and fixture root");
+  CHECK(
+      unsetenv("FONIX_TEST_ALLOCATION_EPOCH") == 0 &&
+          unsetenv("FONIX_TEST_ALLOCATION_FAIL_AT") == 0,
+      "could not clear inherited allocation-fault configuration");
   memset(&provider, 0, sizeof(provider));
   provider.struct_size = DORT_PROVIDER_CONFIG_V1_SIZE;
   provider.provider_id_utf8 = "cpu";
@@ -1325,10 +1726,15 @@ int main(int argc, char** argv) {
   CHECK(
       test_external_data(runtime, options, argv[3]) == 0,
       "external-data test failed");
+  CHECK(
+      test_exact_ort_allocation_faults(runtime, options, argv[3]) == 0,
+      "exact-ORT allocation-fault test failed");
   dort_session_options_release(options);
   dort_runtime_release(runtime);
   dort_data_lease_retain(NULL);
   dort_data_lease_release(NULL);
+  (void)unsetenv("FONIX_TEST_ALLOCATION_EPOCH");
+  (void)unsetenv("FONIX_TEST_ALLOCATION_FAIL_AT");
   printf("Fonix Phase 3 real ORT CPU tests passed.\n");
   return 0;
 }

@@ -97,16 +97,24 @@ Use fault injection for allocation, loader, and ORT error-plus-output failures.
 The POSIX shim test build routes every wrapper-owned `malloc`, `calloc`,
 `realloc`, aligned allocation, and returned `realpath` owner through one
 internal fail-Nth seam that is absent from production activation. The
-deterministic suite enumerates success-path allocations in representative
+deterministic portable suite enumerates success-path allocations in
 status/string, runtime canonicalization, provider, run-options/profiling,
-session-options/metadata, two-entry external-data, tensor-owner, and composite
-operations. Every failure must leave its output neutral, preserve the
-allocation-domain status (including the static emergency status), release
-partial native owners, and permit a clean retry. Opaque allocations owned by
-libc, the platform loader, or ORT itself remain outside this wrapper fail-Nth
-seam. A separate fake `Run` returns an owned output together with an ORT error;
-the shim must release that output exactly once, preserve the ORT error, and
-complete a later successful run.
+session-options/metadata, two-entry external-data, tensor-owner, composite,
+synchronous-run/result, cancellation-registration, data-lease, and tensor-info
+operations. The status-specific matrix distinguishes status-object OOM from
+operation/message-copy OOM: only the first uses the static emergency status;
+field-copy failure retains the original domain and numeric codes. Every failure
+must leave its output neutral, release partial native owners, and permit a clean
+retry. Opaque allocations owned by libc, the platform loader, or ORT itself
+remain outside this wrapper fail-Nth seam. A separate provisioned exact-ORT
+matrix covers dense, nonempty string, ZipMap sequence/map, optional Some/None,
+string-element, and tensor-info paths, including recursive output validation.
+The exact-runtime harness starts under hostile inherited fail-Nth variables and
+must clear them before its first shim call, then controls each later fault with
+its own monotonically changing epoch.
+A fake `Run` hard-fails its next retry if a prior returned output owner leaked;
+another fake returns an owned output together with an ORT error so the shim must
+release it exactly once, preserve the ORT error, and complete a later run.
 The provisioned native suite additionally profiles a real run with the exact
 locked ORT, accepts only its closed timestamp basename shape, returns a
 non-empty JSON event array, and proves the private artifact root is empty.

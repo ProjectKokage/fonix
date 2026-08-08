@@ -167,6 +167,32 @@ fonix_strict_target(fonix_string_limit_tests)
 add_test(NAME owned-string-and-status-limits COMMAND fonix_string_limit_tests)
 
 add_executable(
+  fonix_status_allocation_tests
+  status_allocation_tests.c
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_memory.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_status.c"
+)
+target_include_directories(
+  fonix_status_allocation_tests
+  PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../src"
+    "${ONNXRUNTIME_INCLUDE_DIR}"
+)
+target_compile_definitions(
+  fonix_status_allocation_tests PRIVATE
+  FONIX_RUNTIME_PROFILE_EXTERNAL=1
+  FONIX_RUNTIME_PROFILE="external"
+  FONIX_SHIM_BUILD_ID="native-tests"
+  FONIX_ALLOCATION_TESTING=1
+)
+fonix_strict_target(fonix_status_allocation_tests)
+add_test(
+  NAME status-allocation-fallbacks
+  COMMAND fonix_status_allocation_tests
+)
+
+add_executable(
   fonix_android_sherpa_owner_contract
   android_owner_contract.c
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
@@ -393,6 +419,11 @@ if(FONIX_REAL_ORT_LIBRARY AND FONIX_REAL_ORT_ROOT AND FONIX_REAL_MODEL AND
       "${FONIX_REAL_ORT_LIBRARY}"
       "${FONIX_REAL_ORT_ROOT}"
       "${CMAKE_CURRENT_LIST_DIR}/../fixtures"
+  )
+  set_tests_properties(
+    phase3-real-ort-cpu PROPERTIES
+    ENVIRONMENT
+      "FONIX_TEST_ALLOCATION_EPOCH=1;FONIX_TEST_ALLOCATION_FAIL_AT=1"
   )
 endif()
 

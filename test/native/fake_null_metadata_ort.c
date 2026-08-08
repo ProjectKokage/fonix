@@ -14,6 +14,7 @@ enum {
   FAKE_SESSION_METADATA_KEYS_ERROR_WITH_OWNERS = 6,
   FAKE_SESSION_VERIFY_METADATA_KEY_OWNERS = 7,
   FAKE_SESSION_OVERSIZED_METADATA_KEY_COUNT = 8,
+  FAKE_SESSION_RUN_DENSE = 9,
 };
 
 #define FAKE_MAX_TRACKED_KEY_ALLOCATIONS 4u
@@ -31,9 +32,30 @@ typedef struct fake_session_options {
   uint8_t external_initializers_added;
 } fake_session_options_t;
 
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+typedef struct fake_run_options {
+  uint8_t terminated;
+} fake_run_options_t;
+#endif
+
 typedef struct fake_value {
   uint8_t kind;
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  uint8_t is_run_output;
+  ONNXTensorElementDataType element_type;
+  void* data;
+  size_t byte_length;
+  int64_t dimension;
+  float run_output_data;
+#endif
 } fake_value_t;
+
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+typedef struct fake_tensor_info {
+  ONNXTensorElementDataType element_type;
+  int64_t dimension;
+} fake_tensor_info_t;
+#endif
 
 enum {
   FAKE_VALUE_TENSOR = 1u,
@@ -46,6 +68,8 @@ static size_t fake_key_owner_count = 0u;
 #if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
 static size_t fake_cloned_options_count = 0u;
 static size_t fake_composite_owner_count = 0u;
+static size_t fake_run_output_owner_count = 0u;
+static size_t fake_run_options_owner_count = 0u;
 #endif
 
 static void* fake_allocate_tracked_key(size_t size) {
@@ -128,6 +152,48 @@ static void ORT_API_CALL fake_release_session_options(
 }
 
 #if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+static OrtStatus* ORT_API_CALL fake_create_run_options(
+    OrtRunOptions** out) NO_EXCEPTION {
+  fake_run_options_t* options = NULL;
+  if (out == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  *out = NULL;
+  options = (fake_run_options_t*)calloc(1u, sizeof(*options));
+  if (options == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  ++fake_run_options_owner_count;
+  *out = (OrtRunOptions*)options;
+  return NULL;
+}
+
+static void ORT_API_CALL fake_release_run_options(
+    OrtRunOptions* options) NO_EXCEPTION {
+  if (options != NULL && fake_run_options_owner_count > 0u) {
+    --fake_run_options_owner_count;
+  }
+  free(options);
+}
+
+static OrtStatus* ORT_API_CALL fake_run_options_set_terminate(
+    OrtRunOptions* options) NO_EXCEPTION {
+  if (options == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  ((fake_run_options_t*)options)->terminated = 1u;
+  return NULL;
+}
+
+static OrtStatus* ORT_API_CALL fake_run_options_unset_terminate(
+    OrtRunOptions* options) NO_EXCEPTION {
+  if (options == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  ((fake_run_options_t*)options)->terminated = 0u;
+  return NULL;
+}
+
 static OrtStatus* ORT_API_CALL fake_clone_session_options(
     const OrtSessionOptions* input,
     OrtSessionOptions** out) NO_EXCEPTION {
@@ -300,7 +366,9 @@ static OrtStatus* ORT_API_CALL fake_output_count(
     const OrtSession* session,
     size_t* out) NO_EXCEPTION {
   const fake_session_t* fake = (const fake_session_t*)session;
-  *out = fake->scenario == FAKE_SESSION_OVERSIZED_OUTPUT_COUNT ? 257u : 0u;
+  *out = fake->scenario == FAKE_SESSION_OVERSIZED_OUTPUT_COUNT
+             ? 257u
+             : (fake->scenario == FAKE_SESSION_RUN_DENSE ? 1u : 0u);
   if (fake->scenario == FAKE_SESSION_OUTPUT_COUNT_ERROR) {
     return (OrtStatus*)(uintptr_t)1u;
   }
@@ -327,10 +395,16 @@ static OrtStatus* ORT_API_CALL fake_output_name(
     size_t index,
     OrtAllocator* allocator,
     char** out) NO_EXCEPTION {
-  (void)session;
+  const fake_session_t* fake = (const fake_session_t*)session;
   (void)index;
   (void)allocator;
   *out = NULL;
+  if (fake->scenario == FAKE_SESSION_RUN_DENSE) {
+    *out = (char*)malloc(2u);
+    if (*out != NULL) {
+      memcpy(*out, "Y", 2u);
+    }
+  }
   return NULL;
 }
 
@@ -340,10 +414,22 @@ static OrtStatus* ORT_API_CALL fake_input_type(
     OrtTypeInfo** out) NO_EXCEPTION {
   (void)session;
   (void)index;
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  {
+    fake_tensor_info_t* info =
+        (fake_tensor_info_t*)calloc(1u, sizeof(*info));
+    if (info != NULL) {
+      info->element_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+      info->dimension = -1;
+    }
+    *out = (OrtTypeInfo*)info;
+  }
+#else
   *out = (OrtTypeInfo*)malloc(1u);
   if (*out != NULL) {
     *(uint8_t*)*out = 0u;
   }
+#endif
   return NULL;
 }
 
@@ -351,9 +437,25 @@ static OrtStatus* ORT_API_CALL fake_output_type(
     const OrtSession* session,
     size_t index,
     OrtTypeInfo** out) NO_EXCEPTION {
-  (void)session;
+  const fake_session_t* fake = (const fake_session_t*)session;
   (void)index;
   *out = NULL;
+  if (fake->scenario == FAKE_SESSION_RUN_DENSE) {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+    fake_tensor_info_t* info =
+        (fake_tensor_info_t*)calloc(1u, sizeof(*info));
+    if (info != NULL) {
+      info->element_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+      info->dimension = 1;
+    }
+    *out = (OrtTypeInfo*)info;
+#else
+    *out = (OrtTypeInfo*)malloc(1u);
+    if (*out != NULL) {
+      *(uint8_t*)*out = 1u;
+    }
+#endif
+  }
   return NULL;
 }
 
@@ -404,11 +506,19 @@ static OrtStatus* ORT_API_CALL fake_create_tensor_with_data(
   (void)data_length;
   (void)shape;
   (void)shape_length;
+#if !defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
   (void)element_type;
+#endif
   {
     fake_value_t* value = (fake_value_t*)calloc(1u, sizeof(*value));
     if (value != NULL) {
       value->kind = (uint8_t)FAKE_VALUE_TENSOR;
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+      value->element_type = element_type;
+      value->data = data;
+      value->byte_length = data_length;
+      value->dimension = shape_length == 0u ? 1 : shape[0];
+#endif
     }
     *out = (OrtValue*)value;
   }
@@ -422,9 +532,51 @@ static void ORT_API_CALL fake_release_value(OrtValue* value) NO_EXCEPTION {
       fake_composite_owner_count > 0u) {
     --fake_composite_owner_count;
   }
+  if (fake != NULL && fake->is_run_output != 0u &&
+      fake_run_output_owner_count > 0u) {
+    --fake_run_output_owner_count;
+  }
 #endif
   free(value);
 }
+
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+static OrtStatus* ORT_API_CALL fake_run(
+    OrtSession* session,
+    const OrtRunOptions* run_options,
+    const char* const* input_names,
+    const OrtValue* const* inputs,
+    size_t input_len,
+    const char* const* output_names,
+    size_t output_names_len,
+    OrtValue** outputs) NO_EXCEPTION {
+  const fake_session_t* fake = (const fake_session_t*)session;
+  fake_value_t* output = NULL;
+  (void)run_options;
+  if (fake == NULL || fake->scenario != FAKE_SESSION_RUN_DENSE ||
+      input_names == NULL || inputs == NULL || input_len != 1u ||
+      strcmp(input_names[0], "X") != 0 || inputs[0] == NULL ||
+      output_names == NULL || output_names_len != 1u ||
+      strcmp(output_names[0], "Y") != 0 || outputs == NULL ||
+      outputs[0] != NULL || fake_run_output_owner_count != 0u) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  output = (fake_value_t*)calloc(1u, sizeof(*output));
+  if (output == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  output->kind = (uint8_t)FAKE_VALUE_TENSOR;
+  output->is_run_output = 1u;
+  output->element_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  output->run_output_data = 2.0f;
+  output->data = &output->run_output_data;
+  output->byte_length = sizeof(output->run_output_data);
+  output->dimension = 1;
+  ++fake_run_output_owner_count;
+  outputs[0] = (OrtValue*)output;
+  return NULL;
+}
+#endif
 
 static OrtStatus* ORT_API_CALL fake_has_value(
     const OrtValue* value,
@@ -494,11 +646,22 @@ static OrtStatus* ORT_API_CALL fake_create_value(
 static OrtStatus* ORT_API_CALL fake_get_tensor_type_and_shape(
     const OrtValue* value,
     OrtTensorTypeAndShapeInfo** out) NO_EXCEPTION {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  const fake_value_t* fake = (const fake_value_t*)value;
+  fake_tensor_info_t* info =
+      (fake_tensor_info_t*)calloc(1u, sizeof(*info));
+  if (info != NULL && fake != NULL) {
+    info->element_type = fake->element_type;
+    info->dimension = fake->dimension;
+  }
+  *out = (OrtTensorTypeAndShapeInfo*)info;
+#else
   (void)value;
   *out = (OrtTensorTypeAndShapeInfo*)malloc(1u);
   if (*out != NULL) {
     *(uint8_t*)*out = 1u;
   }
+#endif
   return NULL;
 }
 
@@ -510,8 +673,12 @@ static void ORT_API_CALL fake_release_tensor_type_and_shape(
 static OrtStatus* ORT_API_CALL fake_get_tensor_size(
     const OrtValue* value,
     size_t* out) NO_EXCEPTION {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  *out = ((const fake_value_t*)value)->byte_length;
+#else
   (void)value;
   *out = sizeof(float);
+#endif
   return NULL;
 }
 
@@ -527,14 +694,22 @@ static void ORT_API_CALL fake_memory_info_device_type(
     const OrtMemoryInfo* info,
     OrtMemoryInfoDeviceType* out) NO_EXCEPTION {
   (void)info;
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  *out = OrtMemoryInfoDeviceType_CPU;
+#else
   *out = OrtMemoryInfoDeviceType_GPU;
+#endif
 }
 
 static OrtStatus* ORT_API_CALL fake_get_tensor_data(
     const OrtValue* value,
     const void** out) NO_EXCEPTION {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  *out = ((const fake_value_t*)value)->data;
+#else
   (void)value;
   *out = (const void*)(uintptr_t)1u;
+#endif
   return NULL;
 }
 
@@ -556,8 +731,12 @@ static OrtStatus* ORT_API_CALL fake_cast_tensor_info(
 static OrtStatus* ORT_API_CALL fake_get_element_type(
     const OrtTensorTypeAndShapeInfo* info,
     ONNXTensorElementDataType* out) NO_EXCEPTION {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  *out = ((const fake_tensor_info_t*)info)->element_type;
+#else
   (void)info;
   *out = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+#endif
   return NULL;
 }
 
@@ -580,7 +759,11 @@ static OrtStatus* ORT_API_CALL fake_dimensions(
     int64_t* values,
     size_t count) NO_EXCEPTION {
   if (count > 0u) {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+    values[0] = ((const fake_tensor_info_t*)info)->dimension;
+#else
     values[0] = *(const uint8_t*)info == 0u ? -1 : 1;
+#endif
   }
   return NULL;
 }
@@ -771,6 +954,10 @@ static const OrtApi fake_api = {
     .CreateSessionOptions = fake_create_session_options,
     .ReleaseSessionOptions = fake_release_session_options,
 #if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+    .CreateRunOptions = fake_create_run_options,
+    .ReleaseRunOptions = fake_release_run_options,
+    .RunOptionsSetTerminate = fake_run_options_set_terminate,
+    .RunOptionsUnsetTerminate = fake_run_options_unset_terminate,
     .CloneSessionOptions = fake_clone_session_options,
 #endif
     .SetSessionGraphOptimizationLevel = fake_set_graph_optimization,
@@ -807,6 +994,9 @@ static const OrtApi fake_api = {
     .ReleaseMemoryInfo = fake_release_memory_info,
     .CreateTensorWithDataAsOrtValue = fake_create_tensor_with_data,
     .ReleaseValue = fake_release_value,
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+    .Run = fake_run,
+#endif
     .HasValue = fake_has_value,
     .GetValueType = fake_get_value_type,
     .GetValueCount = fake_get_value_count,

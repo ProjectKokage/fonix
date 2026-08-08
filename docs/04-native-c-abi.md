@@ -41,7 +41,12 @@ dort_status_t* dort_session_create(
 - Caller reads code/message through accessors and releases it with `dort_status_release`.
 - No other output is valid on failure unless explicitly documented.
 
-The status copies the ORT message before releasing `OrtStatus`. It must survive independently of ORT object lifetime.
+The status copies the ORT message before releasing `OrtStatus`. It must survive
+independently of ORT object lifetime. If the status object itself cannot be
+allocated, the shim returns its static allocation-emergency status. If only an
+operation or message copy cannot be allocated, the owned status preserves the
+original domain, wrapper code, and ORT code and substitutes a static fallback
+for only that diagnostic field.
 
 An ORT error does not erase a non-null owner returned through another output.
 The shim releases such partial provider-discovery or model-metadata owners when
