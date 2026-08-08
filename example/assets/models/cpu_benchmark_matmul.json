@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "cpu-benchmark-matmul-sha256-19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0",
+  "generator": {
+    "path": "assets/models/generate_cpu_benchmark_matmul.py",
+    "version": "cpu-benchmark-matmul-v1",
+    "sizeBytes": 20969,
+    "sha256": "5730c2193acc8bd9fb3fd52fb9c973d46a512e2bd56c4d815caca49fe4e16ec2",
+    "dependencies": "python-standard-library-only"
+  },
+  "model": {
+    "path": "assets/models/cpu_benchmark_matmul.onnx",
+    "encoding": "onnx-protobuf",
+    "sizeBytes": 4194629,
+    "sha256": "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0",
+    "onnxIrVersion": 8,
+    "opset": 17,
+    "operator": "MatMul"
+  },
+  "input": {
+    "name": "input",
+    "elementType": "float32",
+    "shape": [
+      2048,
+      1024
+    ],
+    "data": {
+      "path": "assets/models/cpu_benchmark_matmul.input.f32le",
+      "encoding": "ieee754-binary32-little-endian",
+      "sizeBytes": 8388608,
+      "sha256": "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
+    }
+  },
+  "initializer": {
+    "name": "weight",
+    "elementType": "float32",
+    "shape": [
+      1024,
+      1024
+    ],
+    "storage": "embedded-onnx-raw-data",
+    "rawDataSizeBytes": 4194304,
+    "rawDataSha256": "038f3d7840fc1ae2eb5c3df337d18828d87e3618a982f826572ceed81cd896fd"
+  },
+  "matrixMultiplication": {
+    "leftShape": [
+      2048,
+      1024
+    ],
+    "rightShape": [
+      1024,
+      1024
+    ],
+    "outputShape": [
+      2048,
+      1024
+    ],
+    "scalarMultiplicationCount": 2147483648,
+    "scalarAdditionCount": 2145386496,
+    "multiplyAccumulateCount": 2147483648,
+    "flopCountConvention": "two-per-multiply-accumulate",
+    "flopCount": 4294967296
+  },
+  "output": {
+    "name": "output",
+    "elementType": "float32",
+    "shape": [
+      2048,
+      1024
+    ],
+    "referenceData": {
+      "path": "assets/models/cpu_benchmark_matmul.output.f32le",
+      "encoding": "ieee754-binary32-little-endian",
+      "sizeBytes": 8388608,
+      "sha256": "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
+    }
+  },
+  "determinism": {
+    "byteOrder": "little-endian",
+    "patternPeriod": 64,
+    "input": {
+      "algorithm": "lcg32-periodic-row-rotation",
+      "seed": 305441741,
+      "multiplier": 1664525,
+      "increment": 1013904223,
+      "modulus": 4294967296,
+      "valueModulus": 7,
+      "valueOffset": 3,
+      "rowStride": 17
+    },
+    "initializer": {
+      "algorithm": "lcg32-periodic-column-rotation",
+      "seed": 3221344269,
+      "multiplier": 22695477,
+      "increment": 1,
+      "modulus": 4294967296,
+      "valueModulus": 5,
+      "valueOffset": 2,
+      "columnStride": 29
+    },
+    "referenceComputation": "expanded-integer-matmul-over-complete-64x64-fundamental-tile",
+    "independentVerification": "periodic-ieee754-math-fsum-correlation-for-every-tile-value"
+  },
+  "referencePolicy": {
+    "comparison": "exact-ieee754-binary32-bits",
+    "absoluteTolerance": 0,
+    "relativeTolerance": 0,
+    "nanPolicy": "forbid",
+    "infinityPolicy": "forbid",
+    "reason": "All operands, products, partial sums, and outputs are exact integers with magnitude below 2^24."
+  },
+  "claimBoundary": "Representative deterministic CPU timing workload for measurement receipt generation only. Its dimensions are a calibration starting point, not a latency, throughput, real-time, support, provider-qualification, regression-threshold, portability, or release claim."
+}

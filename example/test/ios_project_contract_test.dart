@@ -489,8 +489,9 @@ void main() {
       expect(source, contains('isMacOS: Platform.isMacOS'));
       expect(source, contains('isLinux: Platform.isLinux'));
       expect(source, contains('environment: Platform.environment'));
-      expect('Platform.environment'.allMatches(source), hasLength(1));
-      expect('exit(status);'.allMatches(source), hasLength(1));
+      expect(source, contains('desktopCpuBenchmarkEnabled('));
+      expect('Platform.environment'.allMatches(source), hasLength(2));
+      expect('exit(status);'.allMatches(source), hasLength(2));
     },
   );
 }

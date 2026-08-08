@@ -89,6 +89,10 @@ class LinuxAssetTests(unittest.TestCase):
         for relative in (
             "models/mul_1.onnx",
             "models/model.json",
+            "models/cpu_benchmark_matmul.onnx",
+            "models/cpu_benchmark_matmul.input.f32le",
+            "models/cpu_benchmark_matmul.output.f32le",
+            "models/cpu_benchmark_matmul.json",
             "models/xnnpack_matmul.onnx",
             "models/xnnpack_matmul.json",
         ):

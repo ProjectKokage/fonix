@@ -35,6 +35,25 @@ EXPECTED_MODEL_ASSET_REPORT = {
             "76eb202b02211f34ee64ca6a88a2a24d9f58f334136fa7f1b7fcfe2e763f30ab"
         ),
     },
+    "assets/models/cpu_benchmark_matmul.onnx": {
+        "sizeBytes": 4_194_629,
+        "sha256": "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0",
+        "metadataPath": "assets/models/cpu_benchmark_matmul.json",
+        "metadataSizeBytes": 3_481,
+        "metadataSha256": (
+            "7c089a5a6c6cd444eb802bb0066a2fae054e54a1b924cffac7c53b80bd9c7c8a"
+        ),
+        "inputPath": "assets/models/cpu_benchmark_matmul.input.f32le",
+        "inputSizeBytes": 8_388_608,
+        "inputSha256": (
+            "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
+        ),
+        "referenceOutputPath": "assets/models/cpu_benchmark_matmul.output.f32le",
+        "referenceOutputSizeBytes": 8_388_608,
+        "referenceOutputSha256": (
+            "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
+        ),
+    },
 }
 sys.path.insert(0, str(CI_ROOT))
 SCRIPT = CI_ROOT / "audit_android_application.py"
@@ -115,13 +134,29 @@ def _exact_model_members(kind: str) -> dict[str, bytes]:
                 kind, f"assets/flutter_assets/{relative_path}"
             )
             result[member] = (MODEL_SOURCE_ROOT / Path(relative_path).name).read_bytes()
+    for relative_path in audit.CPU_BENCHMARK_ASSET_IDENTITIES:
+        member = audit._artifact_member(
+            kind, f"assets/flutter_assets/{relative_path}"
+        )
+        result[member] = (MODEL_SOURCE_ROOT / Path(relative_path).name).read_bytes()
     return result
 
 
-def _audit_model_members(kind: str, members: dict[str, bytes]) -> dict[str, object]:
+def _audit_model_members(
+    kind: str,
+    members: dict[str, bytes],
+    *,
+    compression: int = zipfile.ZIP_STORED,
+    compresslevel: int | None = None,
+) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="fonix-model-package-") as temporary:
         artifact = Path(temporary) / f"app.{kind}"
-        with zipfile.ZipFile(artifact, "w") as archive:
+        with zipfile.ZipFile(
+            artifact,
+            "w",
+            compression=compression,
+            compresslevel=compresslevel,
+        ) as archive:
             for path, value in members.items():
                 archive.writestr(path, value)
         archive, index = audit._archive_index(artifact)
@@ -181,6 +216,40 @@ class AndroidModelAssetAuditTest(unittest.TestCase):
                     _audit_model_members(kind, _exact_model_members(kind)),
                     EXPECTED_MODEL_ASSET_REPORT,
                 )
+
+    def test_accepts_exact_highly_compressible_assets_when_deflated(self) -> None:
+        for kind in ("apk", "aab"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    _audit_model_members(
+                        kind,
+                        _exact_model_members(kind),
+                        compression=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    ),
+                    EXPECTED_MODEL_ASSET_REPORT,
+                )
+
+    def test_rejects_high_ratio_tamper_before_identity_validation(self) -> None:
+        for kind in ("apk", "aab"):
+            with self.subTest(kind=kind):
+                members = _exact_model_members(kind)
+                input_member = audit._artifact_member(
+                    kind,
+                    "assets/flutter_assets/assets/models/"
+                    "cpu_benchmark_matmul.input.f32le",
+                )
+                members[input_member] = bytes(audit.CPU_BENCHMARK_INPUT_SIZE_BYTES)
+                with self.assertRaisesRegex(
+                    audit.AndroidApplicationAuditError,
+                    "suspicious compression ratio",
+                ):
+                    _audit_model_members(
+                        kind,
+                        members,
+                        compression=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    )
 
     def test_rejects_every_tampered_model_or_metadata_asset(self) -> None:
         for kind in ("apk", "aab"):

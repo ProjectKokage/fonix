@@ -23,6 +23,10 @@ flutter:
   assets:
     - assets/models/mul_1.onnx
     - assets/models/model.json
+    - assets/models/cpu_benchmark_matmul.onnx
+    - assets/models/cpu_benchmark_matmul.input.f32le
+    - assets/models/cpu_benchmark_matmul.output.f32le
+    - assets/models/cpu_benchmark_matmul.json
     - assets/models/xnnpack_matmul.onnx
     - assets/models/xnnpack_matmul.json
     - assets/fonix/fonix-native-artifact-manifest.json

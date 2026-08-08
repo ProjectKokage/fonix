@@ -13,9 +13,12 @@ The app is a development reference for macOS arm64 at a 14.0 deployment floor
 and Android arm64-v8a with a manifest/build floor of API 24. Its Linux x86_64
 baseline is glibc 2.27. Its pinned Flutter iOS scaffold is arm64-only for both
 device and simulator and declares a 15.1 deployment floor. It is not a release
-artifact. The included 130-byte CPU
-model and 311-byte static-weight MatMul assignment model are bounded functional
-fixtures, not representative performance workloads.
+artifact. The included 130-byte CPU model and 311-byte static-weight MatMul
+assignment model are bounded functional fixtures, not representative
+performance workloads. A separate generated
+`[2048, 1024] @ [1024, 1024]` MatMul and its exact input/reference bytes are
+measurement-only benchmark inputs; they do not establish a baseline or
+threshold.
 
 The Release target keeps the app sandbox and hardened runtime enabled but
 declares `com.apple.security.cs.disable-library-validation`: the local gate has
@@ -54,6 +57,35 @@ failures emit only `FONIX_REFERENCE_PUBLICATION_FAILURE`. No raw environment
 map or smoke flag reaches Dart, and the environment-driven deterministic exit
 path remains desktop-only on macOS and Linux. The iOS smoke remains resident
 so the Flutter runner owns shutdown.
+
+## Desktop CPU measurement fragment
+
+An external macOS or Linux Release build accepts the exact opt-in activation
+`FONIX_CPU_BENCHMARK=1`. Do not combine it with
+`FONIX_REFERENCE_SMOKE=1`; the existing functional smoke retains startup
+precedence. The benchmark path loads and verifies all four committed workload
+assets before timing, then uses the synchronous public API with fixed
+sequential CPU settings, one explicit intra-op thread, one explicit inter-op
+thread, deterministic compute, and one reusable input tensor.
+
+The runner requires bounded batch-median stabilization, records 100 warm
+inference and native-to-Dart output-copy samples, completes three one-second
+throughput windows whose cycle includes inference, output copy, exact-bit
+validation, and result disposal, captures total-process RSS at eight lifecycle
+phases, and performs one separate strict full-CPU-assignment run outside the
+timed samples. Every output is compared bit-for-bit with the committed float32
+reference. It then double-disposes every native owner and deletes the private
+assignment-profile directory before publishing one bounded line beginning
+with `FONIX_CPU_BENCHMARK_FRAGMENT=`.
+
+That line is deliberately a `measurement-only-target-fragment`, not a
+version-1 benchmark evidence receipt. A host-side collector must use repeated
+fresh processes, bind the final application/runtime/build artifacts, add
+controlled device, OS, power, thermal, and CPU-utilization observations, and
+pass the result through the offline benchmark validator before review. The
+fragment does not establish stable performance, a regression threshold,
+CPU/provider qualification, platform support, release readiness, or
+transferability.
 
 ## macOS gate
 

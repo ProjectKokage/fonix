@@ -812,22 +812,41 @@ def _require_ios_source_contract(work_directory: Path) -> None:
         "        environment: Platform.environment,\n"
         "      )) {"
     )
+    benchmark_guard = (
+        "  if ((Platform.isMacOS || Platform.isLinux) &&\n"
+        "      desktopCpuBenchmarkEnabled(\n"
+        "        isMacOS: Platform.isMacOS,\n"
+        "        isLinux: Platform.isLinux,\n"
+        "        environment: Platform.environment,\n"
+        "      )) {"
+    )
     required_main_fragments = (
         "import 'dart:async';",
+        "import 'src/cpu_benchmark.dart';",
         "if (Platform.isIOS)",
         "challenge = await readIosResidentReferenceChallenge()",
         resident_dispatch,
         "residentReferenceActivationFailureDiagnostic",
         desktop_guard,
+        benchmark_guard,
+        "final int status = await _runPackagedCpuBenchmark();",
+        "Future<int> _runPackagedCpuBenchmark() async {",
+        "stdout.writeln('$cpuBenchmarkFragmentPrefix${fragment.toJsonString()}');",
+        "Fonix CPU benchmark failed (${error.runtimeType}).",
         "exit(status);",
     )
     if (
         any(fragment not in main for fragment in required_main_fragments)
-        or main.count("Platform.environment") != 1
+        or main.index(desktop_guard) >= main.index(benchmark_guard)
+        or main.count("Platform.environment") != 2
+        or main.count("Platform.isMacOS || Platform.isLinux") != 2
         or main.count("unawaited(") != 1
         or main.count("_runResidentPackagedSmoke(challenge, pid)") != 1
         or main.count("desktopReferenceSmokeEnabled(") != 1
-        or main.count("exit(status);") != 1
+        or main.count("desktopCpuBenchmarkEnabled(") != 1
+        or main.count("_runPackagedCpuBenchmark()") != 2
+        or main.count("cpuBenchmarkFragmentPrefix") != 1
+        or main.count("exit(status);") != 2
         or ".ignore()" in main
         or "requireResidentReferenceChallenge(Platform.environment)" in main
     ):

@@ -147,7 +147,7 @@ void main() {
     expect(runner, contains('fl_register_plugins(FL_PLUGIN_REGISTRY(view))'));
   });
 
-  test('Linux shares the bounded stdout one-shot and deterministic exit', () {
+  test('Linux shares bounded smoke and benchmark one-shot exits', () {
     final String source = File('lib/main.dart').readAsStringSync();
     expect(
       source,
@@ -157,6 +157,7 @@ void main() {
       ),
     );
     expect(source, contains('desktopReferenceSmokeEnabled('));
+    expect(source, contains('desktopCpuBenchmarkEnabled('));
     expect(source, contains('isMacOS: Platform.isMacOS'));
     expect(source, contains('isLinux: Platform.isLinux'));
     expect(source, contains('environment: Platform.environment'));
@@ -170,13 +171,20 @@ void main() {
     expect(
       source,
       contains(
+        r"stdout.writeln('$cpuBenchmarkFragmentPrefix"
+        r"${fragment.toJsonString()}');",
+      ),
+    );
+    expect(
+      source,
+      contains(
         'await stdout.flush();\n'
         '    await stderr.flush();\n'
         '    exit(status);',
       ),
     );
-    expect('exit(status);'.allMatches(source), hasLength(1));
-    expect('Platform.environment'.allMatches(source), hasLength(1));
+    expect('exit(status);'.allMatches(source), hasLength(2));
+    expect('Platform.environment'.allMatches(source), hasLength(2));
     expect(source, isNot(contains('stderr.writeln(error')));
     expect(source, isNot(contains('stdout.writeln(error')));
   });

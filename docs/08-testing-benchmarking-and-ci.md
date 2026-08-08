@@ -496,6 +496,47 @@ Those decisions require real target runs, review of stable baselines, and
 separately approved thresholds. Focused tamper tests are discovered
 automatically by the existing `tool/ci/tests/test_*.py` unittest command.
 
+### Public-API CPU target fragment
+
+Implementation checkpoint (2026-08-08): the committed Flutter reference app
+contains a macOS/Linux-only, exact `FONIX_CPU_BENCHMARK=1` activation over a
+generated static-weight float32 MatMul. The model computes
+`[2048, 1024] @ [1024, 1024] -> [2048, 1024]`; its model, input, reference
+output, metadata, generator, shapes, operation count, and exact-byte output
+policy are independently reproducible and SHA-256 bound.
+
+The target runner loads and verifies every asset before timing. It uses the
+synchronous public API with pool size/concurrency one, sequential execution,
+graph optimization `all`, explicit intra/inter-op thread counts of one, CPU
+arena and memory patterns enabled, and deterministic compute. It pre-creates
+one reusable input tensor, measures runtime load, session creation, input
+materialization, first inference, and native-to-Dart output copy separately,
+requires three consecutive batch-median changes within 10 percent under a
+100-run bound, records 100 warm samples, and completes three fixed one-second
+throughput windows. Each throughput cycle includes inference, output copy,
+exact-bit validation, and result disposal. Exact output bits are checked after
+every run.
+Total-process current/peak RSS is sampled at eight phases. CPU utilization,
+native-only RSS, power mode, and start/end thermal observations remain
+host-supplied evidence.
+
+Strict full CPU assignment is captured once through a separate profiled
+session after all timing windows. The runner then double-disposes its input,
+timed session, evidence session, results, and runtime, removes the private
+profile root, and emits one bounded path-free line beginning with
+`FONIX_CPU_BENCHMARK_FRAGMENT=`. Its purpose is exactly
+`measurement-only-target-fragment`. A cold-runtime sample is meaningful only
+when a host collector launches a fresh final-application process; the target
+fragment does not aggregate launches or create a version-1 benchmark receipt.
+
+One local macOS arm64 Release application run completed this path against the
+lock-selected ORT 1.27.1 CPU artifact on 2026-08-08, including exact output,
+25-run stabilization, 100 warm samples, three one-second windows, one-node
+full CPU assignment, temporary-profile removal, and double disposal. This is
+one development-host measurement-path check, not an archived baseline,
+threshold, provider qualification, performance claim, distribution artifact,
+or evidence for Linux, mobile, Windows, or another macOS tuple.
+
 ## 8.12 CI matrix
 
 ### Current required workflow

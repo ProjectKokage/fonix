@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'app.dart';
 import 'src/android_smoke_channel.dart';
 import 'src/android_xnnpack_qualification.dart';
+import 'src/cpu_benchmark.dart';
 import 'src/fonix_inference_backend.dart';
 import 'src/reference_smoke.dart';
 
@@ -45,6 +46,17 @@ Future<void> main() async {
     await stderr.flush();
     exit(status);
   }
+  if ((Platform.isMacOS || Platform.isLinux) &&
+      desktopCpuBenchmarkEnabled(
+        isMacOS: Platform.isMacOS,
+        isLinux: Platform.isLinux,
+        environment: Platform.environment,
+      )) {
+    final int status = await _runPackagedCpuBenchmark();
+    await stdout.flush();
+    await stderr.flush();
+    exit(status);
+  }
   runApp(FonixReferenceApp(createBackend: FonixInferenceBackend.new));
 }
 
@@ -78,6 +90,17 @@ Future<int> _runPackagedSmoke() async {
     return 0;
   } on Object catch (error) {
     stderr.writeln('Fonix reference smoke failed (${error.runtimeType}).');
+    return 1;
+  }
+}
+
+Future<int> _runPackagedCpuBenchmark() async {
+  try {
+    final CpuBenchmarkFragment fragment = await runDesktopCpuBenchmark();
+    stdout.writeln('$cpuBenchmarkFragmentPrefix${fragment.toJsonString()}');
+    return 0;
+  } on Object catch (error) {
+    stderr.writeln('Fonix CPU benchmark failed (${error.runtimeType}).');
     return 1;
   }
 }

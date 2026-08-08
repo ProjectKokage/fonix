@@ -33,7 +33,7 @@ matrix, including the deferred Windows target-host lane.
   node assignment.
 - Deterministic build hooks, a hash-pinned native lockfile, final-package
   auditors, Android single-ORT ownership tooling, and reproducible release-
-  evidence generators.
+  evidence generators, plus a bounded public-API CPU measurement path.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM are outside the current API.
@@ -356,7 +356,10 @@ and an externally controlled bundle conforming to
 The repository contains the fail-closed validator but no approved bundle or
 publication authority. Local development can proceed in parallel with
 lifecycle/performance stabilization for those exact macOS, iOS-device, Linux,
-and Android-without-QNN candidates. Android
+and Android-without-QNN candidates. The reference app now has a bounded,
+measurement-only macOS/Linux CPU target fragment over a reproducible
+static-weight MatMul; repeated controlled launches, formal receipts, reviewed
+thresholds, and non-macOS target evidence remain open. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

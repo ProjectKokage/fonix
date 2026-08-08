@@ -645,6 +645,7 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
             "\n".join(
                 [
                     "import 'dart:async';",
+                    "import 'src/cpu_benchmark.dart';",
                     "  if (Platform.isIOS) {",
                     "      challenge = await readIosResidentReferenceChallenge();",
                     "      unawaited(",
@@ -659,7 +660,19 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
                     "        isLinux: Platform.isLinux,",
                     "        environment: Platform.environment,",
                     "      )) {",
+                    "final int status = await _runPackagedSmoke();",
                     "exit(status);",
+                    "  if ((Platform.isMacOS || Platform.isLinux) &&",
+                    "      desktopCpuBenchmarkEnabled(",
+                    "        isMacOS: Platform.isMacOS,",
+                    "        isLinux: Platform.isLinux,",
+                    "        environment: Platform.environment,",
+                    "      )) {",
+                    "final int status = await _runPackagedCpuBenchmark();",
+                    "exit(status);",
+                    "Future<int> _runPackagedCpuBenchmark() async {",
+                    "stdout.writeln('$cpuBenchmarkFragmentPrefix${fragment.toJsonString()}');",
+                    "Fonix CPU benchmark failed (${error.runtimeType}).",
                 ]
             ),
             encoding="utf-8",
@@ -846,6 +859,20 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
         _, _, main = self._write_ios_source_contract(work)
         main.write_text(
             f"{main.read_text(encoding='utf-8')}\ndesktopReferenceSmokeEnabled(\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "resident smoke entrypoint contract changed",
+        ):
+            run_ios_reference_app_gate._require_ios_source_contract(work)
+
+        _, _, main = self._write_ios_source_contract(work)
+        main.write_text(
+            main.read_text(encoding="utf-8").replace(
+                "desktopCpuBenchmarkEnabled(",
+                "Platform.environment['FONIX_CPU_BENCHMARK'] == '1' && (",
+            ),
             encoding="utf-8",
         )
         with self.assertRaisesRegex(

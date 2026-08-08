@@ -537,6 +537,18 @@ bounded partial owners to be released on error and prove an oversized returned
 count cannot authorize entry iteration. Broader seeded lifecycle stress and
 further allocation fault injection continue within this phase.
 
+The 2026-08-08 CPU measurement checkpoint adds a reproducible 4.29-GFLOP
+static-weight MatMul with exact input/reference bytes and a bounded
+macOS/Linux final-application target path. The path separates runtime, session,
+input, inference, and output-copy timing; requires observed stabilization;
+records 100 warm samples and three one-second throughput windows; captures
+phase-labelled total RSS; profiles strict CPU assignment outside timing; and
+settles every owner before publishing a path-free measurement-only fragment.
+One local macOS arm64 Release run passed the complete path. Repeated controlled
+fresh-process collection, formal benchmark receipts, reviewed stable
+baselines/thresholds, and every other selected target remain open; this
+checkpoint makes no performance, qualification, support, or release claim.
+
 ## Suggested issue breakdown
 
 Create independently reviewable issues:

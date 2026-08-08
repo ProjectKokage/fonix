@@ -49,6 +49,41 @@ XNNPACK_METADATA_SHA256 = (
     "76eb202b02211f34ee64ca6a88a2a24d9f58f334136fa7f1b7fcfe2e763f30ab"
 )
 XNNPACK_METADATA_SIZE_BYTES = 1_298
+CPU_BENCHMARK_MODEL_SHA256 = (
+    "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0"
+)
+CPU_BENCHMARK_MODEL_SIZE_BYTES = 4_194_629
+CPU_BENCHMARK_INPUT_SHA256 = (
+    "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
+)
+CPU_BENCHMARK_INPUT_SIZE_BYTES = 8_388_608
+CPU_BENCHMARK_OUTPUT_SHA256 = (
+    "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
+)
+CPU_BENCHMARK_OUTPUT_SIZE_BYTES = 8_388_608
+CPU_BENCHMARK_METADATA_SHA256 = (
+    "7c089a5a6c6cd444eb802bb0066a2fae054e54a1b924cffac7c53b80bd9c7c8a"
+)
+CPU_BENCHMARK_METADATA_SIZE_BYTES = 3_481
+CPU_BENCHMARK_MAX_COMPRESSION_RATIO = 256
+CPU_BENCHMARK_ASSET_IDENTITIES: Mapping[str, tuple[int, str]] = {
+    "assets/models/cpu_benchmark_matmul.onnx": (
+        CPU_BENCHMARK_MODEL_SIZE_BYTES,
+        CPU_BENCHMARK_MODEL_SHA256,
+    ),
+    "assets/models/cpu_benchmark_matmul.input.f32le": (
+        CPU_BENCHMARK_INPUT_SIZE_BYTES,
+        CPU_BENCHMARK_INPUT_SHA256,
+    ),
+    "assets/models/cpu_benchmark_matmul.output.f32le": (
+        CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
+        CPU_BENCHMARK_OUTPUT_SHA256,
+    ),
+    "assets/models/cpu_benchmark_matmul.json": (
+        CPU_BENCHMARK_METADATA_SIZE_BYTES,
+        CPU_BENCHMARK_METADATA_SHA256,
+    ),
+}
 APPLICATION_ID = "dev.fonix.fonix_reference"
 MAIN_ACTIVITY = f"{APPLICATION_ID}.MainActivity"
 PRIVATE_RECEIVER_PERMISSION = (
@@ -583,6 +618,7 @@ def _read_member(
     *,
     label: str,
     maximum: int,
+    maximum_compression_ratio: int = MAX_COMPRESSION_RATIO,
 ) -> bytes:
     info = index.get(path)
     if info is None or info.is_dir():
@@ -591,7 +627,10 @@ def _read_member(
         raise AndroidApplicationAuditError(f"{label} must not be encrypted")
     if info.file_size <= 0 or info.file_size > maximum:
         raise AndroidApplicationAuditError(f"{label} size is outside its bound")
-    if info.compress_size <= 0 or info.file_size > info.compress_size * MAX_COMPRESSION_RATIO:
+    if (
+        info.compress_size <= 0
+        or info.file_size > info.compress_size * maximum_compression_ratio
+    ):
         raise AndroidApplicationAuditError(f"{label} has a suspicious compression ratio")
     chunks: list[bytes] = []
     consumed = 0
@@ -686,12 +725,19 @@ def _audit_model_assets(
     asset_root = _artifact_member(
         kind, "assets/flutter_assets/assets/models"
     )
+    expected_relative_paths = {
+        *CPU_BENCHMARK_ASSET_IDENTITIES,
+        *(
+            relative_path
+            for contract in MODEL_ASSET_CONTRACTS
+            for relative_path in (contract.model_path, contract.metadata_path)
+        ),
+    }
     expected_members = {
         _artifact_member(
             kind, f"assets/flutter_assets/{relative_path}"
         )
-        for contract in MODEL_ASSET_CONTRACTS
-        for relative_path in (contract.model_path, contract.metadata_path)
+        for relative_path in expected_relative_paths
     }
     actual_members = {
         path
@@ -765,6 +811,97 @@ def _audit_model_assets(
             "metadataSizeBytes": contract.metadata_size_bytes,
             "metadataSha256": contract.metadata_sha256,
         }
+
+    benchmark_bytes: dict[str, bytes] = {}
+    for relative_path, (size_bytes, sha256) in CPU_BENCHMARK_ASSET_IDENTITIES.items():
+        member = _artifact_member(
+            kind, f"assets/flutter_assets/{relative_path}"
+        )
+        contents = _read_member(
+            archive,
+            index,
+            member,
+            label=f"packaged CPU benchmark asset {relative_path}",
+            maximum=size_bytes,
+            maximum_compression_ratio=CPU_BENCHMARK_MAX_COMPRESSION_RATIO,
+        )
+        if len(contents) != size_bytes or hashlib.sha256(contents).hexdigest() != sha256:
+            raise AndroidApplicationAuditError(
+                f"packaged CPU benchmark asset identity changed: {relative_path}"
+            )
+        benchmark_bytes[relative_path] = contents
+
+    metadata_path = "assets/models/cpu_benchmark_matmul.json"
+    try:
+        benchmark_manifest = strict_json(
+            benchmark_bytes[metadata_path],
+            "packaged CPU benchmark metadata",
+            maximum=CPU_BENCHMARK_METADATA_SIZE_BYTES,
+        )
+    except AndroidGateCommonError as error:
+        raise _fail_common(error) from error
+    benchmark_manifest = _object(
+        benchmark_manifest, "packaged CPU benchmark metadata"
+    )
+    model_identity = _object(
+        benchmark_manifest.get("model"), "packaged CPU benchmark metadata.model"
+    )
+    input_identity = _object(
+        _object(
+            benchmark_manifest.get("input"),
+            "packaged CPU benchmark metadata.input",
+        ).get("data"),
+        "packaged CPU benchmark metadata.input.data",
+    )
+    output_identity = _object(
+        _object(
+            benchmark_manifest.get("output"),
+            "packaged CPU benchmark metadata.output",
+        ).get("referenceData"),
+        "packaged CPU benchmark metadata.output.referenceData",
+    )
+    expected_bindings = (
+        (
+            model_identity,
+            "assets/models/cpu_benchmark_matmul.onnx",
+            CPU_BENCHMARK_MODEL_SIZE_BYTES,
+            CPU_BENCHMARK_MODEL_SHA256,
+        ),
+        (
+            input_identity,
+            "assets/models/cpu_benchmark_matmul.input.f32le",
+            CPU_BENCHMARK_INPUT_SIZE_BYTES,
+            CPU_BENCHMARK_INPUT_SHA256,
+        ),
+        (
+            output_identity,
+            "assets/models/cpu_benchmark_matmul.output.f32le",
+            CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
+            CPU_BENCHMARK_OUTPUT_SHA256,
+        ),
+    )
+    for identity, path, size_bytes, sha256 in expected_bindings:
+        if (
+            identity.get("path") != path
+            or identity.get("sizeBytes") != size_bytes
+            or identity.get("sha256") != sha256
+        ):
+            raise AndroidApplicationAuditError(
+                "packaged CPU benchmark metadata is not bound to its assets"
+            )
+    report["assets/models/cpu_benchmark_matmul.onnx"] = {
+        "sizeBytes": CPU_BENCHMARK_MODEL_SIZE_BYTES,
+        "sha256": CPU_BENCHMARK_MODEL_SHA256,
+        "metadataPath": metadata_path,
+        "metadataSizeBytes": CPU_BENCHMARK_METADATA_SIZE_BYTES,
+        "metadataSha256": CPU_BENCHMARK_METADATA_SHA256,
+        "inputPath": "assets/models/cpu_benchmark_matmul.input.f32le",
+        "inputSizeBytes": CPU_BENCHMARK_INPUT_SIZE_BYTES,
+        "inputSha256": CPU_BENCHMARK_INPUT_SHA256,
+        "referenceOutputPath": "assets/models/cpu_benchmark_matmul.output.f32le",
+        "referenceOutputSizeBytes": CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
+        "referenceOutputSha256": CPU_BENCHMARK_OUTPUT_SHA256,
+    }
     return report
 
 
