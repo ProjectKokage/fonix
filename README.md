@@ -408,12 +408,21 @@ complete and stable enough to match as input to a later review; it is not a
 thermal-health judgment or baseline approval. Apple `nominal` can also mean
 the thermal state was undetermined, stable elevated states still require
 review, and the configured `pmset` profile does not assert every dynamic power
-condition. Linux thermal observation remains unavailable. This first formal V1
-source checkpoint has not yet produced a final-application five-launch bundle
-or independent replay. Earlier prototype bundles must not be relabeled as V1
-evidence. The implemented path creates no controlled baseline, reviewed
-threshold, provider qualification, support promotion, release approval, or
-non-macOS target evidence. Android
+condition. Linux thermal observation remains unavailable. The first formal V1
+five-launch collection and independent replay used the macOS arm64 Release
+reference application and the source snapshot at commit
+`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. The seven-file raw bundle has
+SHA-256 `976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`;
+the derived collection and validation record have SHA-256 values
+`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`
+and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+The environment was recorded as `baseline-comparable`, but that label only
+makes the raw measurements eligible for later review. The replay remains
+`measurement-only` and `offline-consistency-only`; the source-snapshot binding
+is not compiled provenance. Earlier prototype bundles must not be relabeled as
+V1 evidence. This exact macOS result creates no
+controlled baseline, reviewed threshold, provider qualification, support
+promotion, release approval, or non-macOS target evidence. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

@@ -293,11 +293,17 @@ regressions. The complete Python suite passes 827/827, the current Flutter SDK
 root suite passes 225 tests with 54 explicit environment-gated skips, and a
 clean external-copy reference app passes analysis and 90/90 tests, including
 18/18 benchmark cases. The exact ORT 1.27.1 two-worker test passes 1/1. The
-first V1 source checkpoint still needs one exact final application to complete
-five fresh launches and independent replay. Earlier prototype bundles cannot
-be relabeled as V1. Phase 5 therefore has an implemented measurement path but
-no formal target measurement, reviewed baseline, threshold, performance claim,
-provider qualification, platform support, or release claim.
+collector completed five fresh macOS arm64 Release reference-application
+launches and independent replay against the source snapshot at commit
+`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. Its raw bundle, collection, and
+validation record have SHA-256 values
+`976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`,
+`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`,
+and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+Earlier prototype bundles cannot be relabeled as V1. Phase 5 now has one exact
+formal macOS target measurement, but no reviewed baseline, threshold,
+performance guarantee, provider qualification, support promotion, or release
+claim.
 
 ## Phase 6: mobile EPs
 
@@ -675,12 +681,13 @@ observation remains unavailable.
 The earlier schema-1 serial fragment was an unreleased prototype, not a formal
 protocol. The two wrongly numbered intermediate checkpoints remain only in Git
 history and impose no active compatibility, migration, or evidence obligation.
-This first V1 source checkpoint has not yet completed a final-application
-five-launch collection and replay. No earlier serial or pool bundle may be
-relabeled as V1 evidence.
+The formal V1 five-launch collection and replay used the macOS arm64 final
+application and the source snapshot at commit
+`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. This binding is not compiled
+provenance. No earlier serial or pool bundle may be relabeled as V1 evidence.
 
-Controlled target baselines, reviewed thresholds, the macOS and Linux formal
-V1 final-app runs, and measurements for every other selected row remain open.
+Controlled target baselines, reviewed thresholds, the Linux formal V1
+final-app run, and measurements for every other selected row remain open.
 The implemented source path makes no performance guarantee, qualification,
 support, or release claim. The phase
 inventory below remains the long-term program: Phase 9 target qualification

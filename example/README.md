@@ -178,13 +178,25 @@ was an unreleased prototype, not a formal protocol. The wrongly numbered
 intermediate checkpoints remain only in Git history; they create no active file,
 compatibility alias, accepted evidence format, or migration obligation.
 
-This first formal V1 source checkpoint still needs a final macOS or Linux
-application to complete five fresh challenge/PID-bound launches and an
-independent replay. No earlier prototype bundle may be relabeled as V1
-evidence. Until that run exists, the source proves only the bounded
-implementation, schemas, derivation, and replay behavior. It does not establish
-a baseline, threshold, performance claim, provider qualification, platform
-support, release approval, or evidence for another tuple.
+The collector ran five fresh challenge/PID-bound launches of the macOS arm64
+Release application against the source snapshot at commit
+`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`, then completed an independent V1
+replay. The seven-file raw bundle has SHA-256
+`976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`;
+the collection and validation record have SHA-256 values
+`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`
+and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+Across the five launches, serial warm inference recorded p50/p95/p99 of
+2,269/2,318/2,410 microseconds and aggregate serial throughput of 208.239
+runs/s. The two-worker full-isolate-roundtrip phase recorded aggregate
+throughput of 137.573 runs/s. These scopes differ and must not be compared as
+equivalent run costs. The environment was `baseline-comparable`, while the
+replay remains `measurement-only` and `offline-consistency-only`. The source
+snapshot is not compiled provenance. No earlier prototype bundle may be
+relabeled as V1 evidence. This exact run does not
+establish a baseline, threshold, generalized performance claim or guarantee,
+provider qualification, platform support, release approval, or evidence for
+another tuple.
 
 ## macOS gate
 

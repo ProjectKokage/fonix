@@ -739,14 +739,50 @@ environment-gated skips, and a clean external-copy reference app passes
 analysis and 90/90 tests, including all 18 formal-V1 benchmark cases. The exact
 ORT 1.27.1 two-worker integration passes 1/1.
 
-No final macOS or Linux application has yet completed the formal V1 sequence of
-five fresh challenge/PID-bound launches and independent replay. Measurements
-created under the earlier unreleased prototypes are not V1 evidence and must
-not be relabeled. The current
-checkpoint therefore proves the formal source contract and focused Python
-validation only. It is not a baseline, threshold, performance claim, provider
-qualification, platform support claim, release approval, distribution
-artifact, or cross-target evidence.
+Formal target checkpoint (2026-08-09): the collection used the macOS arm64
+Release reference application and the source snapshot at commit
+`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`, whose 49,397-byte source manifest
+has SHA-256
+`afe8536f7ad019ceaf9cd362a17ae68d84ef944411239cdc9d6ca165083b4eb5`.
+The collector completed five fresh challenge/PID-bound launches and bound one
+66,704,118-byte canonical application tree with SHA-256
+`efe4719d8fa2f3a2fe1f59edb0df146519cf7968635ac30ec129f33da886ae5f`.
+It emitted a 182,071-byte collection with SHA-256
+`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`.
+The complete seven-file, 238,837-byte raw bundle has SHA-256
+`976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`.
+Independent replay validated that bundle and emitted a 9,763-byte record with
+SHA-256 `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+The raw bundle and validation record currently exist only at
+`/private/tmp/fonix-cpu-v1-collection-20260809-a` and
+`/private/tmp/fonix-cpu-v1-validation-20260809-a.json`. `/private/tmp` is not
+durable evidence storage. No future retention or replay-availability claim may
+rely on these local files until an approved durable external store receives the
+exact bytes and their hashes are reverified.
+
+The exact macOS 26.5.2 arm64, bundled ORT 1.27.1 CPU tuple recorded serial warm
+inference p50/p95/p99 of 2,269/2,318/2,410 microseconds across 500 samples.
+Its 15 serial windows completed 3,131 runs at an aggregate 208.239 runs/s;
+window p50/p95/p99 were 208.039/209.488/209.488 runs/s. The two-worker
+full-isolate-roundtrip phase completed 2,082 runs across 15 windows at an
+aggregate 137.573 runs/s; window p50/p95/p99 were
+139.502/143.273/143.273 runs/s. Serial and pool peak total-process RSS maxima
+were 261,062,656 and 490,176,512 bytes. Both strict pool assignment receipts
+and the serial assignment receipt reported full CPU assignment with no
+fallback; zero-accounting and idempotent-close checks passed.
+
+The host observations were stable `nominal` and AC-power Low Power `off`, so
+the collection reports `baseline-comparable`. That status only makes these raw
+measurements eligible for a later baseline review. Apple can report `nominal`
+or Low Power `off` when state is undetermined or unsupported. The fragments
+and host observations are not independently authenticated, the supplied native
+members do not prove their loaded bytes, the source manifest is not compiled
+provenance, and no distribution archive is claimed. The replay remains
+`measurement-only` and `offline-consistency-only`. Earlier prototype bundles
+remain non-V1 historical evidence. This exact result establishes no baseline,
+threshold, performance guarantee, provider qualification, platform-support
+promotion, release approval, Linux result, distribution artifact, or
+cross-target evidence.
 
 ## 8.12 CI matrix
 

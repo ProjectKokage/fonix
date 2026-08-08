@@ -12,8 +12,13 @@ Python suites pass 104/104 cases (31 derivation/core, 41 collector, and 32
 independent replay-validator). The complete Python CI suite passes 827/827,
 the current Flutter SDK root suite passes 225 tests with 54 explicit
 environment-gated skips, and a clean external-copy reference app passes
-analysis and 90/90 tests. The separately frozen, manifest-bound iOS gate source
-epoch passed its historical 72/72 application
+analysis and 90/90 tests. The first formal V1 five-launch collection and
+independent replay used the macOS arm64 Release reference application and the
+source snapshot at commit
+`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. The replay validated the exact
+seven-file raw bundle and remains `measurement-only` and
+`offline-consistency-only`. The separately frozen, manifest-bound iOS gate
+source epoch passed its historical 72/72 application
 tests, including 25/25 reference-smoke tests and 5/5 iOS project-contract
 tests, and its linked simulator application passed two consecutive Debug
 builds. The complete iOS gate result is `PASS (2026-08-07)` for that exact
@@ -244,12 +249,50 @@ elevated state still requires review, and the configured `pmset` profile does
 not establish every dynamic power assertion. `baseline-comparable` means only
 that the recorded inputs are complete and stable enough to match in a later
 review; it is not thermal-health or baseline approval. Linux thermal observation
-remains unavailable. This source checkpoint contains no controlled five-launch
-V1 bundle from the new observer; a later raw collection and offline replay must
-be recorded against the formal contract. The earlier schema-1 serial fragment
-was an unreleased prototype, not a formal protocol. The wrongly numbered
-intermediate checkpoints are Git history only and create no active artifact,
-compatibility alias, accepted evidence format, or migration obligation.
+remains unavailable. The earlier schema-1 serial fragment was an unreleased
+prototype, not a formal protocol. The wrongly numbered intermediate checkpoints
+are Git history only and create no active artifact, compatibility alias,
+accepted evidence format, or migration obligation.
+
+The exact macOS target collection used the Release reference application and
+the source snapshot at commit `7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`,
+whose 49,397-byte `MANIFEST.sha256` has SHA-256
+`afe8536f7ad019ceaf9cd362a17ae68d84ef944411239cdc9d6ca165083b4eb5`.
+The collector observed one 66,704,118-byte canonical application tree with
+SHA-256 `efe4719d8fa2f3a2fe1f59edb0df146519cf7968635ac30ec129f33da886ae5f`
+unchanged around all five launches. The 182,071-byte collection has SHA-256
+`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`.
+The complete seven-file, 238,837-byte raw bundle has SHA-256
+`976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`.
+Independent replay emitted a validated 9,763-byte record with SHA-256
+`d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+The raw bundle and validation record currently exist only at
+`/private/tmp/fonix-cpu-v1-collection-20260809-a` and
+`/private/tmp/fonix-cpu-v1-validation-20260809-a.json`. `/private/tmp` is not
+durable evidence storage. No future retention or replay-availability claim may
+rely on these local files until an approved durable external store receives the
+exact bytes and their hashes are reverified.
+
+Across the five launches, the macOS 26.5.2 arm64, bundled ORT 1.27.1 CPU tuple
+recorded serial warm inference p50/p95/p99 of 2,269/2,318/2,410 microseconds
+from 500 samples. Fifteen serial windows completed 3,131 runs at 208.239
+runs/s in aggregate; window p50/p95/p99 were
+208.039/209.488/209.488 runs/s. Fifteen full-isolate-roundtrip pool windows
+completed 2,082 runs at 137.573 runs/s in aggregate; window p50/p95/p99 were
+139.502/143.273/143.273 runs/s. The scopes differ. Serial and pool peak
+total-process RSS maxima were 261,062,656 and 490,176,512 bytes. The serial
+assignment and both strict pool assignments reported full CPU assignment with
+no fallback. Zero-accounting, artifact cleanup, and idempotent-close checks
+passed.
+
+All ten surrounding observations recorded stable `nominal` thermal state and
+AC-power Low Power `off`, producing `baseline-comparable`. That label makes the
+raw values eligible for review; it does not approve a baseline. The raw
+fragments and host observations are not independently authenticated, packaged
+native members do not prove their loaded bytes, the source manifest is not
+compiled provenance, and no distribution archive is claimed. The validation
+record remains `measurement-only` and `offline-consistency-only` and cannot
+replace the raw bundle.
 
 Partial pool startup remains deliberately narrower than a pool-wide join over
 every attempted child. When a later worker fails, pool startup awaits close
@@ -268,18 +311,12 @@ admission, occupancy-drain settlement, and hostile collection/replay inputs.
 The current Flutter SDK root suite passes 225 tests with 54 explicit
 environment-gated skips; clean external-copy analysis and all 90 app tests
 pass, including 18 formal-V1 benchmark tests; and the exact ORT 1.27.1
-two-worker integration passes 1/1. No final macOS or Linux application has yet
-completed and independently replayed five fresh formal-V1 launches. Earlier
-prototype measurements and bundles cannot be relabeled. The source path
-therefore supplies no throughput/RSS baseline,
-regression threshold, performance claim, provider qualification, support
+two-worker integration passes 1/1. The exact macOS application has completed
+and independently replayed five fresh formal-V1 launches. Linux has not.
+Earlier prototype measurements and bundles cannot be relabeled. This target
+record supplies measured throughput and RSS values, but no reviewed baseline,
+regression threshold, performance guarantee, provider qualification, support
 promotion, or release evidence.
-
-The raw fragments are not independently authenticated, supplied native members
-are packaged inputs rather than exact loaded-byte proof, repository evidence is
-not compiled provenance, and neither record is a baseline, approved threshold,
-performance claim, provider qualification, platform support decision, or
-release approval.
 
 ## Implemented boundary
 
@@ -404,7 +441,7 @@ paths.
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
 | Current shared public-API reference source | Clean external-copy analysis and 90/90 app tests passed, including 18/18 formal-V1 CPU benchmark tests; the current Flutter SDK root suite passed 225 tests with 54 explicit environment-gated skips |
 | Formal CPU benchmark V1 | 104/104 focused Python tests passed: 31 derivation/core, 41 collector, and 32 independent replay-validator cases. Protocol, target fragment, collection, validation, and collector are all V1; exactly four V1 templates and a three-schema replay registry remain active |
-| Current macOS arm64 CPU measurement path | No formal V1 final-application five-launch bundle or independent replay has been produced. Earlier prototype measurements are historical only, cannot be relabeled as V1 evidence, and establish no baseline |
+| Current macOS arm64 CPU measurement path | The Release reference app completed five fresh formal-V1 launches against the source snapshot at commit `7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. Collection `139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`, raw bundle `976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`, and independent validation `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc` passed. The source-snapshot binding is not compiled provenance; the record is measurement-only/offline-consistency-only and establishes no baseline or support claim |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
 | Closed source checksum manifest | The current API/ABI checkpoint reproduces exactly after regeneration. Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |
@@ -912,8 +949,9 @@ The following are deliberately not claimed:
   qualification;
 - deferred Android QNN aligned-build/device/HTP/cache/product receipts;
 - Linux target-host loading/inference and final Flutter packaging;
-- a final macOS or Linux five-launch formal-V1 CPU bundle containing the serial
-  and two-worker pool phases and its independent V1 replay;
+- a Linux five-launch formal-V1 CPU bundle containing the serial and two-worker
+  pool phases and its independent V1 replay, plus reviewed baselines and
+  thresholds for any retained macOS or Linux measurements;
 - deferred Windows target-host loading/inference, final Flutter packaging,
   installer, and clean-machine runs;
 - physical-device or representative-hardware qualification and sustained

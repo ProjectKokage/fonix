@@ -62,11 +62,13 @@ lock-selected flavors. Generic or specialized provider IDs not listed here are
 unqualified and must not appear in a product support claim.
 
 Formal CPU benchmark V1, including its fixed two-worker pool phase, is
-implemented and contract-tested, but its final-application five-launch
-collection and independent replay are still pending. Its existence therefore
-does not raise the CPU row above the exact final-app evidence already listed,
-establish a throughput or RSS baseline, or make CPU `Provider-qualified` on
-any tuple.
+implemented and contract-tested. The macOS arm64 Release reference application
+completed its first five-launch collection and independent replay against the
+source snapshot at commit `7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`.
+The result remains `measurement-only` and `offline-consistency-only`; the
+source-snapshot binding is not compiled provenance, and it does not raise the
+CPU row above the exact final-app evidence already listed, establish a
+throughput or RSS baseline, or make CPU `Provider-qualified` on any tuple.
 
 ## 13.4 Android ownership compatibility
 
@@ -200,8 +202,14 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
   provenance and no distribution archive is claimed. The pre-formal schema-1
   fragment was an unreleased prototype. The wrongly numbered `v2` and `v3`
   checkpoints remain only in Git history and create no active artifact,
-  compatibility, or migration obligation. No final application has yet
-  completed and replayed the required five-launch V1 bundle, so this change
+  compatibility, or migration obligation. One five-launch V1 bundle and replay
+  used the macOS arm64 Release reference application and the source snapshot at
+  commit `7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. The collection, raw bundle,
+  and validation record have SHA-256 values
+  `139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`,
+  `976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`,
+  and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+  This source-snapshot binding is not compiled provenance, and the measurement
   does not promote any platform or provider row. Earlier bundles cannot be
   relabeled as V1 evidence.
 - Runtime-information and public-diagnostics envelopes: their independent

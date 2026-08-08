@@ -28,8 +28,16 @@
   collection to target. The earlier schema-1
   fragment was an unreleased prototype, and the wrongly numbered intermediate
   checkpoints remain only in Git history rather than active compatibility
-  obligations. Final-app V1 collection/replay evidence, any baseline, and any
-  support claim remain pending.
+  obligations. The first formal five-launch V1 collection and independent
+  replay used the macOS arm64 Release reference application and the source
+  snapshot at commit `7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. The raw bundle,
+  collection, and validation record have SHA-256 values
+  `976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`,
+  `139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`,
+  and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
+  The result remains measurement-only and offline-consistency-only. The source
+  snapshot is not compiled provenance; a baseline and support claim remain
+  pending.
 - Enforced the exact strict-JSON nesting bound for empty containers and added a
   deterministic generated/mutated protocol corpus.
 - Released bounded ORT-owned provider and model-metadata outputs even when ORT
