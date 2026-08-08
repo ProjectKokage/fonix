@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "fonix-cpu-benchmark-target-v3",
+  "protocolVersion": 3,
+  "serialCompatibility": {
+    "protocolId": "fonix-cpu-benchmark-target-v2",
+    "protocolVersion": 2,
+    "descriptor": {
+      "path": "templates/ci/cpu_benchmark_protocol_v2.json",
+      "sizeBytes": 4304,
+      "sha256": "93a33f420c1b38d1061eb00c713fb5d13135dfed7c283673c26c185fbd3727ac"
+    },
+    "targetFragmentSchema": {
+      "id": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v2.json",
+      "path": "templates/ci/cpu_benchmark_target_fragment_v2.schema.json",
+      "sizeBytes": 16843,
+      "sha256": "58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d"
+    },
+    "preservedFields": [
+      "model",
+      "runtime",
+      "session",
+      "timing",
+      "stabilization",
+      "measurements",
+      "providerAssignment",
+      "resources",
+      "lifecycle"
+    ]
+  },
+  "targetFragmentSchema": {
+    "id": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json",
+    "path": "templates/ci/cpu_benchmark_target_fragment_v3.schema.json",
+    "sizeBytes": 12447,
+    "sha256": "b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b"
+  },
+  "activation": {
+    "platforms": [
+      "macos",
+      "linux"
+    ],
+    "flag": "FONIX_CPU_BENCHMARK",
+    "value": "1",
+    "challengeKey": "FONIX_CPU_BENCHMARK_CHALLENGE",
+    "challengeEncoding": "64-lowercase-hex"
+  },
+  "launch": {
+    "freshProcessRequired": true,
+    "processIdentity": "positive-target-process-id"
+  },
+  "executionSurface": "synchronous-and-isolate-pool-public-api",
+  "model": {
+    "id": "cpu-benchmark-matmul-sha256-19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0",
+    "onnx": {
+      "sizeBytes": 4194629,
+      "sha256": "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0"
+    },
+    "inputFixture": {
+      "sizeBytes": 8388608,
+      "sha256": "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
+    },
+    "referenceOutput": {
+      "sizeBytes": 8388608,
+      "sha256": "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
+    },
+    "metadata": {
+      "sizeBytes": 3481,
+      "sha256": "7c089a5a6c6cd444eb802bb0066a2fae054e54a1b924cffac7c53b80bd9c7c8a"
+    },
+    "generator": {
+      "id": "cpu-benchmark-matmul-v1",
+      "sizeBytes": 20969,
+      "sha256": "5730c2193acc8bd9fb3fd52fb9c973d46a512e2bd56c4d815caca49fe4e16ec2"
+    },
+    "opset": 17,
+    "precision": "float32",
+    "input": {
+      "name": "input",
+      "shape": [
+        2048,
+        1024
+      ]
+    },
+    "output": {
+      "name": "output",
+      "shape": [
+        2048,
+        1024
+      ]
+    },
+    "referencePolicy": {
+      "comparison": "exact-ieee754-binary32-bits",
+      "absoluteTolerance": 0,
+      "relativeTolerance": 0,
+      "nanPolicy": "forbid",
+      "infinityPolicy": "forbid"
+    }
+  },
+  "session": {
+    "poolSize": 1,
+    "concurrency": 1,
+    "graphOptimization": "all",
+    "executionMode": "sequential",
+    "intraOpThreads": 1,
+    "interOpThreads": 1,
+    "cpuMemoryArena": true,
+    "memoryPattern": true,
+    "deterministicCompute": true,
+    "timedProviderPolicy": "cpu-required-report-fallback",
+    "throughputCycle": "inference-output-copy-bit-validation-result-disposal",
+    "copyBoundaries": [
+      "model-bytes-to-session",
+      "input-fixture-to-dart-float32",
+      "dart-float32-to-native-tensor",
+      "native-output-to-dart-float32"
+    ]
+  },
+  "timing": {
+    "durationUnit": "microseconds",
+    "clockScope": "process-local-monotonic-stopwatch",
+    "runtimeLoadScope": "ort-runtime-open",
+    "sessionCreateScope": "verified-model-bytes-to-session",
+    "dataPreparationScope": "dart-float32-to-native-tensor-copy",
+    "inferenceScope": "synchronous-session-run-only",
+    "outputMaterializationScope": "native-output-to-dart-float32-copy-only",
+    "throughputWindowTargetMicroseconds": 1000000,
+    "throughputWindowStopRule": "complete-runs-until-monotonic-elapsed-gte-target",
+    "assignmentScope": "separate-profiled-session-after-all-timing"
+  },
+  "stabilization": {
+    "method": "bounded-batch-median-relative-change",
+    "sampleScope": "inference-microseconds",
+    "batchSize": 5,
+    "thresholdBasisPoints": 1000,
+    "requiredConsecutiveTransitions": 3,
+    "maximumRuns": 100,
+    "publishRawInferenceSamples": true,
+    "publishRecomputableBatchMedians": true
+  },
+  "measurement": {
+    "measuredWarmRuns": 100,
+    "throughputWindowCount": 3,
+    "rssScope": "total-process",
+    "rssPhases": [
+      "after-asset-preparation",
+      "after-session-create",
+      "after-first-run",
+      "after-stabilization",
+      "after-warm-runs",
+      "after-throughput",
+      "after-assignment-evidence",
+      "after-dispose"
+    ]
+  },
+  "lifecycle": {
+    "doubleDispose": "passed",
+    "zeroPendingWork": "passed",
+    "temporaryAssignmentArtifacts": "deleted"
+  },
+  "poolEvidenceContract": {
+    "executionSurface": "public-ort-session-pool",
+    "configuration": {
+      "poolSize": 2,
+      "concurrency": 2,
+      "workerProtocolVersion": 4,
+      "maxPendingRunsPerWorker": 1,
+      "maxMessageBytes": 33554432,
+      "maxOutstandingInputBytesPerWorker": 16777216,
+      "inputReservationBytesPerRun": 8388629,
+      "graphOptimization": "all",
+      "executionMode": "sequential",
+      "intraOpThreads": 1,
+      "interOpThreads": 1,
+      "cpuMemoryArena": true,
+      "memoryPattern": true,
+      "deterministicCompute": true,
+      "timedProviderPolicy": "cpu-required-report-fallback",
+      "throughputCycle": "controller-input-copy-worker-decode-native-tensor-inference-worker-output-copy-transfer-controller-decode-dart-output-copy-bit-validation",
+      "copyBoundaries": [
+        "input-fixture-to-immutable-isolate-tensor",
+        "isolate-tensor-to-transferable-input",
+        "worker-transfer-to-native-tensor",
+        "native-output-to-worker-transfer",
+        "worker-transfer-to-isolate-output",
+        "isolate-output-to-dart-float32"
+      ]
+    },
+    "timing": {
+      "durationUnit": "microseconds",
+      "clockScope": "process-local-monotonic-stopwatch",
+      "inputPreparationScope": "input-fixture-to-immutable-isolate-tensor-copy",
+      "poolStartupScope": "two-worker-runtime-session-ready",
+      "firstConcurrentRoundScope": "two-runs-admitted-before-await-through-output-bit-validation",
+      "stabilizationRoundScope": "two-concurrent-runs-through-output-bit-validation",
+      "throughputWindowTargetMicroseconds": 1000000,
+      "throughputWindowStopRule": "two-lanes-stop-admission-at-target-then-drain",
+      "assignmentScope": "separate-strict-two-worker-pool-after-all-pool-timing"
+    },
+    "stabilization": {
+      "method": "bounded-batch-median-relative-change",
+      "batchSize": 5,
+      "thresholdBasisPoints": 1000,
+      "requiredConsecutiveTransitions": 3,
+      "maximumRounds": 100,
+      "publishRawRoundDurations": true,
+      "publishRecomputableBatchMedians": true
+    },
+    "measurements": {
+      "inputPreparationDurationCount": 1,
+      "poolStartupDurationCount": 1,
+      "firstConcurrentRound": {
+        "laneCount": 2,
+        "completedRunsPerLane": 1,
+        "totalCompletedRuns": 2,
+        "maximumObservedInFlightRuns": 2
+      },
+      "throughput": {
+        "windowCount": 3,
+        "windowTargetMicroseconds": 1000000,
+        "laneCount": 2,
+        "publishCompletedRunsByLane": true,
+        "publishTotalCompletedRuns": true,
+        "publishDurationMicroseconds": true,
+        "maximumObservedInFlightRuns": 2
+      }
+    },
+    "providerAssignments": {
+      "count": 2,
+      "contract": "two-standard-provider-assignment-maps-each-equal-to-serial-provider-assignment"
+    },
+    "resources": {
+      "rssScope": "total-process",
+      "rssPhases": [
+        "after-input-preparation",
+        "after-pool-startup",
+        "after-first-concurrent-round",
+        "after-stabilization",
+        "after-throughput",
+        "after-pool-close",
+        "after-assignment-evidence"
+      ],
+      "nativeRss": {
+        "status": "not-exposed-by-target-api"
+      },
+      "cpuUtilization": {
+        "status": "not-exposed-by-target-api"
+      }
+    },
+    "lifecycle": {
+      "initialConcurrentOccupancy": "passed",
+      "zeroOutstandingBeforeClose": "passed",
+      "idempotentClose": "passed",
+      "zeroOutstandingAfterClose": "passed",
+      "strictAssignmentConcurrentOccupancy": "passed",
+      "strictAssignmentPoolClosed": "passed",
+      "temporaryAssignmentArtifacts": "deleted"
+    }
+  },
+  "claimBoundary": "One fresh-process target fragment containing serial and bounded session-pool measurements only; not a performance baseline, regression threshold, provider qualification, platform support claim, release approval, or cross-target evidence."
+}

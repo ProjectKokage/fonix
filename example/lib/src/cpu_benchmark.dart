@@ -6,18 +6,18 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:fonix/fonix.dart';
 
-const int cpuBenchmarkFragmentSchemaVersion = 2;
+const int cpuBenchmarkFragmentSchemaVersion = 3;
 const String cpuBenchmarkActivationKey = 'FONIX_CPU_BENCHMARK';
 const String cpuBenchmarkChallengeKey = 'FONIX_CPU_BENCHMARK_CHALLENGE';
 const String cpuBenchmarkFragmentPrefix = 'FONIX_CPU_BENCHMARK_FRAGMENT=';
 const int maximumCpuBenchmarkFragmentBytes = 128 * 1024;
 
-const String cpuBenchmarkProtocolId = 'fonix-cpu-benchmark-target-v2';
-const int cpuBenchmarkProtocolVersion = 2;
+const String cpuBenchmarkProtocolId = 'fonix-cpu-benchmark-target-v3';
+const int cpuBenchmarkProtocolVersion = 3;
 const String cpuBenchmarkProtocolDescriptorSha256 =
-    '93a33f420c1b38d1061eb00c713fb5d13135dfed7c283673c26c185fbd3727ac';
+    '1bd8d293f4cb205991f5a0da1d9f9bc98710bc0ba5054c7d1f9d5150ba2dd7fa';
 const String cpuBenchmarkTargetFragmentSchemaSha256 =
-    '58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d';
+    'b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b';
 
 const String _modelAsset = 'assets/models/cpu_benchmark_matmul.onnx';
 const String _inputAsset = 'assets/models/cpu_benchmark_matmul.input.f32le';
@@ -54,6 +54,27 @@ const int _maximumStabilizationRuns = 100;
 const int _measuredWarmRuns = 100;
 const int _throughputWindowCount = 3;
 const int _throughputWindowMicroseconds = 1000000;
+const int cpuBenchmarkPoolSize = 2;
+const int cpuBenchmarkPoolConcurrency = 2;
+const int cpuBenchmarkPoolWorkerProtocolVersion = 4;
+const int cpuBenchmarkPoolMaxPendingRunsPerWorker = 1;
+const int cpuBenchmarkPoolMaxMessageBytes = 32 * 1024 * 1024;
+const int cpuBenchmarkPoolMaxOutstandingInputBytesPerWorker = 16 * 1024 * 1024;
+const int cpuBenchmarkPoolInputReservationBytesPerRun =
+    cpuBenchmarkInputBytes + (2 * 8) + 5;
+const int _poolStabilizationBatchSize = 5;
+const int _poolStabilizationRequiredTransitions = 3;
+const int _poolStabilizationThresholdBasisPoints = 1000;
+const int _maximumPoolStabilizationRounds = 100;
+const List<String> cpuBenchmarkPoolRssPhases = <String>[
+  'after-input-preparation',
+  'after-pool-startup',
+  'after-first-concurrent-round',
+  'after-stabilization',
+  'after-throughput',
+  'after-pool-close',
+  'after-assignment-evidence',
+];
 const int _maximumRunsPerThroughputWindow = 1000000;
 const int _maximumDurationMicroseconds = 1000000000000000;
 const int _maximumRssBytes = 0x7fffffffffffffff;
@@ -342,6 +363,20 @@ final class CpuBenchmarkAssignment {
   };
 }
 
+bool _sameCpuBenchmarkAssignment(
+  CpuBenchmarkAssignment left,
+  CpuBenchmarkAssignment right,
+) =>
+    left.providerId == right.providerId &&
+    left.reportedName == right.reportedName &&
+    left.nodeExecutionCount == right.nodeExecutionCount &&
+    left.nodeExecutionsByProvider.length ==
+        right.nodeExecutionsByProvider.length &&
+    left.nodeExecutionsByProvider.entries.every(
+      (MapEntry<String, int> entry) =>
+          right.nodeExecutionsByProvider[entry.key] == entry.value,
+    );
+
 /// The synchronous public-API surface exercised by the target runner.
 abstract interface class CpuBenchmarkProbe {
   CpuBenchmarkTargetIdentity get identity;
@@ -361,6 +396,305 @@ abstract interface class CpuBenchmarkProbe {
 
 typedef CpuBenchmarkProbeFactory =
     CpuBenchmarkProbe Function(CpuBenchmarkAssets assets);
+
+/// The public session-pool surface exercised by the concurrent phase.
+abstract interface class CpuBenchmarkPoolProbe {
+  int get inputPreparationMicroseconds;
+
+  int get poolStartupMicroseconds;
+
+  int get outstandingRuns;
+
+  int get outstandingInputBytes;
+
+  /// Starts one run synchronously and returns its eventual validated result.
+  ///
+  /// Implementations must admit the request before returning. This lets the
+  /// runner prove two simultaneous reservations without yielding its isolate.
+  Future<void> startRun();
+
+  /// Captures one strict full-CPU receipt from each worker outside timing.
+  Future<List<CpuBenchmarkAssignment>> captureAssignments();
+
+  Future<void> close();
+}
+
+typedef CpuBenchmarkPoolProbeFactory =
+    Future<CpuBenchmarkPoolProbe> Function(
+      CpuBenchmarkAssets assets,
+      CpuBenchmarkTargetIdentity identity,
+      void Function() onInputPrepared,
+    );
+
+/// Starts and settles the exact strict two-run batch used for assignment proof.
+///
+/// The first admission, occupancy, or result failure remains authoritative,
+/// but every admitted result is observed before that failure is rethrown.
+Future<List<TResult>> settleCpuBenchmarkStrictPoolRuns<THandle, TResult>({
+  required THandle Function() start,
+  required Future<TResult> Function(THandle handle) result,
+  required bool Function() hasExpectedOccupancy,
+  required bool Function() isDrained,
+}) async {
+  final List<THandle> handles = <THandle>[];
+  final List<TResult?> settledResults = List<TResult?>.filled(
+    cpuBenchmarkPoolConcurrency,
+    null,
+  );
+  Object? firstError;
+  StackTrace? firstStackTrace;
+  void retainFirstError(Object error, StackTrace stackTrace) {
+    if (firstError == null) {
+      firstError = error;
+      firstStackTrace = stackTrace;
+    }
+  }
+
+  for (var index = 0; index < cpuBenchmarkPoolConcurrency; index += 1) {
+    try {
+      handles.add(start());
+    } on Object catch (error, stackTrace) {
+      retainFirstError(error, stackTrace);
+      break;
+    }
+  }
+  if (firstError == null && !hasExpectedOccupancy()) {
+    retainFirstError(
+      const CpuBenchmarkFailure(
+        'The strict pool did not occupy both workers concurrently.',
+      ),
+      StackTrace.current,
+    );
+  }
+  final List<Future<void>> settlements = <Future<void>>[];
+  for (var index = 0; index < handles.length; index += 1) {
+    settlements.add(
+      result(handles[index]).then<void>(
+        (TResult value) {
+          settledResults[index] = value;
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          retainFirstError(error, stackTrace);
+        },
+      ),
+    );
+  }
+  await Future.wait<void>(settlements);
+  if (!isDrained()) {
+    retainFirstError(
+      const CpuBenchmarkFailure('The strict pool did not drain before close.'),
+      StackTrace.current,
+    );
+  }
+  final Object? retainedError = firstError;
+  if (retainedError != null) {
+    Error.throwWithStackTrace(retainedError, firstStackTrace!);
+  }
+  if (handles.length != cpuBenchmarkPoolConcurrency ||
+      settledResults.any((TResult? value) => value == null)) {
+    throw const CpuBenchmarkFailure(
+      'The strict pool result set is incomplete.',
+    );
+  }
+  return List<TResult>.unmodifiable(settledResults.cast<TResult>());
+}
+
+/// One drained, two-lane pool round or throughput window.
+final class CpuBenchmarkPoolWindow {
+  CpuBenchmarkPoolWindow({
+    required List<int> completedRunsByLane,
+    required this.durationMicroseconds,
+    required this.maximumObservedInFlightRuns,
+  }) : completedRunsByLane = List<int>.unmodifiable(completedRunsByLane),
+       totalCompletedRuns = completedRunsByLane.fold<int>(
+         0,
+         (int total, int value) => total + value,
+       ) {
+    if (this.completedRunsByLane.length != cpuBenchmarkPoolConcurrency ||
+        this.completedRunsByLane.any((int value) => value <= 0) ||
+        totalCompletedRuns < cpuBenchmarkPoolConcurrency ||
+        durationMicroseconds <= 0 ||
+        durationMicroseconds > _maximumDurationMicroseconds ||
+        maximumObservedInFlightRuns != cpuBenchmarkPoolConcurrency) {
+      throw const CpuBenchmarkFailure(
+        'A concurrent CPU benchmark window violated its closed bounds.',
+      );
+    }
+  }
+
+  final List<int> completedRunsByLane;
+  final int totalCompletedRuns;
+  final int durationMicroseconds;
+  final int maximumObservedInFlightRuns;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'completedRunsByLane': completedRunsByLane,
+    'totalCompletedRuns': totalCompletedRuns,
+    'durationMicroseconds': durationMicroseconds,
+    'maximumObservedInFlightRuns': maximumObservedInFlightRuns,
+  };
+}
+
+/// Bounded public-API pool measurements appended to the serial evidence.
+final class CpuBenchmarkPoolEvidence {
+  CpuBenchmarkPoolEvidence._({
+    required this.inputPreparationMicroseconds,
+    required this.poolStartupMicroseconds,
+    required this.firstConcurrentRound,
+    required this.stabilizationRounds,
+    required List<int> stabilizationRoundDurationMicroseconds,
+    required List<int> stabilizationBatchMedianMicroseconds,
+    required List<CpuBenchmarkPoolWindow> throughputWindows,
+    required List<CpuBenchmarkAssignment> providerAssignments,
+    required List<CpuBenchmarkRssSample> rssSamples,
+    required CpuBenchmarkAssignment serialAssignment,
+  }) : stabilizationRoundDurationMicroseconds = List<int>.unmodifiable(
+         stabilizationRoundDurationMicroseconds,
+       ),
+       stabilizationBatchMedianMicroseconds = List<int>.unmodifiable(
+         stabilizationBatchMedianMicroseconds,
+       ),
+       throughputWindows = List<CpuBenchmarkPoolWindow>.unmodifiable(
+         throughputWindows,
+       ),
+       providerAssignments = List<CpuBenchmarkAssignment>.unmodifiable(
+         providerAssignments,
+       ),
+       rssSamples = List<CpuBenchmarkRssSample>.unmodifiable(rssSamples) {
+    _positiveDuration(inputPreparationMicroseconds);
+    _positiveDuration(poolStartupMicroseconds);
+    _validatePoolStabilizationEvidence(
+      roundCount: stabilizationRounds,
+      roundDurationMicroseconds: this.stabilizationRoundDurationMicroseconds,
+      batchMedians: this.stabilizationBatchMedianMicroseconds,
+    );
+    if (this.throughputWindows.length != _throughputWindowCount ||
+        this.throughputWindows.any(
+          (CpuBenchmarkPoolWindow value) =>
+              value.durationMicroseconds < _throughputWindowMicroseconds,
+        ) ||
+        this.providerAssignments.length != cpuBenchmarkPoolSize ||
+        this.providerAssignments.any(
+          (CpuBenchmarkAssignment assignment) =>
+              !_sameCpuBenchmarkAssignment(assignment, serialAssignment),
+        ) ||
+        this.rssSamples.length != cpuBenchmarkPoolRssPhases.length) {
+      throw const CpuBenchmarkFailure(
+        'The concurrent CPU benchmark evidence is incomplete.',
+      );
+    }
+    for (var index = 0; index < this.rssSamples.length; index += 1) {
+      if (this.rssSamples[index].phase != cpuBenchmarkPoolRssPhases[index]) {
+        throw const CpuBenchmarkFailure(
+          'The concurrent CPU benchmark RSS phases are inconsistent.',
+        );
+      }
+    }
+  }
+
+  final int inputPreparationMicroseconds;
+  final int poolStartupMicroseconds;
+  final CpuBenchmarkPoolWindow firstConcurrentRound;
+  final int stabilizationRounds;
+  final List<int> stabilizationRoundDurationMicroseconds;
+  final List<int> stabilizationBatchMedianMicroseconds;
+  final List<CpuBenchmarkPoolWindow> throughputWindows;
+  final List<CpuBenchmarkAssignment> providerAssignments;
+  final List<CpuBenchmarkRssSample> rssSamples;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'executionSurface': 'public-ort-session-pool',
+    'configuration': <String, Object?>{
+      'poolSize': cpuBenchmarkPoolSize,
+      'concurrency': cpuBenchmarkPoolConcurrency,
+      'workerProtocolVersion': cpuBenchmarkPoolWorkerProtocolVersion,
+      'maxPendingRunsPerWorker': cpuBenchmarkPoolMaxPendingRunsPerWorker,
+      'maxMessageBytes': cpuBenchmarkPoolMaxMessageBytes,
+      'maxOutstandingInputBytesPerWorker':
+          cpuBenchmarkPoolMaxOutstandingInputBytesPerWorker,
+      'inputReservationBytesPerRun':
+          cpuBenchmarkPoolInputReservationBytesPerRun,
+      'graphOptimization': 'all',
+      'executionMode': 'sequential',
+      'intraOpThreads': 1,
+      'interOpThreads': 1,
+      'cpuMemoryArena': true,
+      'memoryPattern': true,
+      'deterministicCompute': true,
+      'timedProviderPolicy': 'cpu-required-report-fallback',
+      'throughputCycle':
+          'controller-input-copy-worker-decode-native-tensor-inference-'
+          'worker-output-copy-transfer-controller-decode-dart-output-copy-'
+          'bit-validation',
+      'copyBoundaries': <String>[
+        'input-fixture-to-immutable-isolate-tensor',
+        'isolate-tensor-to-transferable-input',
+        'worker-transfer-to-native-tensor',
+        'native-output-to-worker-transfer',
+        'worker-transfer-to-isolate-output',
+        'isolate-output-to-dart-float32',
+      ],
+    },
+    'timing': <String, Object?>{
+      'durationUnit': 'microseconds',
+      'clockScope': 'process-local-monotonic-stopwatch',
+      'inputPreparationScope': 'input-fixture-to-immutable-isolate-tensor-copy',
+      'poolStartupScope': 'two-worker-runtime-session-ready',
+      'firstConcurrentRoundScope':
+          'two-runs-admitted-before-await-through-output-bit-validation',
+      'stabilizationRoundScope':
+          'two-concurrent-runs-through-output-bit-validation',
+      'throughputWindowTargetMicroseconds': _throughputWindowMicroseconds,
+      'throughputWindowStopRule':
+          'two-lanes-stop-admission-at-target-then-drain',
+      'assignmentScope':
+          'separate-strict-two-worker-pool-after-all-pool-timing',
+    },
+    'stabilization': <String, Object?>{
+      'method': 'bounded-batch-median-relative-change',
+      'batchSize': _poolStabilizationBatchSize,
+      'thresholdBasisPoints': _poolStabilizationThresholdBasisPoints,
+      'requiredConsecutiveTransitions': _poolStabilizationRequiredTransitions,
+      'maximumRounds': _maximumPoolStabilizationRounds,
+      'actualRounds': stabilizationRounds,
+      'roundDurationMicroseconds': stabilizationRoundDurationMicroseconds,
+      'batchMedianMicroseconds': stabilizationBatchMedianMicroseconds,
+      'result': 'stabilized',
+    },
+    'measurements': <String, Object?>{
+      'inputPreparationMicroseconds': <int>[inputPreparationMicroseconds],
+      'poolStartupMicroseconds': <int>[poolStartupMicroseconds],
+      'firstConcurrentRound': firstConcurrentRound.toMap(),
+      'throughput': <Map<String, Object?>>[
+        for (final CpuBenchmarkPoolWindow window in throughputWindows)
+          window.toMap(),
+      ],
+    },
+    'providerAssignments': <Map<String, Object?>>[
+      for (final CpuBenchmarkAssignment assignment in providerAssignments)
+        assignment.toMap(),
+    ],
+    'resources': <String, Object?>{
+      'rssScope': 'total-process',
+      'rssSamples': <Map<String, Object?>>[
+        for (final CpuBenchmarkRssSample sample in rssSamples) sample.toMap(),
+      ],
+      'nativeRss': <String, Object?>{'status': 'not-exposed-by-target-api'},
+      'cpuUtilization': <String, Object?>{
+        'status': 'not-exposed-by-target-api',
+      },
+    },
+    'lifecycle': <String, Object?>{
+      'initialConcurrentOccupancy': 'passed',
+      'zeroOutstandingBeforeClose': 'passed',
+      'idempotentClose': 'passed',
+      'zeroOutstandingAfterClose': 'passed',
+      'strictAssignmentConcurrentOccupancy': 'passed',
+      'strictAssignmentPoolClosed': 'passed',
+      'temporaryAssignmentArtifacts': 'deleted',
+    },
+  };
+}
 
 /// One total-process RSS observation at a named lifecycle phase.
 final class CpuBenchmarkRssSample {
@@ -401,6 +735,7 @@ final class CpuBenchmarkFragment {
     required this.throughputWindows,
     required this.assignment,
     required this.rssSamples,
+    required this.poolEvidence,
   }) {
     _validateStabilizationEvidence(
       runCount: stabilizationRuns,
@@ -423,6 +758,7 @@ final class CpuBenchmarkFragment {
   final List<({int completedRuns, int durationMicroseconds})> throughputWindows;
   final CpuBenchmarkAssignment assignment;
   final List<CpuBenchmarkRssSample> rssSamples;
+  final CpuBenchmarkPoolEvidence poolEvidence;
 
   Map<String, Object?> toMap() => <String, Object?>{
     'schemaVersion': cpuBenchmarkFragmentSchemaVersion,
@@ -437,7 +773,7 @@ final class CpuBenchmarkFragment {
     'launchChallenge': launchChallenge,
     'processId': processId,
     'freshProcessRequired': true,
-    'executionSurface': 'synchronous-public-api',
+    'executionSurface': 'synchronous-and-isolate-pool-public-api',
     'model': <String, Object?>{
       'id': cpuBenchmarkModelId,
       'onnxSha256': cpuBenchmarkModelSha256,
@@ -552,10 +888,12 @@ final class CpuBenchmarkFragment {
       'zeroPendingWork': 'passed',
       'temporaryAssignmentArtifacts': 'deleted',
     },
+    'poolEvidence': poolEvidence.toMap(),
     'claimBoundary':
-        'One fresh-process target measurement fragment only; not a '
-        'performance baseline, regression threshold, provider qualification, '
-        'platform support claim, release approval, or cross-target evidence.',
+        'One fresh-process target fragment containing serial and bounded '
+        'session-pool measurements only; not a performance baseline, '
+        'regression threshold, provider qualification, platform support '
+        'claim, release approval, or cross-target evidence.',
   };
 
   String toJsonString() {
@@ -575,6 +913,7 @@ final class CpuBenchmarkFragment {
 Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
   AssetBundle? assets,
   CpuBenchmarkProbeFactory? createProbe,
+  CpuBenchmarkPoolProbeFactory? createPoolProbe,
   CpuBenchmarkRssReader? readRss,
   CpuBenchmarkMonotonicReader? readMonotonicMicroseconds,
   String? launchChallenge,
@@ -702,6 +1041,15 @@ Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
     probe.dispose();
     settled = true;
     sampleRss('after-dispose');
+    final CpuBenchmarkPoolEvidence poolEvidence = await _runPoolEvidence(
+      assets: loaded,
+      identity: identity,
+      serialAssignment: assignment,
+      minimumPeakBytes: rssSamples.last.peakBytes,
+      createProbe: createPoolProbe ?? _OrtCpuBenchmarkPoolProbe.open,
+      readRss: rssReader,
+      readMonotonicMicroseconds: monotonic,
+    );
     return CpuBenchmarkFragment._(
       launchChallenge: resolvedLaunchChallenge,
       processId: resolvedProcessId,
@@ -721,6 +1069,7 @@ Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
       throughputWindows: List.unmodifiable(throughputWindows),
       assignment: assignment,
       rssSamples: List<CpuBenchmarkRssSample>.unmodifiable(rssSamples),
+      poolEvidence: poolEvidence,
     );
   } finally {
     monotonicStopwatch.stop();
@@ -731,6 +1080,428 @@ Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
         // The authoritative measurement failure remains primary.
       }
     }
+  }
+}
+
+Future<CpuBenchmarkPoolEvidence> _runPoolEvidence({
+  required CpuBenchmarkAssets assets,
+  required CpuBenchmarkTargetIdentity identity,
+  required CpuBenchmarkAssignment serialAssignment,
+  required int minimumPeakBytes,
+  required CpuBenchmarkPoolProbeFactory createProbe,
+  required CpuBenchmarkRssReader readRss,
+  required CpuBenchmarkMonotonicReader readMonotonicMicroseconds,
+}) async {
+  final List<CpuBenchmarkRssSample> rssSamples = <CpuBenchmarkRssSample>[];
+  var previousPeakBytes = minimumPeakBytes;
+  void sampleRss(String phase) {
+    final ({int currentBytes, int peakBytes}) sample = readRss();
+    if (sample.currentBytes <= 0 ||
+        sample.currentBytes > _maximumRssBytes ||
+        sample.peakBytes <= 0 ||
+        sample.peakBytes > _maximumRssBytes ||
+        sample.peakBytes < sample.currentBytes ||
+        sample.peakBytes < previousPeakBytes) {
+      throw const CpuBenchmarkFailure(
+        'The pool returned an invalid process RSS observation.',
+      );
+    }
+    previousPeakBytes = sample.peakBytes;
+    rssSamples.add(
+      CpuBenchmarkRssSample(
+        phase: phase,
+        currentBytes: sample.currentBytes,
+        peakBytes: sample.peakBytes,
+      ),
+    );
+  }
+
+  CpuBenchmarkPoolProbe? probe;
+  var inputPrepared = false;
+  var authoritativeFailure = false;
+  try {
+    probe = await createProbe(assets, identity, () {
+      if (inputPrepared) {
+        throw const CpuBenchmarkFailure(
+          'The pool input-preparation checkpoint was repeated.',
+        );
+      }
+      inputPrepared = true;
+      sampleRss(cpuBenchmarkPoolRssPhases[0]);
+    });
+    if (!inputPrepared) {
+      throw const CpuBenchmarkFailure(
+        'The pool omitted its input-preparation checkpoint.',
+      );
+    }
+    _positiveDuration(probe.inputPreparationMicroseconds);
+    _positiveDuration(probe.poolStartupMicroseconds);
+    sampleRss(cpuBenchmarkPoolRssPhases[1]);
+
+    final CpuBenchmarkPoolWindow firstConcurrentRound =
+        await _runExactPoolRound(probe, readMonotonicMicroseconds);
+    sampleRss(cpuBenchmarkPoolRssPhases[2]);
+
+    final _PoolStabilizationResult stabilization = await _stabilizePool(
+      probe,
+      readMonotonicMicroseconds,
+    );
+    sampleRss(cpuBenchmarkPoolRssPhases[3]);
+
+    final List<CpuBenchmarkPoolWindow> throughputWindows =
+        <CpuBenchmarkPoolWindow>[];
+    for (var index = 0; index < _throughputWindowCount; index += 1) {
+      throughputWindows.add(
+        await _runPoolThroughputWindow(probe, readMonotonicMicroseconds),
+      );
+    }
+    sampleRss(cpuBenchmarkPoolRssPhases[4]);
+    _requirePoolDrained(probe, 'before close');
+
+    final Future<void> firstClose = probe.close();
+    final Future<void> secondClose = probe.close();
+    if (!identical(firstClose, secondClose)) {
+      throw const CpuBenchmarkFailure(
+        'The pool close operation was not idempotent.',
+      );
+    }
+    await firstClose;
+    _requirePoolDrained(probe, 'after close');
+    sampleRss(cpuBenchmarkPoolRssPhases[5]);
+
+    final List<CpuBenchmarkAssignment> assignments = await probe
+        .captureAssignments();
+    if (assignments.length != cpuBenchmarkPoolSize ||
+        assignments.any(
+          (CpuBenchmarkAssignment assignment) =>
+              assignment.reportedName != identity.cpuReportedName ||
+              !_sameCpuBenchmarkAssignment(assignment, serialAssignment),
+        )) {
+      throw const CpuBenchmarkFailure(
+        'The strict pool assignment receipts are inconsistent.',
+      );
+    }
+    sampleRss(cpuBenchmarkPoolRssPhases[6]);
+    return CpuBenchmarkPoolEvidence._(
+      inputPreparationMicroseconds: probe.inputPreparationMicroseconds,
+      poolStartupMicroseconds: probe.poolStartupMicroseconds,
+      firstConcurrentRound: firstConcurrentRound,
+      stabilizationRounds: stabilization.roundCount,
+      stabilizationRoundDurationMicroseconds:
+          stabilization.roundDurationMicroseconds,
+      stabilizationBatchMedianMicroseconds: stabilization.batchMedians,
+      throughputWindows: throughputWindows,
+      providerAssignments: assignments,
+      rssSamples: rssSamples,
+      serialAssignment: serialAssignment,
+    );
+  } on Object {
+    authoritativeFailure = true;
+    rethrow;
+  } finally {
+    final CpuBenchmarkPoolProbe? current = probe;
+    if (current != null) {
+      try {
+        await current.close();
+      } on Object {
+        if (!authoritativeFailure) rethrow;
+      }
+    }
+  }
+}
+
+Future<CpuBenchmarkPoolWindow> _runExactPoolRound(
+  CpuBenchmarkPoolProbe probe,
+  CpuBenchmarkMonotonicReader monotonic,
+) async {
+  final int start = _readPoolClockStart(monotonic);
+  final List<Future<void>> runs = <Future<void>>[];
+  Object? firstError;
+  StackTrace? firstStackTrace;
+  for (var index = 0; index < cpuBenchmarkPoolConcurrency; index += 1) {
+    try {
+      runs.add(probe.startRun());
+    } on Object catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+      break;
+    }
+  }
+  if (runs.length == cpuBenchmarkPoolConcurrency) {
+    try {
+      _requireInitialPoolOccupancy(probe);
+    } on Object catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+    }
+  }
+  try {
+    await Future.wait<void>(runs);
+  } on Object catch (error, stackTrace) {
+    firstError ??= error;
+    firstStackTrace ??= stackTrace;
+  }
+  try {
+    _requirePoolDrained(probe, 'after a concurrent round');
+  } on Object catch (error, stackTrace) {
+    firstError ??= error;
+    firstStackTrace ??= stackTrace;
+  }
+  if (firstError case final Object error) {
+    Error.throwWithStackTrace(error, firstStackTrace!);
+  }
+  final int elapsed = _readPoolElapsed(monotonic, start);
+  return CpuBenchmarkPoolWindow(
+    completedRunsByLane: const <int>[1, 1],
+    durationMicroseconds: elapsed,
+    maximumObservedInFlightRuns: cpuBenchmarkPoolConcurrency,
+  );
+}
+
+final class _PoolStabilizationResult {
+  const _PoolStabilizationResult({
+    required this.roundCount,
+    required this.roundDurationMicroseconds,
+    required this.batchMedians,
+  });
+
+  final int roundCount;
+  final List<int> roundDurationMicroseconds;
+  final List<int> batchMedians;
+}
+
+Future<_PoolStabilizationResult> _stabilizePool(
+  CpuBenchmarkPoolProbe probe,
+  CpuBenchmarkMonotonicReader monotonic,
+) async {
+  final List<int> roundDurations = <int>[];
+  final List<int> medians = <int>[];
+  var stableTransitions = 0;
+  var roundCount = 0;
+  while (roundCount < _maximumPoolStabilizationRounds) {
+    final List<int> batch = <int>[];
+    for (var index = 0; index < _poolStabilizationBatchSize; index += 1) {
+      final CpuBenchmarkPoolWindow round = await _runExactPoolRound(
+        probe,
+        monotonic,
+      );
+      batch.add(round.durationMicroseconds);
+      roundDurations.add(round.durationMicroseconds);
+      roundCount += 1;
+    }
+    batch.sort();
+    final int median = batch[batch.length ~/ 2];
+    if (medians.isNotEmpty &&
+        (median - medians.last).abs() * 10000 <=
+            medians.last * _poolStabilizationThresholdBasisPoints) {
+      stableTransitions += 1;
+    } else {
+      stableTransitions = 0;
+    }
+    medians.add(median);
+    if (stableTransitions >= _poolStabilizationRequiredTransitions) {
+      return _PoolStabilizationResult(
+        roundCount: roundCount,
+        roundDurationMicroseconds: List<int>.unmodifiable(roundDurations),
+        batchMedians: List<int>.unmodifiable(medians),
+      );
+    }
+  }
+  throw const CpuBenchmarkFailure(
+    'Concurrent inference did not stabilize within the fixed round bound.',
+  );
+}
+
+Future<CpuBenchmarkPoolWindow> _runPoolThroughputWindow(
+  CpuBenchmarkPoolProbe probe,
+  CpuBenchmarkMonotonicReader monotonic,
+) async {
+  final int start = _readPoolClockStart(monotonic);
+  var inFlight = 0;
+  var maximumInFlight = 0;
+  var stopAdmissions = false;
+  Object? firstError;
+  StackTrace? firstStackTrace;
+  void fail(Object error, StackTrace stackTrace) {
+    firstError ??= error;
+    firstStackTrace ??= stackTrace;
+    stopAdmissions = true;
+  }
+
+  Future<int> runLane() async {
+    var completedRuns = 0;
+    while (!stopAdmissions) {
+      inFlight += 1;
+      if (inFlight > maximumInFlight) maximumInFlight = inFlight;
+      if (inFlight > cpuBenchmarkPoolConcurrency) {
+        fail(
+          const CpuBenchmarkFailure('The pool exceeded its fixed concurrency.'),
+          StackTrace.current,
+        );
+        inFlight -= 1;
+        break;
+      }
+      try {
+        await probe.startRun();
+      } on Object catch (error, stackTrace) {
+        fail(error, stackTrace);
+      } finally {
+        inFlight -= 1;
+      }
+      if (firstError != null) break;
+      completedRuns += 1;
+      if (completedRuns > _maximumRunsPerThroughputWindow) {
+        fail(
+          const CpuBenchmarkFailure(
+            'A concurrent throughput lane exceeded its run bound.',
+          ),
+          StackTrace.current,
+        );
+        break;
+      }
+      try {
+        final int elapsed = _readPoolElapsed(monotonic, start);
+        if (elapsed >= _throughputWindowMicroseconds) {
+          stopAdmissions = true;
+        }
+      } on Object catch (error, stackTrace) {
+        fail(error, stackTrace);
+      }
+    }
+    return completedRuns;
+  }
+
+  final Future<int> firstLane = runLane();
+  final Future<int> secondLane = runLane();
+  if (firstError == null) {
+    try {
+      _requireInitialPoolOccupancy(probe);
+    } on Object catch (error, stackTrace) {
+      fail(error, stackTrace);
+    }
+  }
+  final List<int> completedByLane = await Future.wait<int>(<Future<int>>[
+    firstLane,
+    secondLane,
+  ]);
+  if (inFlight != 0) {
+    fail(
+      const CpuBenchmarkFailure(
+        'The pool retained controller-side in-flight work after drain.',
+      ),
+      StackTrace.current,
+    );
+  }
+  try {
+    _requirePoolDrained(probe, 'after a throughput window');
+  } on Object catch (error, stackTrace) {
+    fail(error, stackTrace);
+  }
+  if (firstError case final Object error) {
+    Error.throwWithStackTrace(error, firstStackTrace!);
+  }
+  final int elapsed = _readPoolElapsed(monotonic, start);
+  if (elapsed < _throughputWindowMicroseconds) {
+    throw const CpuBenchmarkFailure(
+      'A concurrent throughput window stopped before its target.',
+    );
+  }
+  return CpuBenchmarkPoolWindow(
+    completedRunsByLane: completedByLane,
+    durationMicroseconds: elapsed,
+    maximumObservedInFlightRuns: maximumInFlight,
+  );
+}
+
+void _validatePoolStabilizationEvidence({
+  required int roundCount,
+  required List<int> roundDurationMicroseconds,
+  required List<int> batchMedians,
+}) {
+  if (roundCount <
+          _poolStabilizationBatchSize *
+              (_poolStabilizationRequiredTransitions + 1) ||
+      roundCount > _maximumPoolStabilizationRounds ||
+      roundCount % _poolStabilizationBatchSize != 0 ||
+      roundDurationMicroseconds.length != roundCount ||
+      batchMedians.length != roundCount ~/ _poolStabilizationBatchSize) {
+    throw const CpuBenchmarkFailure(
+      'The pool stabilization evidence is inconsistent.',
+    );
+  }
+  var stableTransitions = 0;
+  var reachedStability = false;
+  for (var batchIndex = 0; batchIndex < batchMedians.length; batchIndex += 1) {
+    final int start = batchIndex * _poolStabilizationBatchSize;
+    final List<int> batch = roundDurationMicroseconds.sublist(
+      start,
+      start + _poolStabilizationBatchSize,
+    )..sort();
+    batch.forEach(_positiveDuration);
+    final int median = batch[batch.length ~/ 2];
+    if (batchMedians[batchIndex] != median) {
+      throw const CpuBenchmarkFailure(
+        'The pool stabilization medians are not recomputable.',
+      );
+    }
+    if (batchIndex > 0 &&
+        (median - batchMedians[batchIndex - 1]).abs() * 10000 <=
+            batchMedians[batchIndex - 1] *
+                _poolStabilizationThresholdBasisPoints) {
+      stableTransitions += 1;
+    } else {
+      stableTransitions = 0;
+    }
+    if (stableTransitions >= _poolStabilizationRequiredTransitions) {
+      if (batchIndex != batchMedians.length - 1) {
+        throw const CpuBenchmarkFailure(
+          'The pool stabilization evidence exceeded its stop rule.',
+        );
+      }
+      reachedStability = true;
+    }
+  }
+  if (!reachedStability) {
+    throw const CpuBenchmarkFailure(
+      'The pool stabilization evidence did not reach its stop rule.',
+    );
+  }
+}
+
+int _readPoolClockStart(CpuBenchmarkMonotonicReader monotonic) {
+  final int start = monotonic();
+  if (start < 0 || start > _maximumDurationMicroseconds) {
+    throw const CpuBenchmarkFailure(
+      'The monotonic pool benchmark clock returned an invalid value.',
+    );
+  }
+  return start;
+}
+
+int _readPoolElapsed(CpuBenchmarkMonotonicReader monotonic, int start) {
+  final int now = monotonic();
+  if (now <= start || now - start > _maximumDurationMicroseconds) {
+    throw const CpuBenchmarkFailure(
+      'The monotonic pool benchmark clock violated its bounds.',
+    );
+  }
+  return now - start;
+}
+
+void _requireInitialPoolOccupancy(CpuBenchmarkPoolProbe probe) {
+  if (probe.outstandingRuns != cpuBenchmarkPoolConcurrency ||
+      probe.outstandingInputBytes !=
+          cpuBenchmarkPoolConcurrency *
+              cpuBenchmarkPoolInputReservationBytesPerRun) {
+    throw const CpuBenchmarkFailure(
+      'The pool did not admit one simultaneous run per worker.',
+    );
+  }
+}
+
+void _requirePoolDrained(CpuBenchmarkPoolProbe probe, String phase) {
+  if (probe.outstandingRuns != 0 || probe.outstandingInputBytes != 0) {
+    throw CpuBenchmarkFailure('The pool retained bounded work $phase.');
   }
 }
 
@@ -1080,6 +1851,302 @@ final class _OrtCpuBenchmarkProbe implements CpuBenchmarkProbe {
     session?.dispose();
     runtime?.dispose();
     runtime?.dispose();
+  }
+}
+
+final class _OrtCpuBenchmarkPoolProbe implements CpuBenchmarkPoolProbe {
+  _OrtCpuBenchmarkPoolProbe._({
+    required OrtSessionPool timedPool,
+    required OrtModelSource model,
+    required OrtIsolateTensor input,
+    required Float32List referenceOutput,
+    required CpuBenchmarkTargetIdentity identity,
+    required this.inputPreparationMicroseconds,
+    required this.poolStartupMicroseconds,
+  }) : _timedPool = timedPool,
+       _model = model,
+       _input = input,
+       _referenceOutput = referenceOutput,
+       _identity = identity;
+
+  static Future<_OrtCpuBenchmarkPoolProbe> open(
+    CpuBenchmarkAssets assets,
+    CpuBenchmarkTargetIdentity identity,
+    void Function() onInputPrepared,
+  ) async {
+    final OrtModelSource model = OrtModelSource.bytes(
+      assets.model,
+      modelId: cpuBenchmarkModelId,
+    );
+    final Stopwatch preparationWatch = Stopwatch()..start();
+    final OrtIsolateTensor input = OrtIsolateTensor.fromFloat32List(
+      values: assets.inputValues,
+      shape: cpuBenchmarkInputShape,
+    );
+    preparationWatch.stop();
+    final int inputPreparation = preparationWatch.elapsedMicroseconds;
+    _positiveDuration(inputPreparation);
+    onInputPrepared();
+
+    final Stopwatch startupWatch = Stopwatch()..start();
+    OrtSessionPool? pool;
+    var authoritativeFailure = false;
+    try {
+      pool = await OrtSessionPool.spawn(
+        size: cpuBenchmarkPoolSize,
+        model: model,
+        runtimeSource: const OrtRuntimeSource.bundled(),
+        options: _sessionOptions(),
+        logId: 'fonix-cpu-benchmark-pool-timed',
+        maxPendingRunsPerWorker: cpuBenchmarkPoolMaxPendingRunsPerWorker,
+        maxMessageBytes: cpuBenchmarkPoolMaxMessageBytes,
+        maxOutstandingInputBytesPerWorker:
+            cpuBenchmarkPoolMaxOutstandingInputBytesPerWorker,
+      );
+      startupWatch.stop();
+      final int startup = startupWatch.elapsedMicroseconds;
+      _positiveDuration(startup);
+      final _OrtCpuBenchmarkPoolProbe result = _OrtCpuBenchmarkPoolProbe._(
+        timedPool: pool,
+        model: model,
+        input: input,
+        referenceOutput: assets.referenceOutput,
+        identity: identity,
+        inputPreparationMicroseconds: inputPreparation,
+        poolStartupMicroseconds: startup,
+      );
+      pool = null;
+      return result;
+    } on Object {
+      authoritativeFailure = true;
+      rethrow;
+    } finally {
+      startupWatch.stop();
+      final OrtSessionPool? current = pool;
+      if (current != null) {
+        try {
+          await current.close();
+        } on Object {
+          if (!authoritativeFailure) rethrow;
+        }
+      }
+    }
+  }
+
+  final OrtSessionPool _timedPool;
+  final OrtModelSource _model;
+  final OrtIsolateTensor _input;
+  final Float32List _referenceOutput;
+  final CpuBenchmarkTargetIdentity _identity;
+  Future<void>? _closeFuture;
+  var _timedPoolClosed = false;
+  var _assignmentCaptured = false;
+
+  @override
+  final int inputPreparationMicroseconds;
+
+  @override
+  final int poolStartupMicroseconds;
+
+  @override
+  int get outstandingRuns => _timedPool.outstandingRuns;
+
+  @override
+  int get outstandingInputBytes => _timedPool.outstandingInputBytes;
+
+  @override
+  Future<void> startRun() {
+    if (_timedPoolClosed) {
+      throw const CpuBenchmarkFailure(
+        'The timed CPU benchmark pool is already closed.',
+      );
+    }
+    final OrtIsolateRun run = _timedPool.startRun(
+      inputs: <String, OrtIsolateValue>{cpuBenchmarkInputName: _input},
+      outputNames: const <String>[cpuBenchmarkOutputName],
+    );
+    return _validateRunResult(run.result, strictAssignment: false).then((_) {});
+  }
+
+  @override
+  Future<void> close() => _closeFuture ??= _timedPool.close().then((_) {
+    _timedPoolClosed = true;
+  });
+
+  @override
+  Future<List<CpuBenchmarkAssignment>> captureAssignments() async {
+    if (!_timedPoolClosed || _assignmentCaptured) {
+      throw const CpuBenchmarkFailure(
+        'The strict CPU pool assignment phase is out of order.',
+      );
+    }
+    _assignmentCaptured = true;
+    final Directory artifactRoot = Directory.systemTemp.createTempSync(
+      'fonix-cpu-benchmark-pool-assignment-',
+    );
+    OrtSessionPool? pool;
+    var authoritativeFailure = false;
+    try {
+      pool = await OrtSessionPool.spawn(
+        size: cpuBenchmarkPoolSize,
+        model: _model,
+        runtimeSource: const OrtRuntimeSource.bundled(),
+        options: _sessionOptions(
+          artifactRoot: artifactRoot.path,
+          strictAssignment: true,
+        ),
+        logId: 'fonix-cpu-benchmark-pool-assignment',
+        maxPendingRunsPerWorker: cpuBenchmarkPoolMaxPendingRunsPerWorker,
+        maxMessageBytes: cpuBenchmarkPoolMaxMessageBytes,
+        maxOutstandingInputBytesPerWorker:
+            cpuBenchmarkPoolMaxOutstandingInputBytesPerWorker,
+      );
+      final OrtSessionPool strictPool = pool;
+      final List<OrtIsolateRunResult> results =
+          await settleCpuBenchmarkStrictPoolRuns<
+            OrtIsolateRun,
+            OrtIsolateRunResult
+          >(
+            start: () => strictPool.startRun(
+              inputs: <String, OrtIsolateValue>{cpuBenchmarkInputName: _input},
+              outputNames: const <String>[cpuBenchmarkOutputName],
+            ),
+            result: (OrtIsolateRun run) => run.result,
+            hasExpectedOccupancy: () =>
+                strictPool.outstandingRuns == cpuBenchmarkPoolConcurrency &&
+                strictPool.outstandingInputBytes ==
+                    cpuBenchmarkPoolConcurrency *
+                        cpuBenchmarkPoolInputReservationBytesPerRun,
+            isDrained: () =>
+                strictPool.outstandingRuns == 0 &&
+                strictPool.outstandingInputBytes == 0,
+          );
+      final List<CpuBenchmarkAssignment> assignments =
+          <CpuBenchmarkAssignment>[];
+      for (final OrtIsolateRunResult result in results) {
+        await _validateRunResult(
+          Future<OrtIsolateRunResult>.value(result),
+          strictAssignment: true,
+        );
+        final OrtProviderRunEvidence evidence = result.providerEvidence!;
+        assignments.add(
+          CpuBenchmarkAssignment(
+            providerId: 'cpu',
+            reportedName: _identity.cpuReportedName,
+            nodeExecutionCount: evidence.nodeExecutionCount,
+            nodeExecutionsByProvider: evidence.nodeExecutionsByProvider,
+          ),
+        );
+      }
+      final Future<void> firstClose = pool.close();
+      final Future<void> secondClose = pool.close();
+      if (!identical(firstClose, secondClose)) {
+        throw const CpuBenchmarkFailure(
+          'The strict pool close operation was not idempotent.',
+        );
+      }
+      await firstClose;
+      if (pool.outstandingRuns != 0 || pool.outstandingInputBytes != 0) {
+        throw const CpuBenchmarkFailure(
+          'The strict pool retained work after close.',
+        );
+      }
+      pool = null;
+      _deleteArtifactRoot(artifactRoot);
+      return List<CpuBenchmarkAssignment>.unmodifiable(assignments);
+    } on Object {
+      authoritativeFailure = true;
+      rethrow;
+    } finally {
+      final OrtSessionPool? current = pool;
+      if (current != null) {
+        try {
+          await current.close();
+        } on Object {
+          if (!authoritativeFailure) rethrow;
+        }
+      }
+      if (artifactRoot.existsSync()) {
+        try {
+          _deleteArtifactRoot(artifactRoot);
+        } on Object {
+          if (!authoritativeFailure) rethrow;
+        }
+      }
+    }
+  }
+
+  Future<void> _validateRunResult(
+    Future<OrtIsolateRunResult> pending, {
+    required bool strictAssignment,
+  }) async {
+    final OrtIsolateRunResult result = await pending;
+    final OrtIsolateTensor output = result.tensor(cpuBenchmarkOutputName);
+    if (!_sameShape(output.shape.dimensions, cpuBenchmarkOutputShape) ||
+        output.elementType != OrtTensorElementType.float32) {
+      throw const CpuBenchmarkFailure(
+        'The pool returned an unexpected output tensor.',
+      );
+    }
+    _verifyReferenceOutput(output.copyFloat32Data(), _referenceOutput);
+    _validatePoolDiagnostics(
+      result.diagnostics,
+      _identity,
+      strictAssignment: strictAssignment,
+    );
+    final OrtProviderRunEvidence? evidence = result.providerEvidence;
+    if (strictAssignment) {
+      if (evidence == null || !evidence.isFullyAssignedTo('cpu')) {
+        throw const CpuBenchmarkFailure(
+          'A strict pool worker returned no full CPU assignment evidence.',
+        );
+      }
+    } else if (evidence != null) {
+      throw const CpuBenchmarkFailure(
+        'The timed pool unexpectedly enabled assignment profiling.',
+      );
+    }
+  }
+}
+
+void _validatePoolDiagnostics(
+  OrtDiagnostics diagnostics,
+  CpuBenchmarkTargetIdentity identity, {
+  required bool strictAssignment,
+}) {
+  final OrtSessionDiagnostics? session = diagnostics.session;
+  final List<OrtProviderDiagnostics> cpuProviders = diagnostics.providers
+      .where((OrtProviderDiagnostics value) => value.wrapperId == 'cpu')
+      .toList(growable: false);
+  if (diagnostics.dartPackageVersion != identity.packageVersion ||
+      diagnostics.runtimeVersion != identity.runtimeVersion ||
+      diagnostics.runtimeIdentity != identity.runtimeLibraryIdentity ||
+      diagnostics.runtimeMode.name != identity.runtimeSource ||
+      diagnostics.runtimeOwner.name != identity.runtimeOwner ||
+      diagnostics.artifactFlavor != identity.artifactFlavor ||
+      diagnostics.artifactSha256 != identity.artifactSourceSha256 ||
+      diagnostics.platform != identity.platform ||
+      diagnostics.architecture != identity.architecture ||
+      diagnostics.shimAbiVersion != identity.shimAbi ||
+      diagnostics.shimBuildId != identity.shimBuildId ||
+      diagnostics.requiredOrtApiVersion != identity.requiredOrtApi ||
+      diagnostics.negotiatedOrtApiVersion != identity.negotiatedOrtApi ||
+      diagnostics.modelId != cpuBenchmarkModelId ||
+      session == null ||
+      session.executionMode != 'sequential' ||
+      session.graphOptimization != 'all' ||
+      session.intraOpThreads != 1 ||
+      session.interOpThreads != 1 ||
+      !session.memoryPattern ||
+      session.fallbackPolicy != (strictAssignment ? 'rejectAny' : 'report') ||
+      cpuProviders.length != 1 ||
+      cpuProviders.single.discoverable != true ||
+      cpuProviders.single.registered != true ||
+      cpuProviders.single.reportedName != identity.cpuReportedName ||
+      cpuProviders.single.active != (strictAssignment ? true : null)) {
+    throw const CpuBenchmarkFailure(
+      'A pool worker contradicted the serial target identity or options.',
+    );
   }
 }
 

@@ -61,6 +61,12 @@ provider. Heavy provider libraries require future separate, application-local,
 lock-selected flavors. Generic or specialized provider IDs not listed here are
 unqualified and must not appear in a product support claim.
 
+The protocol-v3 two-worker CPU pool path is implemented and contract-tested,
+but its real final-application five-launch collection and independent replay
+are still pending. Its existence therefore does not raise the CPU row above
+the exact final-app evidence already listed, establish a throughput or RSS
+baseline, or make CPU `Provider-qualified` on any tuple.
+
 ## 13.4 Android ownership compatibility
 
 Every Android shim build declares exactly one owner:
@@ -168,18 +174,35 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
   tool hashes identify bytes; they do not authenticate the emitter. Current
   outputs are fixed to `claimStatus: offline-consistency-only` and unverified
   target provenance; changing that meaning requires a new closed protocol.
-- Public-API CPU benchmark target protocol: version 2, with target fragment
-  schema 2. Its raw host-observation sidecar uses schema 1, the raw-preserving
-  cross-launch collection uses schema 2, and the independent offline validation
-  record uses schema 1. The last is fixed to `claimStatus: measurement-only`
-  and `validationScope: offline-consistency-only`; it is not the older generic
+- Public-API CPU benchmark target protocol: version 3, with target-fragment
+  schema 3. It retains the complete version-2 serial field meanings and appends
+  one fixed public `OrtSessionPool` contract: two protocol-v4 workers,
+  concurrency two, one bounded 8 MiB-fixture reservation per worker,
+  concurrent stabilization, three full-isolate-roundtrip throughput windows,
+  two strict CPU assignment receipts outside timing, seven ordered
+  total-process RSS phases, zero accounting, and idempotent close. The raw
+  host-observation sidecar remains schema 1, the serial-and-pool collection is
+  schema 3 under collector contract `fonix-cpu-benchmark-collector-v2`, and
+  independent offline validation is schema 2. Repository evidence binds the
+  immutable v2 descriptor as `protocolDescriptorV2` and its target schema as
+  `targetFragmentSchemaV2` alongside the current v3 descriptor/schema. Replay
+  pins five schema dependencies: v2 and v3 target-fragment
+  schemas, v2 and v3 collection schemas, and validation schema 2. Existing
+  version-2 descriptors, fragments, collections, validations, and bundles are
+  unchanged historical artifacts; they are not rewritten or accepted as pool
+  evidence.
+
+  The offline result remains fixed to `claimStatus: measurement-only` and
+  `validationScope: offline-consistency-only`; it is not the older generic
   benchmark receipt, a baseline, or a substitute for the exact seven-file raw
   bundle. Only a collection marked `baseline-comparable` may enter a separate
   baseline or threshold review. These protocols bind one canonical application
   tree observed unchanged around the launches and one unique target-reported
   packaged runtime basename. Supplied native members are packaged inputs, not
   independent loaded-byte proof; repository evidence is not compiled-source
-  provenance and no distribution archive is claimed.
+  provenance and no distribution archive is claimed. No final application has
+  yet completed and replayed the required five-launch protocol-v3 bundle, so
+  this change does not promote any platform or provider row.
 - Runtime-information and public-diagnostics envelopes: their independent
   closed schema 1 payloads. Provider discovery/evidence also use their own
   schema 1 payloads, while the worker-isolate wire protocol is version 4. Its

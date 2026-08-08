@@ -258,8 +258,9 @@ Every release must include:
 - sherpa-onnx compatibility records;
 - migration notes;
 - benchmark/qualification summary with links to the complete raw CI artifacts;
-  for CPU collection v2 this means the exact seven-file raw bundle, because
-  its schema-1 offline validation record cannot substitute for the samples;
+  for CPU collections this means the exact seven-file raw bundle, because
+  neither the historical schema-1 nor the current schema-2 offline validation
+  record can substitute for the samples;
 - known limitations;
 - debug symbol retention/location policy.
 

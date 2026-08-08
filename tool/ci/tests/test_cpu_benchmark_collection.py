@@ -105,6 +105,7 @@ def _runtime() -> dict[str, object]:
 
 def _fragment(challenge: str, process_id: int, *, offset: int = 0) -> dict[str, object]:
     stabilization = [100 + offset] * 20
+    pool_stabilization = [150 + offset] * 20
     warm = [200 + offset + (index % 5) for index in range(100)]
     warm_output = [20 + offset + (index % 3) for index in range(100)]
     rss = [
@@ -115,8 +116,27 @@ def _fragment(challenge: str, process_id: int, *, offset: int = 0) -> dict[str, 
         }
         for index, phase in enumerate(collection._RSS_PHASES)
     ]
+    pool_rss = [
+        {
+            "phase": phase,
+            "currentBytes": 3_000_000 + offset + index,
+            "peakBytes": 4_000_000 + offset + index,
+        }
+        for index, phase in enumerate(collection._POOL_RSS_PHASES)
+    ]
+    provider_assignment = {
+        "providerId": "cpu",
+        "reportedName": "CPUExecutionProvider",
+        "discoverable": True,
+        "registered": True,
+        "requirement": "full",
+        "fallbackPolicy": "reject-any",
+        "nodeExecutionCount": 1,
+        "nodeExecutionsByProvider": {"cpu": 1},
+        "fallbackObserved": False,
+    }
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "result": "measured",
         "purpose": "measurement-only-target-fragment",
         "protocol": {
@@ -130,7 +150,7 @@ def _fragment(challenge: str, process_id: int, *, offset: int = 0) -> dict[str, 
         "launchChallenge": challenge,
         "processId": process_id,
         "freshProcessRequired": True,
-        "executionSurface": "synchronous-public-api",
+        "executionSurface": "synchronous-and-isolate-pool-public-api",
         "model": copy.deepcopy(collection._MODEL),
         "runtime": _runtime(),
         "session": copy.deepcopy(collection._SESSION),
@@ -162,17 +182,7 @@ def _fragment(challenge: str, process_id: int, *, offset: int = 0) -> dict[str, 
                 for index in range(3)
             ],
         },
-        "providerAssignment": {
-            "providerId": "cpu",
-            "reportedName": "CPUExecutionProvider",
-            "discoverable": True,
-            "registered": True,
-            "requirement": "full",
-            "fallbackPolicy": "reject-any",
-            "nodeExecutionCount": 1,
-            "nodeExecutionsByProvider": {"cpu": 1},
-            "fallbackObserved": False,
-        },
+        "providerAssignment": provider_assignment,
         "resources": {
             "rssScope": "total-process",
             "rssSamples": rss,
@@ -183,6 +193,55 @@ def _fragment(challenge: str, process_id: int, *, offset: int = 0) -> dict[str, 
             "powerMode": "host-evidence-required",
         },
         "lifecycle": copy.deepcopy(collection._LIFECYCLE),
+        "poolEvidence": {
+            "executionSurface": "public-ort-session-pool",
+            "configuration": copy.deepcopy(collection._POOL_CONFIGURATION),
+            "timing": copy.deepcopy(collection._POOL_TIMING),
+            "stabilization": {
+                "method": "bounded-batch-median-relative-change",
+                "batchSize": 5,
+                "thresholdBasisPoints": 1000,
+                "requiredConsecutiveTransitions": 3,
+                "maximumRounds": 100,
+                "actualRounds": 20,
+                "roundDurationMicroseconds": pool_stabilization,
+                "batchMedianMicroseconds": [150 + offset] * 4,
+                "result": "stabilized",
+            },
+            "measurements": {
+                "inputPreparationMicroseconds": [6000 + offset],
+                "poolStartupMicroseconds": [7000 + offset],
+                "firstConcurrentRound": {
+                    "completedRunsByLane": [1, 1],
+                    "totalCompletedRuns": 2,
+                    "durationMicroseconds": 8000 + offset,
+                    "maximumObservedInFlightRuns": 2,
+                },
+                "throughput": [
+                    {
+                        "completedRunsByLane": [
+                            8 + index + offset,
+                            9 + index + offset,
+                        ],
+                        "totalCompletedRuns": 17 + (2 * index) + (2 * offset),
+                        "durationMicroseconds": 1_000_000 + index,
+                        "maximumObservedInFlightRuns": 2,
+                    }
+                    for index in range(3)
+                ],
+            },
+            "providerAssignments": [
+                copy.deepcopy(provider_assignment),
+                copy.deepcopy(provider_assignment),
+            ],
+            "resources": {
+                "rssScope": "total-process",
+                "rssSamples": pool_rss,
+                "nativeRss": {"status": "not-exposed-by-target-api"},
+                "cpuUtilization": {"status": "not-exposed-by-target-api"},
+            },
+            "lifecycle": copy.deepcopy(collection._POOL_LIFECYCLE),
+        },
         "claimBoundary": collection._FRAGMENT_CLAIM,
     }
 
@@ -373,7 +432,7 @@ class FragmentValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fragment = _fragment("a" * 64, 123)
 
-    def test_accepts_exact_v2_fragment_and_returns_plain_copy(self) -> None:
+    def test_accepts_exact_v3_fragment_and_returns_plain_copy(self) -> None:
         result = collection.validate_fragment(
             self.fragment,
             expected_challenge="a" * 64,
@@ -383,9 +442,10 @@ class FragmentValidationTests(unittest.TestCase):
         self.assertEqual(result, self.fragment)
         self.assertIsNot(result, self.fragment)
 
-    def test_rejects_unknown_field_and_protocol_hash_drift(self) -> None:
+    def test_rejects_unknown_missing_pool_and_protocol_hash_drift(self) -> None:
         for mutation in (
             lambda value: value.__setitem__("unknown", True),
+            lambda value: value.pop("poolEvidence"),
             lambda value: value["protocol"].__setitem__(
                 "descriptorSha256", "0" * 64
             ),
@@ -420,13 +480,149 @@ class FragmentValidationTests(unittest.TestCase):
         ):
             collection.validate_fragment(tampered)
 
+    def test_rejects_pool_peak_below_serial_lifetime_peak(self) -> None:
+        tampered = copy.deepcopy(self.fragment)
+        for index, sample in enumerate(tampered["resources"]["rssSamples"]):
+            sample["peakBytes"] = 5_000_000 + index
+
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError,
+            "serial after-dispose lifetime peak",
+        ):
+            collection.validate_fragment(tampered)
+
     def test_rejects_provider_inventory_assignment_mismatch(self) -> None:
         tampered = copy.deepcopy(self.fragment)
         tampered["providerAssignment"]["reportedName"] = "OtherProvider"
+        for assignment in tampered["poolEvidence"]["providerAssignments"]:
+            assignment["reportedName"] = "OtherProvider"
         with self.assertRaisesRegex(
             collection.CpuBenchmarkCollectionError, "compiled provider"
         ):
             collection.validate_fragment(tampered)
+
+    def test_rejects_pool_contract_and_lifecycle_drift(self) -> None:
+        for path, replacement in (
+            (("configuration", "poolSize"), 3),
+            (("configuration", "maxPendingRunsPerWorker"), 2),
+            (("configuration", "inputReservationBytesPerRun"), 8_388_628),
+            (("timing", "throughputWindowStopRule"), "admit-after-target"),
+            (("lifecycle", "zeroOutstandingAfterClose"), "failed"),
+        ):
+            with self.subTest(path=path):
+                tampered = copy.deepcopy(self.fragment)
+                tampered["poolEvidence"][path[0]][path[1]] = replacement
+                with self.assertRaises(collection.CpuBenchmarkCollectionError):
+                    collection.validate_fragment(tampered)
+
+    def test_rejects_pool_lane_count_occupancy_and_window_tampering(self) -> None:
+        mutations = (
+            lambda value: value["poolEvidence"]["measurements"][
+                "firstConcurrentRound"
+            ].__setitem__("completedRunsByLane", [2, 0]),
+            lambda value: value["poolEvidence"]["measurements"]["throughput"][
+                0
+            ].__setitem__("totalCompletedRuns", 999),
+            lambda value: value["poolEvidence"]["measurements"]["throughput"][
+                0
+            ].__setitem__("maximumObservedInFlightRuns", 1),
+            lambda value: value["poolEvidence"]["measurements"]["throughput"][
+                0
+            ].__setitem__("durationMicroseconds", 999_999),
+        )
+        for mutation in mutations:
+            tampered = copy.deepcopy(self.fragment)
+            mutation(tampered)
+            with self.assertRaises(collection.CpuBenchmarkCollectionError):
+                collection.validate_fragment(tampered)
+
+    def test_rejects_serial_and_pool_windows_that_round_to_zero_rate(self) -> None:
+        serial_boundary = copy.deepcopy(self.fragment)
+        serial_window = serial_boundary["measurements"]["throughput"][0]
+        serial_window["completedRuns"] = 1
+        serial_window["durationMicroseconds"] = 2_000_000_000
+        collection.validate_fragment(serial_boundary)
+
+        serial_zero = copy.deepcopy(serial_boundary)
+        serial_zero["measurements"]["throughput"][0][
+            "durationMicroseconds"
+        ] += 1
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError,
+            "zero milli-runs per second",
+        ):
+            collection.validate_fragment(serial_zero)
+
+        pool_boundary = copy.deepcopy(self.fragment)
+        pool_window = pool_boundary["poolEvidence"]["measurements"][
+            "throughput"
+        ][0]
+        pool_window["completedRunsByLane"] = [1, 1]
+        pool_window["totalCompletedRuns"] = 2
+        pool_window["durationMicroseconds"] = 4_000_000_000
+        collection.validate_fragment(pool_boundary)
+
+        pool_zero = copy.deepcopy(pool_boundary)
+        pool_zero["poolEvidence"]["measurements"]["throughput"][0][
+            "durationMicroseconds"
+        ] += 1
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError,
+            "zero milli-runs per second",
+        ):
+            collection.validate_fragment(pool_zero)
+
+    def test_recomputes_pool_stabilization_and_rejects_trailing_rounds(self) -> None:
+        tampered = copy.deepcopy(self.fragment)
+        tampered["poolEvidence"]["stabilization"][
+            "batchMedianMicroseconds"
+        ][0] += 1
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError, "medians"
+        ):
+            collection.validate_fragment(tampered)
+
+        trailing = copy.deepcopy(self.fragment)
+        pool_stabilization = trailing["poolEvidence"]["stabilization"]
+        pool_stabilization["actualRounds"] = 25
+        pool_stabilization["roundDurationMicroseconds"].extend([150] * 5)
+        pool_stabilization["batchMedianMicroseconds"].append(150)
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError, "first stop point"
+        ):
+            collection.validate_fragment(trailing)
+
+    def test_rejects_pool_assignment_and_rss_phase_tampering(self) -> None:
+        one_assignment = copy.deepcopy(self.fragment)
+        one_assignment["poolEvidence"]["providerAssignments"].pop()
+        with self.assertRaises(collection.CpuBenchmarkCollectionError):
+            collection.validate_fragment(one_assignment)
+
+        assignment_drift = copy.deepcopy(self.fragment)
+        assignment_drift["poolEvidence"]["providerAssignments"][1][
+            "reportedName"
+        ] = "OtherProvider"
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError, "serial assignment parity"
+        ):
+            collection.validate_fragment(assignment_drift)
+
+        reordered_rss = copy.deepcopy(self.fragment)
+        samples = reordered_rss["poolEvidence"]["resources"]["rssSamples"]
+        samples[0], samples[1] = samples[1], samples[0]
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError, "phase changed"
+        ):
+            collection.validate_fragment(reordered_rss)
+
+        decreasing_peak = copy.deepcopy(self.fragment)
+        decreasing_peak["poolEvidence"]["resources"]["rssSamples"][3][
+            "peakBytes"
+        ] = 3_999_999
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError, "peak decreased"
+        ):
+            collection.validate_fragment(decreasing_peak)
 
 
 @unittest.skipUnless(os.name == "posix", "requires POSIX no-follow descriptors")
@@ -638,6 +834,20 @@ class NativeAndRepositoryBindingTests(unittest.TestCase):
             result["protocolDescriptor"]["sha256"],
             collection.PROTOCOL_DESCRIPTOR_SHA256,
         )
+        self.assertEqual(
+            result["protocolDescriptorV2"],
+            {
+                "sizeBytes": 4_304,
+                "sha256": collection.PROTOCOL_DESCRIPTOR_V2_SHA256,
+            },
+        )
+        self.assertEqual(
+            result["targetFragmentSchemaV2"],
+            {
+                "sizeBytes": 16_843,
+                "sha256": collection.TARGET_FRAGMENT_SCHEMA_V2_SHA256,
+            },
+        )
         marker = self.root / "candidate-helper-executed"
         source_helper.write_text(
             "from pathlib import Path\n"
@@ -656,12 +866,50 @@ class NativeAndRepositoryBindingTests(unittest.TestCase):
             collection.repository_evidence_identity(synthetic)
         self.assertFalse(marker.exists())
 
+        shutil.copyfile(
+            REPOSITORY / "tool/ci/source_checksum_manifest.py", source_helper
+        )
+        protocol_v2 = synthetic / "templates/ci/cpu_benchmark_protocol_v2.json"
+        protocol_v2.write_bytes(protocol_v2.read_bytes() + b"\n")
+        (synthetic / "MANIFEST.sha256").write_bytes(
+            source_checksum_manifest.build_manifest(synthetic)
+        )
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError,
+            "protocolDescriptorV2",
+        ):
+            collection.repository_evidence_identity(synthetic)
+
+        shutil.copyfile(
+            REPOSITORY / "templates/ci/cpu_benchmark_protocol_v2.json",
+            protocol_v2,
+        )
+        target_schema_v2 = (
+            synthetic / "templates/ci/cpu_benchmark_target_fragment_v2.schema.json"
+        )
+        target_schema_v2.write_bytes(target_schema_v2.read_bytes() + b"\n")
+        (synthetic / "MANIFEST.sha256").write_bytes(
+            source_checksum_manifest.build_manifest(synthetic)
+        )
+        with self.assertRaisesRegex(
+            collection.CpuBenchmarkCollectionError,
+            "targetFragmentSchemaV2",
+        ):
+            collection.repository_evidence_identity(synthetic)
+
+        shutil.copyfile(
+            REPOSITORY / "templates/ci/cpu_benchmark_target_fragment_v2.schema.json",
+            target_schema_v2,
+        )
         with (synthetic / "example/assets/models/cpu_benchmark_matmul.json").open(
             "ab"
         ) as stream:
             stream.write(b"tamper")
+        (synthetic / "MANIFEST.sha256").write_bytes(
+            source_checksum_manifest.build_manifest(synthetic)
+        )
         with self.assertRaisesRegex(
-            collection.CpuBenchmarkCollectionError, "does not match"
+            collection.CpuBenchmarkCollectionError, "metadata identity"
         ):
             collection.repository_evidence_identity(synthetic)
 
@@ -709,8 +957,16 @@ class CollectionDerivationTests(unittest.TestCase):
     def test_derives_raw_preserving_stats_rates_resources_and_zero_dependencies(self) -> None:
         fragments = [_fragment("a" * 64, 42), _fragment("b" * 64, 43, offset=1)]
         result = self._derive(fragments)
+        self.assertEqual(result["schemaVersion"], 3)
+        self.assertEqual(
+            result["collector"]["id"], "fonix-cpu-benchmark-collector-v2"
+        )
         self.assertEqual(result["launchCount"], 2)
         self.assertEqual(result["artifacts"]["providerDependencies"], [])
+        self.assertEqual(
+            result["identityTuple"]["poolEvidenceContract"]["configuration"],
+            collection._POOL_CONFIGURATION,
+        )
         self.assertEqual(result["rawFragments"][0]["fragment"], fragments[0])
         self.assertEqual(
             result["rawHostObservation"]["record"]["environment"],
@@ -730,7 +986,84 @@ class CollectionDerivationTests(unittest.TestCase):
                 throughput["totalDurationMicroseconds"],
             ),
         )
+        pool = result["aggregates"]["poolEvidence"]
+        self.assertEqual(
+            pool["measurements"]["inputPreparationMicroseconds"]["samples"],
+            [6000, 6001],
+        )
+        self.assertEqual(
+            pool["measurements"]["firstConcurrentRound"][
+                "totalCompletedRunsByLane"
+            ],
+            [2, 2],
+        )
+        self.assertEqual(
+            pool["measurements"]["firstConcurrentRound"][
+                "totalCompletedRuns"
+            ],
+            4,
+        )
+        pool_throughput = pool["throughput"]
+        self.assertEqual(len(pool_throughput["windows"]), 6)
+        self.assertEqual(
+            pool_throughput["totalCompletedRunsByLane"], [57, 63]
+        )
+        self.assertEqual(pool_throughput["totalCompletedRuns"], 120)
+        self.assertEqual(
+            pool_throughput["aggregateRunsPerSecondMilli"],
+            collection.throughput_rate_milli(
+                pool_throughput["totalCompletedRuns"],
+                pool_throughput["totalDurationMicroseconds"],
+            ),
+        )
+        self.assertEqual(len(pool["resources"]["byPhase"]), 7)
+        self.assertEqual(
+            pool["resources"]["byPhase"][0]["phase"],
+            "after-input-preparation",
+        )
         self.assertNotIn(tempfile.gettempdir(), json.dumps(result))
+
+    def test_accepts_exact_closed_aggregate_throughput_duration_boundary(
+        self,
+    ) -> None:
+        fragments = [
+            _fragment(f"{index + 1:064x}", 100 + index, offset=index)
+            for index in range(5)
+        ]
+        for fragment in fragments:
+            for window in fragment["measurements"]["throughput"]:
+                window["completedRuns"] = 500_000
+                window["durationMicroseconds"] = collection.MAXIMUM_DURATION
+            for window in fragment["poolEvidence"]["measurements"][
+                "throughput"
+            ]:
+                window["completedRunsByLane"] = [250_000, 250_000]
+                window["totalCompletedRuns"] = 500_000
+                window["durationMicroseconds"] = collection.MAXIMUM_DURATION
+
+        result = self._derive(fragments)
+        for throughput in (
+            result["aggregates"]["throughput"],
+            result["aggregates"]["poolEvidence"]["throughput"],
+        ):
+            self.assertEqual(
+                throughput["totalDurationMicroseconds"],
+                15 * collection.MAXIMUM_DURATION,
+            )
+            self.assertEqual(throughput["aggregateRunsPerSecondMilli"], 1)
+
+        self.assertEqual(
+            collection._aggregate_throughput_rate_milli(
+                24_000_000,
+                collection.MAXIMUM_DERIVATION_THROUGHPUT_DURATION,
+            ),
+            1,
+        )
+        with self.assertRaises(collection.CpuBenchmarkCollectionError):
+            collection._aggregate_throughput_rate_milli(
+                1,
+                collection.MAXIMUM_DERIVATION_THROUGHPUT_DURATION + 1,
+            )
 
     def test_packaged_labels_allow_spaces_but_runtime_identity_stays_token(
         self,
@@ -765,6 +1098,27 @@ class CollectionDerivationTests(unittest.TestCase):
             "path-free label",
         ):
             self._derive(fragments, artifacts=unsafe_artifacts)
+
+    def test_rejects_v2_dependency_evidence_absence_and_tamper(self) -> None:
+        fragments = [_fragment("a" * 64, 1), _fragment("b" * 64, 2)]
+        for dependency in (
+            "protocolDescriptorV2",
+            "targetFragmentSchemaV2",
+        ):
+            with self.subTest(dependency=dependency, mutation="tamper"):
+                artifacts = _artifacts()
+                artifacts["repositoryEvidence"][dependency]["sha256"] = "0" * 64
+                with self.assertRaisesRegex(
+                    collection.CpuBenchmarkCollectionError,
+                    dependency,
+                ):
+                    self._derive(fragments, artifacts=artifacts)
+
+            with self.subTest(dependency=dependency, mutation="absent"):
+                artifacts = _artifacts()
+                artifacts["repositoryEvidence"].pop(dependency)
+                with self.assertRaises(collection.CpuBenchmarkCollectionError):
+                    self._derive(fragments, artifacts=artifacts)
 
     def test_accepts_reused_pid_with_distinct_challenges(self) -> None:
         fragments = [_fragment("a" * 64, 77), _fragment("b" * 64, 77, offset=1)]

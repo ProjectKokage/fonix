@@ -2648,4 +2648,83 @@ void main() {
         ? 'Set FONIX_TEST_REAL_ORT_PATH to the exact ORT v1.27.1 runtime.'
         : false,
   );
+
+  test(
+    'real two-worker pool admits and assigns one CPU run per worker',
+    () async {
+      final String normalizedRuntime = p.normalize(runtimePath!);
+      final String fixtureRoot = p.normalize(p.absolute('test', 'fixtures'));
+      final Directory artifactRoot = Directory.systemTemp.createTempSync(
+        'fonix-pool-evidence-',
+      );
+      OrtSessionPool? pool;
+      try {
+        pool = await OrtSessionPool.spawn(
+          size: 2,
+          runtimeSource: OrtRuntimeSource.file(
+            absolutePath: normalizedRuntime,
+            allowedRoot: p.dirname(normalizedRuntime),
+          ),
+          model: OrtModelSource.file(
+            absolutePath: p.join(fixtureRoot, 'mul_1.onnx'),
+            allowedRoot: fixtureRoot,
+          ),
+          options: OrtSessionOptions(
+            artifactRoot: artifactRoot.path,
+            providers: <OrtExecutionProvider>[
+              OrtExecutionProvider.cpu(
+                requirement: OrtProviderRequirement.requireFullAssignment,
+              ),
+            ],
+            fallbackPolicy: OrtFallbackPolicy.rejectAny,
+          ),
+          maxPendingRunsPerWorker: 1,
+        );
+        final OrtIsolateTensor input = OrtIsolateTensor.fromFloat32List(
+          values: Float32List.fromList(<double>[1, 2, 3, 4, 5, 6]),
+          shape: const <int>[3, 2],
+        );
+        final List<OrtIsolateRun> runs = <OrtIsolateRun>[
+          pool.startRun(inputs: <String, OrtIsolateValue>{'X': input}),
+          pool.startRun(inputs: <String, OrtIsolateValue>{'X': input}),
+        ];
+        expect(pool.size, 2);
+        expect(pool.outstandingRuns, 2);
+        expect(pool.outstandingInputBytes, greaterThan(0));
+
+        final List<OrtIsolateRunResult> results =
+            await Future.wait<OrtIsolateRunResult>(
+              runs.map((OrtIsolateRun run) => run.result),
+            );
+        expect(results, hasLength(2));
+        for (final OrtIsolateRunResult result in results) {
+          expect(result.tensor('Y').copyFloat32Data(), <double>[
+            1,
+            4,
+            9,
+            16,
+            25,
+            36,
+          ]);
+          expect(result.providerEvidence?.isFullyAssignedTo('cpu'), isTrue);
+          expect(result.diagnostics.runtimeVersion, '1.27.1');
+        }
+        expect(pool.outstandingRuns, 0);
+        expect(pool.outstandingInputBytes, 0);
+        final Future<void> firstClose = pool.close();
+        final Future<void> secondClose = pool.close();
+        expect(identical(firstClose, secondClose), isTrue);
+        await firstClose;
+        expect(pool.outstandingRuns, 0);
+        expect(pool.outstandingInputBytes, 0);
+        expect(artifactRoot.listSync(), isEmpty);
+      } finally {
+        await pool?.close();
+        artifactRoot.deleteSync(recursive: true);
+      }
+    },
+    skip: runtimePath == null
+        ? 'Set FONIX_TEST_REAL_ORT_PATH to the exact ORT v1.27.1 runtime.'
+        : false,
+  );
 }

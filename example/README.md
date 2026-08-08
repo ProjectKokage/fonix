@@ -65,19 +65,42 @@ An external macOS or Linux Release build accepts the exact opt-in activation
 `FONIX_CPU_BENCHMARK_CHALLENGE`. Do not combine it with
 `FONIX_REFERENCE_SMOKE=1`; the existing functional smoke retains startup
 precedence. The benchmark path loads and verifies all four committed workload
-assets before timing, then uses the synchronous public API with fixed
-sequential CPU settings, one explicit intra-op thread, one explicit inter-op
-thread, deterministic compute, and one reusable input tensor.
+assets before timing. Protocol v3 first preserves the complete protocol-v2
+serial phase: synchronous public API, fixed sequential CPU settings, one
+explicit intra-op thread, one explicit inter-op thread, deterministic compute,
+and one reusable native input tensor. That phase still requires bounded
+batch-median stabilization, records 100 warm inference and native-to-Dart
+output-copy samples, completes three one-second throughput windows whose cycle
+includes inference, output copy, exact-bit validation, and result disposal,
+samples total-process RSS at eight lifecycle phases, and captures one strict
+full-CPU assignment outside timing.
 
-The runner requires bounded batch-median stabilization, records 100 warm
-inference and native-to-Dart output-copy samples, completes three one-second
-throughput windows whose cycle includes inference, output copy, exact-bit
-validation, and result disposal, captures total-process RSS at eight lifecycle
-phases, and performs one separate strict full-CPU-assignment run outside the
-timed samples. Every output is compared bit-for-bit with the committed float32
-reference. It then double-disposes every native owner and deletes the private
-assignment-profile directory before publishing one bounded line beginning
-with `FONIX_CPU_BENCHMARK_FRAGMENT=`. The schema-2 fragment repeats the exact
+Protocol v3 then appends a separate public `OrtSessionPool` phase. It copies
+the 8 MiB input fixture into one immutable isolate value, starts exactly two
+protocol-v4 workers, and fixes pool size and concurrency at two. Each worker
+may retain one run and has a 32 MiB message bound plus a 16 MiB aggregate
+input bound; one admitted run
+reserves the exact 8,388,629-byte request accounting for the fixture, input
+name, and two int64 shape dimensions. The requested output name is bounded by
+the message limit but is not part of the aggregate input reservation. The
+first round must
+prove two simultaneous admissions and reservations before either result is
+awaited. Concurrent round duration stabilizes in five-round batches, requiring
+three consecutive median changes within 10 percent under a 100-round bound.
+Three one-second windows then keep two controller lanes active through the
+complete isolate round trip: input transfer and decode, native tensor creation
+and inference, output transfer and decode, Dart float32 copy, and exact-bit
+validation. Admissions stop at the window deadline and both lanes drain.
+
+The pool phase records seven ordered total-process RSS samples. The timed pool
+must reach zero runs and zero reserved input bytes before close; two calls must
+return the same idempotent close future and leave zero accounting afterward.
+A different two-worker pool captures one strict full-CPU assignment receipt
+per worker after all pool timing windows, then closes idempotently and removes
+its private profiling root. Every serial and pool output is compared
+bit-for-bit with the committed finite float32 reference. Only after all owners
+settle does the app publish one bounded line beginning with
+`FONIX_CPU_BENCHMARK_FRAGMENT=`. The schema-3 fragment repeats the exact
 challenge and its positive target-process ID so the host collector can bind the
 result to the direct child it launched.
 
@@ -86,8 +109,10 @@ older generic benchmark evidence receipt described in the main testing guide.
 The host-side collector launches exactly five fresh processes, binds every
 fragment to its challenge and direct-child PID, records bounded device, OS,
 power, thermal, and CPU-utilization observations in a raw sidecar, and derives
-one collection schema 2 record. Run it against an already built final
-application:
+one collection-schema-3 record with serial and pool aggregates. The collector
+contract is `fonix-cpu-benchmark-collector-v2`; the name versions collector
+behavior independently of the collection schema. Run it against an already
+built final application:
 
 ```sh
 python3 -B tool/ci/collect_cpu_benchmark.py \
@@ -129,8 +154,8 @@ python3 -B tool/ci/validate_cpu_benchmark_collection.py \
   --output /absolute/new/cpu-benchmark-validation.json
 ```
 
-The validation output is a schema-1 `measurement-only`,
-`offline-consistency-only` record, not a schema-2 collection and not a
+The validation output is a schema-2 `measurement-only`,
+`offline-consistency-only` record, not a schema-3 collection and not a
 substitute for the raw files. Retain and reopen the complete seven-file bundle
 for every later evaluation. Only a collection whose environment status is
 `baseline-comparable` may enter a separate baseline or threshold review;
@@ -138,9 +163,23 @@ for every later evaluation. Only a collection whose environment status is
 are ineligible for that comparison. Neither collection nor validation
 establishes stable performance, a regression threshold, CPU/provider
 qualification, platform support, release readiness, or transferability.
-The current production observer reports thermal state unavailable on both
-supported hosts and power mode unavailable on macOS, so controlled
-power/thermal capture remains open and current collections are `incomplete`.
+The current macOS observer records the public `NSProcessInfo` thermal enum and
+dynamic Low Power boolean together with the active power source and a bounded
+opaque fingerprint of the matching configured `pmset` profile. Linux thermal
+state remains unavailable.
+
+Protocol-v2 descriptors, target fragments, collections, validations, and raw
+bundles remain unchanged historical artifacts under their own contracts. They
+are not rewritten as protocol-v3 evidence and cannot supply the new pool
+fields. Repository evidence binds the immutable v2 descriptor as
+`protocolDescriptorV2` and its target schema as `targetFragmentSchemaV2`
+alongside the current v3 descriptor/schema. The replay schema
+registry pins the v2 target-fragment and collection schemas, the v3
+target-fragment and collection schemas, and validation schema 2. No final
+application has yet
+produced and replayed the required five-launch protocol-v3 bundle, so the new
+pool path currently establishes an implementation and validation contract
+only.
 
 ## macOS gate
 

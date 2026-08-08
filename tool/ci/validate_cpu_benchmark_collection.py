@@ -36,32 +36,52 @@ LAUNCH_COUNT = 5
 COLLECTION_FILENAME = "cpu-benchmark-collection.json"
 HOST_OBSERVATIONS_FILENAME = "host-observations.json"
 FRAGMENT_FILENAME = "fragment-{index:02d}.json"
-COLLECTION_SCHEMA_RELATIVE = "templates/ci/cpu_benchmark_collection_v2.schema.json"
-VALIDATION_SCHEMA_RELATIVE = "templates/ci/cpu_benchmark_validation_v1.schema.json"
+COLLECTION_SCHEMA_RELATIVE = "templates/ci/cpu_benchmark_collection_v3.schema.json"
+VALIDATION_SCHEMA_RELATIVE = "templates/ci/cpu_benchmark_validation_v2.schema.json"
 TARGET_SCHEMA_RELATIVE = (
+    "templates/ci/cpu_benchmark_target_fragment_v3.schema.json"
+)
+TARGET_SCHEMA_V2_RELATIVE = (
     "templates/ci/cpu_benchmark_target_fragment_v2.schema.json"
 )
+COLLECTION_SCHEMA_V2_RELATIVE = (
+    "templates/ci/cpu_benchmark_collection_v2.schema.json"
+)
 COLLECTION_SCHEMA_ID = (
-    "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json"
+    "https://fonix.invalid/schemas/cpu-benchmark-collection-v3.json"
 )
 VALIDATION_SCHEMA_ID = (
-    "https://fonix.invalid/schemas/cpu-benchmark-validation-v1.json"
+    "https://fonix.invalid/schemas/cpu-benchmark-validation-v2.json"
 )
 TARGET_SCHEMA_ID = (
+    "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json"
+)
+TARGET_SCHEMA_V2_ID = (
     "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v2.json"
 )
+COLLECTION_SCHEMA_V2_ID = (
+    "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json"
+)
 _EXPECTED_SCHEMA_IDENTITIES = {
-    TARGET_SCHEMA_ID: {
+    TARGET_SCHEMA_V2_ID: {
         "sizeBytes": 16843,
         "sha256": "58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d",
     },
-    COLLECTION_SCHEMA_ID: {
+    TARGET_SCHEMA_ID: {
+        "sizeBytes": 12447,
+        "sha256": "b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b",
+    },
+    COLLECTION_SCHEMA_V2_ID: {
         "sizeBytes": 28617,
         "sha256": "d37872a9723913bcf1fc2047a869c39df0294272185d1351520d5ead65bc8472",
     },
+    COLLECTION_SCHEMA_ID: {
+        "sizeBytes": 24205,
+        "sha256": "d463aa3c24c8e49dd3f3e048a899e077bc59e90dcff1262f5eff906a6c54277f",
+    },
     VALIDATION_SCHEMA_ID: {
-        "sizeBytes": 8263,
-        "sha256": "29531074402957518a46548d8200cb4e45559a99ea2f93648b83586885b7f429",
+        "sizeBytes": 8471,
+        "sha256": "5abf7cc0513533fdf1125bf43cfcd461bf3392ea5292dfdf00b3915c42c98ebe",
     },
 }
 MAXIMUM_PATH_BYTES = 4096
@@ -641,7 +661,13 @@ def _validate_schema_node(
 def _validate_schema_documents(
     registry: Mapping[str, dict[str, Any]],
 ) -> None:
-    expected = {COLLECTION_SCHEMA_ID, VALIDATION_SCHEMA_ID, TARGET_SCHEMA_ID}
+    expected = {
+        TARGET_SCHEMA_V2_ID,
+        TARGET_SCHEMA_ID,
+        COLLECTION_SCHEMA_V2_ID,
+        COLLECTION_SCHEMA_ID,
+        VALIDATION_SCHEMA_ID,
+    }
     if set(registry) != expected:
         raise CpuBenchmarkValidationError("schema registry field set changed")
     for identifier, schema in registry.items():
@@ -829,13 +855,40 @@ def _load_schemas(
     repository: Path, core: Any
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     specifications = (
-        (TARGET_SCHEMA_ID, TARGET_SCHEMA_RELATIVE, "target-fragment schema"),
-        (COLLECTION_SCHEMA_ID, COLLECTION_SCHEMA_RELATIVE, "collection schema"),
-        (VALIDATION_SCHEMA_ID, VALIDATION_SCHEMA_RELATIVE, "validation schema"),
+        (
+            TARGET_SCHEMA_V2_ID,
+            TARGET_SCHEMA_V2_RELATIVE,
+            "target-fragment v2 dependency schema",
+            "targetFragmentV2",
+        ),
+        (
+            TARGET_SCHEMA_ID,
+            TARGET_SCHEMA_RELATIVE,
+            "target-fragment schema",
+            "targetFragment",
+        ),
+        (
+            COLLECTION_SCHEMA_V2_ID,
+            COLLECTION_SCHEMA_V2_RELATIVE,
+            "collection v2 dependency schema",
+            "collectionV2",
+        ),
+        (
+            COLLECTION_SCHEMA_ID,
+            COLLECTION_SCHEMA_RELATIVE,
+            "collection schema",
+            "collection",
+        ),
+        (
+            VALIDATION_SCHEMA_ID,
+            VALIDATION_SCHEMA_RELATIVE,
+            "validation schema",
+            "validation",
+        ),
     )
     registry: dict[str, dict[str, Any]] = {}
     identities: dict[str, dict[str, Any]] = {}
-    for identifier, relative, label in specifications:
+    for identifier, relative, label, result_name in specifications:
         trusted_raw, trusted_identity = _read_source_file(
             core,
             _TRUSTED_REPOSITORY.joinpath(*relative.split("/")),
@@ -867,13 +920,7 @@ def _load_schemas(
         if type(value) is not dict:
             raise CpuBenchmarkValidationError(f"{label} must be an object")
         registry[identifier] = value
-        identities[
-            {
-                TARGET_SCHEMA_ID: "targetFragment",
-                COLLECTION_SCHEMA_ID: "collection",
-                VALIDATION_SCHEMA_ID: "validation",
-            }[identifier]
-        ] = trusted_identity
+        identities[result_name] = trusted_identity
     _validate_schema_documents(registry)
     return registry, identities
 
@@ -1402,7 +1449,7 @@ def validate(
 
     collection_identity = _identity(payloads[COLLECTION_FILENAME])
     validation = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "result": "validated",
         "claimStatus": "measurement-only",
         "purpose": "cpu-benchmark-raw-bundle-offline-validation",

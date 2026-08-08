@@ -1,14 +1,15 @@
 # Validation Report
 
-- Validation date: 2026-08-08
+- Validation date: 2026-08-09
 - Package: `fonix 0.1.0-dev.1`
 - Host: macOS 26.5.2 (25F84), arm64
 
 ## Result
 
 The declared development API and locally controllable package boundary pass
-the completed validation recorded below. The current shared reference source
-passes 81/81 application tests and analysis. The separately frozen,
+the completed validation recorded below. The current shared reference passes
+90/90 application tests and analysis in a clean external copy, including the
+18/18 protocol-v3 benchmark slice. The separately frozen,
 manifest-bound iOS gate source epoch passed its historical 72/72 application
 tests, including 25/25 reference-smoke tests and 5/5 iOS project-contract
 tests, and its linked simulator application passed two consecutive Debug
@@ -239,6 +240,47 @@ remains unavailable. This source checkpoint contains no controlled five-launch
 bundle from the new observer; any later raw collection and offline replay are
 external evidence.
 
+The protocol-v3 source follow-up preserves the complete serial-v2 field
+meanings and adds a distinct bounded public `OrtSessionPool` phase. It fixes
+worker protocol 4, pool size and concurrency two, one 8 MiB-fixture request
+reservation per worker, concurrent batch-median stabilization, three
+one-second two-lane full-isolate-roundtrip windows, two strict CPU assignment
+receipts outside timing, seven ordered total-process RSS phases, zero
+run/input-byte accounting, and idempotent close. Collection schema 3 derives
+both serial and pool aggregates; independent offline validation emits schema
+2. Repository evidence binds the immutable v2 descriptor as
+`protocolDescriptorV2` and its target schema as `targetFragmentSchemaV2`
+alongside the v3 descriptor/schema, and replay pins five
+schema dependencies: the v2 and v3 target-fragment schemas, the v2 and v3
+collection schemas, and validation schema 2. Existing v2 descriptors, fragments,
+collections, validations, and bundles are unchanged and cannot be promoted
+into pool evidence.
+
+Partial pool startup remains deliberately narrower than a pool-wide join over
+every attempted child. When a later worker fails, pool startup awaits close
+for each earlier worker whose spawn already returned successfully. If the
+failing worker's own startup timed out, its controller retires any later-ready
+child through the internal protocol, but `OrtSessionPool.spawn` has already
+received the authoritative timeout and does not await that later cleanup
+receipt. This distinction prevents the documentation from claiming stronger
+pool-level settlement than the implementation owns.
+
+No final macOS or Linux application has yet completed and independently
+replayed five fresh protocol-v3 launches. The existing macOS measurement and
+collection described above are protocol-v2 serial history only. The new source
+path therefore supplies no pool throughput/RSS baseline, regression threshold,
+performance claim, provider qualification, support promotion, or release
+evidence.
+
+Focused protocol-v3 collection coverage passes 101/101 Python tests: 30
+derivation/core, 41 collector, and 30 independent replay-validator cases. The
+external-copy Dart benchmark file passes 18/18 after adding process-lifetime
+peak-RSS, two-worker assignment-parity, authentic second-admission, and
+occupancy-drain settlement regressions. The Dart subset is included in the
+current 90/90 external-copy application run, and the Python subset is included
+in the current 824/824 closed-manifest CI-script run. Neither result is
+final-app protocol-v3 collection evidence.
+
 The raw fragments are not independently authenticated, supplied native members
 are packaged inputs rather than exact loaded-byte proof, repository evidence is
 not compiled provenance, and neither record is a baseline, approved threshold,
@@ -273,7 +315,8 @@ the active documentation:
 - five-OS build-hook paths, exact offline artifact resolution, final-package
   auditors, Android single-ORT ownership and sherpa/QNN evidence tooling,
   deterministic fixtures, benchmark-receipt validation, a public-API CPU
-  target measurement fragment, and closed source and release-evidence checks,
+  target measurement fragment with preserved serial and fixed two-worker pool
+  phases, and closed source and release-evidence checks,
   plus an exact scope-only pre-1.0 policy validator and a separate external
   candidate-approval validator that requires 55 exact evidence slots and five
   detached approval categories without weakening global five-platform release
@@ -322,8 +365,8 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 260 passed, 18 explicitly provisioned skips on exact Dart 3.11.5 |
-| Provisioned Dart suite | 298 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied |
+| Ordinary offline Dart suite | 260 passed, 19 explicitly provisioned skips on exact Dart 3.11.5 |
+| Prior fully provisioned Dart suite | 298 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied; the newly added two-worker test passed separately as described below |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
 | Native C ABI baseline | 16/16 focused tests and the 15/15 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `50612f5c51070212216aafb68e1ca5e2447acbd18dcdbf3608bdf9aa69128c20` and canonical file SHA-256 `02985575cc126370feb2a736ee0fca334e741d1d11da9437d4fa86aef9abab6c` |
 | Worker lifecycle and strict JSON with strict fake and exact ORT | 55/55 focused tests passed, including eight unique bounded composed lifecycle traces, positive-int64 request-ID exhaustion, ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
@@ -332,11 +375,11 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 814/814 passed after regenerating the closed source manifest; the 110-test CPU collection subset also passed independently |
+| Python CI-script tests | 824/824 passed after regenerating and verifying the current closed source manifest |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `77afac75f64af4df4156e7c60b9fd291d32fc51f41bcdc3cff949de070ed5c58` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Source-release archive validator | 25/25 focused tests passed; exact Git-tree and manifest closure, ZIP and gzip/tar structure, revision rebinding, verified-source loading, retained-descriptor ownership, malformed input, tamper, bounds, and deterministic publication are covered without extraction |
 | Scoped candidate approval validator | 37/37 focused tests passed; exact 48 composition and 7 shared evidence records, closed-default-deny semantic classification, the registered macOS CPU-assignment receipt and derived source closure, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 814-test Python suite |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 824-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed, including exact loaded-glibc identity and malformed/unavailable identity rejection; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -365,8 +408,9 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 72/72 app tests and analysis, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Current shared public-API reference source | 81/81 app tests and analysis passed in a clean external copy |
-| CPU collection-v2 and offline-replay tooling | 110/110 focused tests passed: 19 bounded-process, 22 derivation/core, 41 collector, and 28 independent-validator tests, including the macOS API/`pmset` observer contract, platform-specific host grammar, closed platform stderr, spaced packaged basenames, tamper, replay, alias, mutation, collision, retained-inode, parent relocation, partial-publication, and durability failures |
+| Current shared public-API reference source | 90/90 app tests and analysis passed in a clean external copy, including 18 protocol-v3 CPU benchmark cases |
+| Historical CPU collection-v2 and offline-replay tooling | 110/110 focused tests passed: 19 bounded-process, 22 derivation/core, 41 collector, and 28 independent-validator tests, including the macOS API/`pmset` observer contract, platform-specific host grammar, closed platform stderr, spaced packaged basenames, tamper, replay, alias, mutation, collision, retained-inode, parent relocation, partial-publication, and durability failures |
+| CPU protocol-v3 pool path | 101/101 focused Python tests passed: 30 derivation/core, 41 collector, and 30 independent replay-validator cases. The external-copy Dart benchmark passed 18/18, including process-lifetime peak-RSS, two-worker assignment-parity, authentic second-admission, and occupancy-drain settlement regressions; the exact ORT 1.27.1 two-worker test passed 1/1 on macOS arm64. No final-application five-launch v3 bundle or replay has been produced |
 | Current macOS arm64 CPU measurement path | An earlier fresh Release application passed five challenge/PID-bound processes, exact seven-file raw publication, collection-schema-2 derivation, and independent schema-1 offline replay with `incomplete` comparability; this source checkpoint contains no controlled bundle from the current observer, any later collection/replay is external evidence, and no baseline is claimed |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
@@ -875,6 +919,8 @@ The following are deliberately not claimed:
   qualification;
 - deferred Android QNN aligned-build/device/HTP/cache/product receipts;
 - Linux target-host loading/inference and final Flutter packaging;
+- a final macOS or Linux five-launch protocol-v3 CPU bundle containing the
+  two-worker pool phase and its independent schema-2 replay;
 - deferred Windows target-host loading/inference, final Flutter packaging,
   installer, and clean-machine runs;
 - physical-device or representative-hardware qualification and sustained

@@ -33,8 +33,9 @@ matrix, including the deferred Windows target-host lane.
   node assignment.
 - Deterministic build hooks, a hash-pinned native lockfile, final-package
   auditors, Android single-ORT ownership tooling, and reproducible release-
-  evidence generators, plus a bounded public-API CPU target protocol, five-
-  launch raw collection, and independent offline replay validator.
+  evidence generators, plus a bounded public-API CPU target protocol covering
+  the preserved serial path and a fixed two-worker session pool, five-launch
+  raw collection, and independent offline replay validator.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM are outside the current API.
@@ -377,11 +378,18 @@ and Android-without-QNN candidates. These are four selected OS target rows and
 five CPU compositions: macOS arm64 bundled, iOS arm64 linked device, Linux
 x86_64 bundled, and Android arm64 application-owned bundled plus sherpa-owned
 process mode. The reference app now has a bounded, measurement-only
-macOS/Linux CPU target protocol over a reproducible static-weight MatMul. Its
-host collector records five challenge-bound fresh processes, preserves the raw
-target fragments and host observations, and derives a collection-v2 record;
-the separate offline validator independently reopens that raw bundle and emits
-only a schema-1 `offline-consistency-only` validation record. On macOS, the
+macOS/Linux CPU target protocol over a reproducible static-weight MatMul.
+Protocol v3 preserves the prior synchronous serial field meanings and appends
+an exact public `OrtSessionPool` phase with two protocol-v4 workers,
+concurrency two, bounded input reservations, concurrent stabilization, three
+two-lane full-isolate-roundtrip throughput windows, two strict CPU assignment
+receipts outside timing, seven total-process RSS phases, zero accounting, and
+idempotent close. Its host collector records five challenge-bound fresh
+processes, preserves the raw target fragments and host observations, and
+derives a collection-schema-3 record; the separate offline validator
+independently reopens that raw bundle and emits only a schema-2
+`offline-consistency-only` validation record. Existing protocol-v2 evidence
+remains unchanged and cannot stand in for the pool fields. On macOS, the
 collector reads the public `NSProcessInfo` thermal enum and current dynamic Low
 Power boolean. Separately, bounded `pmset` output supplies the source-stable
 active power source and matching opaque configured profile. The power label
@@ -398,7 +406,8 @@ checkpoint contains no controlled five-launch bundle from the new observer;
 any later raw collection and replay are external evidence. This
 capability does not create a controlled baseline, reviewed threshold, provider
 qualification, support promotion, release approval, or non-macOS target
-evidence. Android
+evidence. No final application has yet completed and replayed the required
+five-launch protocol-v3 bundle. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

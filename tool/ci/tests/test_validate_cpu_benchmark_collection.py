@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import sys
 import tempfile
@@ -23,6 +24,7 @@ sys.path[:0] = [str(CI_DIRECTORY), str(TEST_DIRECTORY)]
 
 import collect_cpu_benchmark as collector  # noqa: E402
 import cpu_benchmark_collection as core  # noqa: E402
+import source_checksum_manifest  # noqa: E402
 import test_cpu_benchmark_collection as collection_fixtures  # noqa: E402
 import validate_cpu_benchmark_collection as validator  # noqa: E402
 
@@ -142,12 +144,37 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
     def test_validates_exact_bundle_and_publishes_path_free_record(self) -> None:
         result = self._validate()
 
+        self.assertEqual(result["schemaVersion"], 2)
         self.assertEqual(result["result"], "validated")
         self.assertEqual(result["claimStatus"], "measurement-only")
         self.assertEqual(result["validationScope"], "offline-consistency-only")
         self.assertTrue(result["rawEvidenceRequiredForEvaluation"])
         self.assertEqual(result["bundle"]["fileCount"], 7)
         self.assertEqual(result["collection"]["launchCount"], 5)
+        self.assertEqual(
+            set(result["schemas"]),
+            {
+                "targetFragmentV2",
+                "targetFragment",
+                "collectionV2",
+                "collection",
+                "validation",
+            },
+        )
+        self.assertEqual(
+            result["source"]["protocolDescriptorV2"],
+            {
+                "sizeBytes": 4_304,
+                "sha256": core.PROTOCOL_DESCRIPTOR_V2_SHA256,
+            },
+        )
+        self.assertEqual(
+            result["source"]["targetFragmentSchemaV2"],
+            {
+                "sizeBytes": 16_843,
+                "sha256": core.TARGET_FRAGMENT_SCHEMA_V2_SHA256,
+            },
+        )
         self.assertEqual(result["recordedTarget"]["platform"], "macos")
         self.assertEqual(
             result["recordedTarget"]["authenticationStatus"],
@@ -158,6 +185,26 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
         self.assertEqual(json.loads(self.output.read_bytes()), result)
         self.assertNotIn(str(self.root), json.dumps(result, sort_keys=True))
         self.assertIn("not a performance baseline", result["claimBoundary"])
+
+        registry, _identities = validator._load_schemas(REPOSITORY, core)
+        for dependency in (
+            "protocolDescriptorV2",
+            "targetFragmentSchemaV2",
+        ):
+            with self.subTest(dependency=dependency):
+                missing_dependency = copy.deepcopy(result)
+                missing_dependency["source"].pop(dependency)
+                with self.assertRaisesRegex(
+                    validator.CpuBenchmarkValidationError,
+                    "missing schema-required fields",
+                ):
+                    validator._validate_schema_instance(
+                        missing_dependency,
+                        registry[validator.VALIDATION_SCHEMA_ID],
+                        registry[validator.VALIDATION_SCHEMA_ID],
+                        registry,
+                        "validation",
+                    )
 
     def test_requires_exact_seven_regular_file_inventory(self) -> None:
         cases = ("extra", "missing", "symlink")
@@ -196,10 +243,70 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
             self._validate()
 
         self._write_bundle()
+        tampered_pool_aggregate = copy.deepcopy(self.collection)
+        tampered_pool_aggregate["aggregates"]["poolEvidence"]["throughput"][
+            "totalCompletedRuns"
+        ] += 1
+        (self.bundle / validator.COLLECTION_FILENAME).write_bytes(
+            _encoded(tampered_pool_aggregate)
+        )
+        with self.assertRaisesRegex(
+            validator.CpuBenchmarkValidationError, "exactly match"
+        ):
+            self._validate()
+
+        self._write_bundle()
+        tampered_pool_fragment = copy.deepcopy(self.fragments[1])
+        pool_window = tampered_pool_fragment["poolEvidence"]["measurements"][
+            "throughput"
+        ][0]
+        pool_window["completedRunsByLane"][0] += 1
+        pool_window["totalCompletedRuns"] += 1
+        (self.bundle / "fragment-01.json").write_bytes(
+            _encoded(tampered_pool_fragment)
+        )
+        with self.assertRaisesRegex(
+            validator.CpuBenchmarkValidationError, "exactly match"
+        ):
+            self._validate()
+
+        self._write_bundle()
         replayed = self.bundle / "fragment-01.json"
         replayed.write_bytes(self.fragment_payloads[0])
         with self.assertRaises(validator.CpuBenchmarkValidationError):
             self._validate()
+
+    def test_schema_valid_zero_rate_fragment_tamper_fails_rederivation(self) -> None:
+        registry, _identities = validator._load_schemas(REPOSITORY, core)
+        for phase in ("serial", "pool"):
+            with self.subTest(phase=phase):
+                tampered = copy.deepcopy(self.fragments[0])
+                if phase == "serial":
+                    window = tampered["measurements"]["throughput"][0]
+                    window["completedRuns"] = 1
+                    window["durationMicroseconds"] = 2_000_000_001
+                else:
+                    window = tampered["poolEvidence"]["measurements"][
+                        "throughput"
+                    ][0]
+                    window["completedRunsByLane"] = [1, 1]
+                    window["totalCompletedRuns"] = 2
+                    window["durationMicroseconds"] = 4_000_000_001
+
+                validator._validate_schema_instance(
+                    tampered,
+                    registry[validator.TARGET_SCHEMA_ID],
+                    registry[validator.TARGET_SCHEMA_ID],
+                    registry,
+                    "tampered target fragment",
+                )
+                (self.bundle / "fragment-00.json").write_bytes(_encoded(tampered))
+                with self.assertRaisesRegex(
+                    validator.CpuBenchmarkValidationError,
+                    "raw bundle cannot rederive",
+                ):
+                    self._validate()
+                self._write_bundle()
 
     def test_rejects_collection_raw_fragment_path_substitution(self) -> None:
         tampered = copy.deepcopy(self.collection)
@@ -748,7 +855,9 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
         self,
     ) -> None:
         relatives = (
+            validator.TARGET_SCHEMA_V2_RELATIVE,
             validator.TARGET_SCHEMA_RELATIVE,
+            validator.COLLECTION_SCHEMA_V2_RELATIVE,
             validator.COLLECTION_SCHEMA_RELATIVE,
             validator.VALIDATION_SCHEMA_RELATIVE,
             "tool/ci/collect_cpu_benchmark.py",
@@ -782,6 +891,60 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
                         core=core,
                         collector=self.fake_collector,
                     )
+
+    def test_supplied_v2_protocol_descriptor_must_match_core_pin(self) -> None:
+        candidate = self.root / "candidate-v2-protocol-tamper"
+        relatives = {
+            validator.TARGET_SCHEMA_V2_RELATIVE,
+            validator.TARGET_SCHEMA_RELATIVE,
+            validator.COLLECTION_SCHEMA_V2_RELATIVE,
+            validator.COLLECTION_SCHEMA_RELATIVE,
+            validator.VALIDATION_SCHEMA_RELATIVE,
+            "tool/ci/collect_cpu_benchmark.py",
+            "tool/ci/cpu_benchmark_collection.py",
+            "tool/ci/validate_cpu_benchmark_collection.py",
+            *(
+                relative
+                for relative, _size, _sha256 in (
+                    core._REPOSITORY_EVIDENCE_FILES.values()
+                )
+            ),
+        }
+        for relative in sorted(relatives):
+            destination = candidate.joinpath(*relative.split("/"))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY.joinpath(*relative.split("/")), destination)
+        descriptor = candidate / "templates/ci/cpu_benchmark_protocol_v2.json"
+        descriptor.write_bytes(descriptor.read_bytes() + b"\n")
+        (candidate / "MANIFEST.sha256").write_bytes(
+            source_checksum_manifest.build_manifest(candidate)
+        )
+        original_snapshot = self.fake_collector._artifact_snapshot
+
+        def snapshot_with_repository_evidence(
+            **arguments: object,
+        ) -> tuple[object, object]:
+            artifacts, private = original_snapshot(**arguments)
+            artifacts["repositoryEvidence"] = core.repository_evidence_identity(
+                arguments["repository"]  # type: ignore[arg-type]
+            )
+            return artifacts, private
+
+        self.fake_collector._artifact_snapshot = (  # type: ignore[method-assign]
+            snapshot_with_repository_evidence
+        )
+        arguments = self._arguments()
+        arguments.repository = candidate
+
+        with self.assertRaisesRegex(
+            validator.CpuBenchmarkValidationError,
+            "could not rederive current artifact bindings",
+        ):
+            validator.validate(
+                arguments,
+                core=core,
+                collector=self.fake_collector,
+            )
 
     def test_main_returns_one_without_traceback(self) -> None:
         stderr = io.StringIO()
@@ -831,9 +994,17 @@ class SchemaEngineTests(unittest.TestCase):
         }
         registry = {
             validator.COLLECTION_SCHEMA_ID: schema,
+            validator.COLLECTION_SCHEMA_V2_ID: {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": validator.COLLECTION_SCHEMA_V2_ID,
+            },
             validator.VALIDATION_SCHEMA_ID: {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "$id": validator.VALIDATION_SCHEMA_ID,
+            },
+            validator.TARGET_SCHEMA_V2_ID: {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": validator.TARGET_SCHEMA_V2_ID,
             },
             validator.TARGET_SCHEMA_ID: {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -32,14 +32,21 @@ MAXIMUM_TREE_PATH_BYTES = 4096
 MAXIMUM_TREE_BYTES = 16 * 1024 * 1024 * 1024
 MAXIMUM_LAUNCHES = 16
 MAXIMUM_DURATION = 1_000_000_000_000_000
+MAXIMUM_DERIVATION_THROUGHPUT_DURATION = 3 * MAXIMUM_LAUNCHES * MAXIMUM_DURATION
 MAXIMUM_RSS_BYTES = 0x7FFF_FFFF_FFFF_FFFF
 
-PROTOCOL_ID = "fonix-cpu-benchmark-target-v2"
-PROTOCOL_VERSION = 2
+PROTOCOL_ID = "fonix-cpu-benchmark-target-v3"
+PROTOCOL_VERSION = 3
 PROTOCOL_DESCRIPTOR_SHA256 = (
+    "1bd8d293f4cb205991f5a0da1d9f9bc98710bc0ba5054c7d1f9d5150ba2dd7fa"
+)
+PROTOCOL_DESCRIPTOR_V2_SHA256 = (
     "93a33f420c1b38d1061eb00c713fb5d13135dfed7c283673c26c185fbd3727ac"
 )
 TARGET_FRAGMENT_SCHEMA_SHA256 = (
+    "b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b"
+)
+TARGET_FRAGMENT_SCHEMA_V2_SHA256 = (
     "58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d"
 )
 SOURCE_MANIFEST_VALIDATOR_SIZE_BYTES = 17_636
@@ -90,6 +97,7 @@ _FRAGMENT_KEYS = {
     "providerAssignment",
     "resources",
     "lifecycle",
+    "poolEvidence",
     "claimBoundary",
 }
 
@@ -186,10 +194,79 @@ _LIFECYCLE = {
     "temporaryAssignmentArtifacts": "deleted",
 }
 
+_POOL_CONFIGURATION = {
+    "poolSize": 2,
+    "concurrency": 2,
+    "workerProtocolVersion": 4,
+    "maxPendingRunsPerWorker": 1,
+    "maxMessageBytes": 33_554_432,
+    "maxOutstandingInputBytesPerWorker": 16_777_216,
+    "inputReservationBytesPerRun": 8_388_629,
+    "graphOptimization": "all",
+    "executionMode": "sequential",
+    "intraOpThreads": 1,
+    "interOpThreads": 1,
+    "cpuMemoryArena": True,
+    "memoryPattern": True,
+    "deterministicCompute": True,
+    "timedProviderPolicy": "cpu-required-report-fallback",
+    "throughputCycle": (
+        "controller-input-copy-worker-decode-native-tensor-inference-worker-"
+        "output-copy-transfer-controller-decode-dart-output-copy-bit-validation"
+    ),
+    "copyBoundaries": [
+        "input-fixture-to-immutable-isolate-tensor",
+        "isolate-tensor-to-transferable-input",
+        "worker-transfer-to-native-tensor",
+        "native-output-to-worker-transfer",
+        "worker-transfer-to-isolate-output",
+        "isolate-output-to-dart-float32",
+    ],
+}
+
+_POOL_TIMING = {
+    "durationUnit": "microseconds",
+    "clockScope": "process-local-monotonic-stopwatch",
+    "inputPreparationScope": "input-fixture-to-immutable-isolate-tensor-copy",
+    "poolStartupScope": "two-worker-runtime-session-ready",
+    "firstConcurrentRoundScope": (
+        "two-runs-admitted-before-await-through-output-bit-validation"
+    ),
+    "stabilizationRoundScope": (
+        "two-concurrent-runs-through-output-bit-validation"
+    ),
+    "throughputWindowTargetMicroseconds": 1_000_000,
+    "throughputWindowStopRule": (
+        "two-lanes-stop-admission-at-target-then-drain"
+    ),
+    "assignmentScope": "separate-strict-two-worker-pool-after-all-pool-timing",
+}
+
+_POOL_RSS_PHASES = [
+    "after-input-preparation",
+    "after-pool-startup",
+    "after-first-concurrent-round",
+    "after-stabilization",
+    "after-throughput",
+    "after-pool-close",
+    "after-assignment-evidence",
+]
+
+_POOL_LIFECYCLE = {
+    "initialConcurrentOccupancy": "passed",
+    "zeroOutstandingBeforeClose": "passed",
+    "idempotentClose": "passed",
+    "zeroOutstandingAfterClose": "passed",
+    "strictAssignmentConcurrentOccupancy": "passed",
+    "strictAssignmentPoolClosed": "passed",
+    "temporaryAssignmentArtifacts": "deleted",
+}
+
 _FRAGMENT_CLAIM = (
-    "One fresh-process target measurement fragment only; not a performance "
-    "baseline, regression threshold, provider qualification, platform support "
-    "claim, release approval, or cross-target evidence."
+    "One fresh-process target fragment containing serial and bounded "
+    "session-pool measurements only; not a performance baseline, regression "
+    "threshold, provider qualification, platform support claim, release "
+    "approval, or cross-target evidence."
 )
 _COLLECTION_CLAIM = (
     "A strict raw-preserving aggregation of fresh-process CPU target fragments "
@@ -430,9 +507,12 @@ def canonical_statistics(
     }
 
 
-def throughput_rate_milli(completed_runs: int, duration_microseconds: int) -> int:
-    """Return integer milli-runs/second, rounded half up."""
-
+def _throughput_rate_milli(
+    completed_runs: int,
+    duration_microseconds: int,
+    *,
+    maximum_duration: int,
+) -> int:
     completed = _integer(
         completed_runs, "completed runs", minimum=1, maximum=1_000_000_000
     )
@@ -440,10 +520,41 @@ def throughput_rate_milli(completed_runs: int, duration_microseconds: int) -> in
         duration_microseconds,
         "throughput duration",
         minimum=1,
-        maximum=MAXIMUM_DURATION,
+        maximum=maximum_duration,
     )
     numerator = completed * 1_000_000_000
     return (numerator + duration // 2) // duration
+
+
+def throughput_rate_milli(completed_runs: int, duration_microseconds: int) -> int:
+    """Return one window's integer milli-runs/second, rounded half up."""
+
+    return _throughput_rate_milli(
+        completed_runs,
+        duration_microseconds,
+        maximum_duration=MAXIMUM_DURATION,
+    )
+
+
+def _aggregate_throughput_rate_milli(
+    completed_runs: int, duration_microseconds: int
+) -> int:
+    """Return a bounded cross-launch, three-window aggregate rate."""
+
+    return _throughput_rate_milli(
+        completed_runs,
+        duration_microseconds,
+        maximum_duration=MAXIMUM_DERIVATION_THROUGHPUT_DURATION,
+    )
+
+
+def _require_positive_throughput_rate(
+    completed_runs: int, duration_microseconds: int, *, label: str
+) -> None:
+    if throughput_rate_milli(completed_runs, duration_microseconds) < 1:
+        raise CpuBenchmarkCollectionError(
+            f"{label} rounds to zero milli-runs per second"
+        )
 
 
 def _duration_array(
@@ -694,25 +805,32 @@ def _validate_measurements(value: Any) -> dict[str, Any]:
             f"fragment.measurements.throughput[{index}]",
             {"completedRuns", "durationMicroseconds"},
         )
-        _integer(
+        completed_runs = _integer(
             window["completedRuns"],
             f"fragment.measurements.throughput[{index}].completedRuns",
             minimum=1,
             maximum=1_000_000,
         )
-        _integer(
+        duration_microseconds = _integer(
             window["durationMicroseconds"],
             f"fragment.measurements.throughput[{index}].durationMicroseconds",
             minimum=1_000_000,
             maximum=MAXIMUM_DURATION,
         )
+        _require_positive_throughput_rate(
+            completed_runs,
+            duration_microseconds,
+            label=f"fragment.measurements.throughput[{index}]",
+        )
     return measurements
 
 
-def _validate_provider_assignment(value: Any) -> dict[str, Any]:
+def _validate_provider_assignment(
+    value: Any, *, label: str = "fragment.providerAssignment"
+) -> dict[str, Any]:
     provider = _object(
         value,
-        "fragment.providerAssignment",
+        label,
         {
             "providerId",
             "reportedName",
@@ -742,31 +860,336 @@ def _validate_provider_assignment(value: Any) -> dict[str, Any]:
             "fallbackPolicy": "reject-any",
             "fallbackObserved": False,
         },
-        "fragment.providerAssignment policy",
+        f"{label} policy",
     )
-    _token(provider["reportedName"], "fragment.providerAssignment.reportedName")
+    _token(provider["reportedName"], f"{label}.reportedName")
     count = _integer(
         provider["nodeExecutionCount"],
-        "fragment.providerAssignment.nodeExecutionCount",
+        f"{label}.nodeExecutionCount",
         minimum=1,
         maximum=1_000_000,
     )
     by_provider = _object(
         provider["nodeExecutionsByProvider"],
-        "fragment.providerAssignment.nodeExecutionsByProvider",
+        f"{label}.nodeExecutionsByProvider",
         {"cpu"},
     )
     cpu_count = _integer(
         by_provider["cpu"],
-        "fragment.providerAssignment.nodeExecutionsByProvider.cpu",
+        f"{label}.nodeExecutionsByProvider.cpu",
         minimum=1,
         maximum=1_000_000,
     )
     if cpu_count != count:
         raise CpuBenchmarkCollectionError(
-            "fragment.providerAssignment counts do not match"
+            f"{label} counts do not match"
         )
     return provider
+
+
+def _validate_pool_stabilization(value: Any) -> dict[str, Any]:
+    label = "fragment.poolEvidence.stabilization"
+    stabilization = _object(
+        value,
+        label,
+        {
+            "method",
+            "batchSize",
+            "thresholdBasisPoints",
+            "requiredConsecutiveTransitions",
+            "maximumRounds",
+            "actualRounds",
+            "roundDurationMicroseconds",
+            "batchMedianMicroseconds",
+            "result",
+        },
+    )
+    _exact(
+        {
+            key: stabilization[key]
+            for key in (
+                "method",
+                "batchSize",
+                "thresholdBasisPoints",
+                "requiredConsecutiveTransitions",
+                "maximumRounds",
+                "result",
+            )
+        },
+        {
+            "method": "bounded-batch-median-relative-change",
+            "batchSize": 5,
+            "thresholdBasisPoints": 1000,
+            "requiredConsecutiveTransitions": 3,
+            "maximumRounds": 100,
+            "result": "stabilized",
+        },
+        f"{label} policy",
+    )
+    actual_rounds = _integer(
+        stabilization["actualRounds"],
+        f"{label}.actualRounds",
+        minimum=20,
+        maximum=100,
+    )
+    if actual_rounds % 5 != 0:
+        raise CpuBenchmarkCollectionError(
+            f"{label}.actualRounds is not a complete batch count"
+        )
+    samples = _duration_array(
+        stabilization["roundDurationMicroseconds"],
+        f"{label}.roundDurationMicroseconds",
+        count=actual_rounds,
+    )
+    declared_medians = _duration_array(
+        stabilization["batchMedianMicroseconds"],
+        f"{label}.batchMedianMicroseconds",
+        count=actual_rounds // 5,
+    )
+    medians = [
+        sorted(samples[offset : offset + 5])[2]
+        for offset in range(0, actual_rounds, 5)
+    ]
+    if declared_medians != medians:
+        raise CpuBenchmarkCollectionError(
+            f"{label} batch medians do not match raw samples"
+        )
+    stable_transitions = 0
+    first_stable_batch: int | None = None
+    for index in range(1, len(medians)):
+        if abs(medians[index] - medians[index - 1]) * 10_000 <= (
+            medians[index - 1] * 1000
+        ):
+            stable_transitions += 1
+        else:
+            stable_transitions = 0
+        if stable_transitions >= 3:
+            first_stable_batch = index
+            break
+    if first_stable_batch is None:
+        raise CpuBenchmarkCollectionError(
+            f"{label} did not satisfy its declared stop rule"
+        )
+    if first_stable_batch != len(medians) - 1:
+        raise CpuBenchmarkCollectionError(
+            f"{label} contains samples after its first stop point"
+        )
+    return stabilization
+
+
+def _validate_pool_round(
+    value: Any,
+    *,
+    label: str,
+    minimum_duration: int,
+    exactly_one_per_lane: bool = False,
+    require_positive_throughput_rate: bool = False,
+) -> dict[str, Any]:
+    round_record = _object(
+        value,
+        label,
+        {
+            "completedRunsByLane",
+            "totalCompletedRuns",
+            "durationMicroseconds",
+            "maximumObservedInFlightRuns",
+        },
+    )
+    raw_lane_counts = _array(
+        round_record["completedRunsByLane"],
+        f"{label}.completedRunsByLane",
+        minimum=2,
+        maximum=2,
+    )
+    lane_counts = [
+        _integer(
+            count,
+            f"{label}.completedRunsByLane[{index}]",
+            minimum=1,
+            maximum=1_000_000,
+        )
+        for index, count in enumerate(raw_lane_counts)
+    ]
+    if exactly_one_per_lane and lane_counts != [1, 1]:
+        raise CpuBenchmarkCollectionError(
+            f"{label} must complete exactly one run on each lane"
+        )
+    total = _integer(
+        round_record["totalCompletedRuns"],
+        f"{label}.totalCompletedRuns",
+        minimum=2,
+        maximum=2_000_000,
+    )
+    if total != sum(lane_counts):
+        raise CpuBenchmarkCollectionError(
+            f"{label} total does not match its two lane counts"
+        )
+    duration_microseconds = _integer(
+        round_record["durationMicroseconds"],
+        f"{label}.durationMicroseconds",
+        minimum=minimum_duration,
+        maximum=MAXIMUM_DURATION,
+    )
+    if require_positive_throughput_rate:
+        _require_positive_throughput_rate(
+            total,
+            duration_microseconds,
+            label=label,
+        )
+    _exact(
+        round_record["maximumObservedInFlightRuns"],
+        2,
+        f"{label}.maximumObservedInFlightRuns",
+    )
+    return round_record
+
+
+def _validate_pool_resources(
+    value: Any, *, serial_final_peak_bytes: int
+) -> dict[str, Any]:
+    label = "fragment.poolEvidence.resources"
+    resources = _object(
+        value, label, {"rssScope", "rssSamples", "nativeRss", "cpuUtilization"}
+    )
+    _exact(resources["rssScope"], "total-process", f"{label}.rssScope")
+    samples = _array(
+        resources["rssSamples"],
+        f"{label}.rssSamples",
+        minimum=len(_POOL_RSS_PHASES),
+        maximum=len(_POOL_RSS_PHASES),
+    )
+    previous_peak = serial_final_peak_bytes
+    for index, expected_phase in enumerate(_POOL_RSS_PHASES):
+        sample = _object(
+            samples[index],
+            f"{label}.rssSamples[{index}]",
+            {"phase", "currentBytes", "peakBytes"},
+        )
+        _exact(
+            sample["phase"], expected_phase, f"{label}.rssSamples[{index}].phase"
+        )
+        current = _integer(
+            sample["currentBytes"],
+            f"{label}.rssSamples[{index}].currentBytes",
+            minimum=1,
+            maximum=MAXIMUM_RSS_BYTES,
+        )
+        peak = _integer(
+            sample["peakBytes"],
+            f"{label}.rssSamples[{index}].peakBytes",
+            minimum=1,
+            maximum=MAXIMUM_RSS_BYTES,
+        )
+        if peak < current:
+            raise CpuBenchmarkCollectionError(
+                f"{label} RSS peak is below current RSS"
+            )
+        if index == 0 and peak < serial_final_peak_bytes:
+            raise CpuBenchmarkCollectionError(
+                f"{label} initial RSS peak is below the serial after-dispose "
+                "lifetime peak"
+            )
+        if peak < previous_peak:
+            raise CpuBenchmarkCollectionError(
+                f"{label} RSS peak decreased across phases"
+            )
+        previous_peak = peak
+    _exact(
+        resources["nativeRss"],
+        {"status": "not-exposed-by-target-api"},
+        f"{label}.nativeRss",
+    )
+    _exact(
+        resources["cpuUtilization"],
+        {"status": "not-exposed-by-target-api"},
+        f"{label}.cpuUtilization",
+    )
+    return resources
+
+
+def _validate_pool_evidence(
+    value: Any,
+    *,
+    provider_assignment: dict[str, Any],
+    serial_final_peak_bytes: int,
+) -> dict[str, Any]:
+    label = "fragment.poolEvidence"
+    pool = _object(
+        value,
+        label,
+        {
+            "executionSurface",
+            "configuration",
+            "timing",
+            "stabilization",
+            "measurements",
+            "providerAssignments",
+            "resources",
+            "lifecycle",
+        },
+    )
+    _exact(
+        pool["executionSurface"],
+        "public-ort-session-pool",
+        f"{label}.executionSurface",
+    )
+    _exact(pool["configuration"], _POOL_CONFIGURATION, f"{label}.configuration")
+    _exact(pool["timing"], _POOL_TIMING, f"{label}.timing")
+    _validate_pool_stabilization(pool["stabilization"])
+    measurements = _object(
+        pool["measurements"],
+        f"{label}.measurements",
+        {
+            "inputPreparationMicroseconds",
+            "poolStartupMicroseconds",
+            "firstConcurrentRound",
+            "throughput",
+        },
+    )
+    for name in ("inputPreparationMicroseconds", "poolStartupMicroseconds"):
+        _duration_array(
+            measurements[name], f"{label}.measurements.{name}", count=1
+        )
+    _validate_pool_round(
+        measurements["firstConcurrentRound"],
+        label=f"{label}.measurements.firstConcurrentRound",
+        minimum_duration=1,
+        exactly_one_per_lane=True,
+    )
+    windows = _array(
+        measurements["throughput"],
+        f"{label}.measurements.throughput",
+        minimum=3,
+        maximum=3,
+    )
+    for index, window in enumerate(windows):
+        _validate_pool_round(
+            window,
+            label=f"{label}.measurements.throughput[{index}]",
+            minimum_duration=1_000_000,
+            require_positive_throughput_rate=True,
+        )
+    assignments = _array(
+        pool["providerAssignments"],
+        f"{label}.providerAssignments",
+        minimum=2,
+        maximum=2,
+    )
+    for index, assignment_value in enumerate(assignments):
+        assignment = _validate_provider_assignment(
+            assignment_value,
+            label=f"{label}.providerAssignments[{index}]",
+        )
+        _exact(
+            assignment,
+            provider_assignment,
+            f"{label}.providerAssignments[{index}] serial assignment parity",
+        )
+    _validate_pool_resources(
+        pool["resources"], serial_final_peak_bytes=serial_final_peak_bytes
+    )
+    _exact(pool["lifecycle"], _POOL_LIFECYCLE, f"{label}.lifecycle")
+    return pool
 
 
 def _validate_resources(value: Any) -> dict[str, Any]:
@@ -858,10 +1281,10 @@ def validate_fragment(
     expected_process_id: int | None = None,
     raw_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Validate and normalize one exact CPU target-fragment v2 object."""
+    """Validate and normalize one exact CPU target-fragment v3 object."""
 
     fragment = _object(value, "fragment", _FRAGMENT_KEYS)
-    _exact(fragment["schemaVersion"], 2, "fragment.schemaVersion")
+    _exact(fragment["schemaVersion"], 3, "fragment.schemaVersion")
     _exact(fragment["result"], "measured", "fragment.result")
     _exact(
         fragment["purpose"],
@@ -906,7 +1329,7 @@ def validate_fragment(
     )
     _exact(
         fragment["executionSurface"],
-        "synchronous-public-api",
+        "synchronous-and-isolate-pool-public-api",
         "fragment.executionSurface",
     )
     _exact(fragment["model"], _MODEL, "fragment.model")
@@ -916,8 +1339,13 @@ def validate_fragment(
     _validate_stabilization(fragment["stabilization"])
     _validate_measurements(fragment["measurements"])
     provider = _validate_provider_assignment(fragment["providerAssignment"])
-    _validate_resources(fragment["resources"])
+    resources = _validate_resources(fragment["resources"])
     _exact(fragment["lifecycle"], _LIFECYCLE, "fragment.lifecycle")
+    _validate_pool_evidence(
+        fragment["poolEvidence"],
+        provider_assignment=provider,
+        serial_final_peak_bytes=resources["rssSamples"][-1]["peakBytes"],
+    )
     _exact(fragment["claimBoundary"], _FRAGMENT_CLAIM, "fragment.claimBoundary")
     cpu_inventory = [
         entry
@@ -1411,14 +1839,24 @@ _REPOSITORY_EVIDENCE_FILES = {
         SOURCE_MANIFEST_VALIDATOR_SHA256,
     ),
     "protocolDescriptor": (
-        "templates/ci/cpu_benchmark_protocol_v2.json",
-        4_304,
+        "templates/ci/cpu_benchmark_protocol_v3.json",
+        8_817,
         PROTOCOL_DESCRIPTOR_SHA256,
     ),
+    "protocolDescriptorV2": (
+        "templates/ci/cpu_benchmark_protocol_v2.json",
+        4_304,
+        PROTOCOL_DESCRIPTOR_V2_SHA256,
+    ),
     "targetFragmentSchema": (
+        "templates/ci/cpu_benchmark_target_fragment_v3.schema.json",
+        12_447,
+        TARGET_FRAGMENT_SCHEMA_SHA256,
+    ),
+    "targetFragmentSchemaV2": (
         "templates/ci/cpu_benchmark_target_fragment_v2.schema.json",
         16_843,
-        TARGET_FRAGMENT_SCHEMA_SHA256,
+        TARGET_FRAGMENT_SCHEMA_V2_SHA256,
     ),
     "model": (
         "example/assets/models/cpu_benchmark_matmul.onnx",
@@ -2960,6 +3398,9 @@ def derive_collection(
 
     def identity_tuple(fragment: dict[str, Any]) -> dict[str, Any]:
         resources = fragment["resources"]
+        pool = fragment["poolEvidence"]
+        pool_resources = pool["resources"]
+        pool_stabilization = pool["stabilization"]
         return {
             "protocol": fragment["protocol"],
             "model": fragment["model"],
@@ -2976,6 +3417,29 @@ def derive_collection(
                 "powerMode": resources["powerMode"],
             },
             "lifecycle": fragment["lifecycle"],
+            "poolEvidenceContract": {
+                "executionSurface": pool["executionSurface"],
+                "configuration": pool["configuration"],
+                "timing": pool["timing"],
+                "stabilizationPolicy": {
+                    key: pool_stabilization[key]
+                    for key in (
+                        "method",
+                        "batchSize",
+                        "thresholdBasisPoints",
+                        "requiredConsecutiveTransitions",
+                        "maximumRounds",
+                        "result",
+                    )
+                },
+                "providerAssignments": pool["providerAssignments"],
+                "resourceContract": {
+                    "rssScope": pool_resources["rssScope"],
+                    "nativeRss": pool_resources["nativeRss"],
+                    "cpuUtilization": pool_resources["cpuUtilization"],
+                },
+                "lifecycle": pool["lifecycle"],
+            },
         }
 
     identity = identity_tuple(normalized[0])
@@ -3086,6 +3550,118 @@ def derive_collection(
             }
         )
 
+    pool_measurement_aggregates: dict[str, Any] = {}
+    for name in ("inputPreparationMicroseconds", "poolStartupMicroseconds"):
+        samples = [
+            sample
+            for fragment in normalized
+            for sample in fragment["poolEvidence"]["measurements"][name]
+        ]
+        pool_measurement_aggregates[name] = _series(
+            samples, label=f"aggregate pool measurements.{name}"
+        )
+
+    first_concurrent_rounds: list[dict[str, Any]] = []
+    first_round_durations: list[int] = []
+    first_round_lane_totals = [0, 0]
+    first_round_total_completed = 0
+    for launch_index, fragment in enumerate(normalized):
+        first_round = fragment["poolEvidence"]["measurements"][
+            "firstConcurrentRound"
+        ]
+        first_concurrent_rounds.append(
+            {"launchIndex": launch_index, **_plain_json_copy(first_round)}
+        )
+        first_round_durations.append(first_round["durationMicroseconds"])
+        first_round_total_completed += first_round["totalCompletedRuns"]
+        for lane_index, count in enumerate(first_round["completedRunsByLane"]):
+            first_round_lane_totals[lane_index] += count
+    pool_measurement_aggregates["firstConcurrentRound"] = {
+        "rounds": first_concurrent_rounds,
+        "durationMicroseconds": _series(
+            first_round_durations,
+            label="aggregate pool first concurrent round durations",
+        ),
+        "totalCompletedRunsByLane": first_round_lane_totals,
+        "totalCompletedRuns": first_round_total_completed,
+    }
+
+    pool_stabilization_launches: list[dict[str, Any]] = []
+    pool_stabilization_samples: list[int] = []
+    pool_stabilization_medians: list[int] = []
+    for index, fragment in enumerate(normalized):
+        stabilization = fragment["poolEvidence"]["stabilization"]
+        launch = {
+            "index": index,
+            "actualRounds": stabilization["actualRounds"],
+            "roundDurationMicroseconds": list(
+                stabilization["roundDurationMicroseconds"]
+            ),
+            "batchMedianMicroseconds": list(
+                stabilization["batchMedianMicroseconds"]
+            ),
+        }
+        pool_stabilization_launches.append(launch)
+        pool_stabilization_samples.extend(launch["roundDurationMicroseconds"])
+        pool_stabilization_medians.extend(launch["batchMedianMicroseconds"])
+
+    pool_throughput_windows: list[dict[str, Any]] = []
+    pool_throughput_rates: list[int] = []
+    pool_total_completed_by_lane = [0, 0]
+    pool_total_completed = 0
+    pool_total_duration = 0
+    for launch_index, fragment in enumerate(normalized):
+        windows = fragment["poolEvidence"]["measurements"]["throughput"]
+        for window_index, window in enumerate(windows):
+            rate = throughput_rate_milli(
+                window["totalCompletedRuns"], window["durationMicroseconds"]
+            )
+            pool_throughput_windows.append(
+                {
+                    "launchIndex": launch_index,
+                    "windowIndex": window_index,
+                    **_plain_json_copy(window),
+                    "runsPerSecondMilli": rate,
+                }
+            )
+            pool_throughput_rates.append(rate)
+            pool_total_completed += window["totalCompletedRuns"]
+            pool_total_duration += window["durationMicroseconds"]
+            for lane_index, count in enumerate(window["completedRunsByLane"]):
+                pool_total_completed_by_lane[lane_index] += count
+
+    pool_rss_current: list[int] = []
+    pool_rss_peak: list[int] = []
+    pool_rss_by_phase: list[dict[str, Any]] = []
+    for phase_index, phase in enumerate(_POOL_RSS_PHASES):
+        current_values = [
+            fragment["poolEvidence"]["resources"]["rssSamples"][phase_index][
+                "currentBytes"
+            ]
+            for fragment in normalized
+        ]
+        peak_values = [
+            fragment["poolEvidence"]["resources"]["rssSamples"][phase_index][
+                "peakBytes"
+            ]
+            for fragment in normalized
+        ]
+        pool_rss_current.extend(current_values)
+        pool_rss_peak.extend(peak_values)
+        pool_rss_by_phase.append(
+            {
+                "phase": phase,
+                "currentBytes": _series(
+                    current_values,
+                    label=f"aggregate pool RSS {phase} current",
+                ),
+                "peakBytes": _series(
+                    peak_values,
+                    label=f"aggregate pool RSS {phase} peak",
+                ),
+            }
+        )
+
     raw_fragments = [
         {
             "index": index,
@@ -3097,12 +3673,12 @@ def derive_collection(
         for index, fragment in enumerate(normalized)
     ]
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "result": "measured",
         "claimStatus": "measurement-only",
         "purpose": "cpu-benchmark-cross-launch-collection",
         "collector": {
-            "id": "fonix-cpu-benchmark-collector-v1",
+            "id": "fonix-cpu-benchmark-collector-v2",
             "sha256": collector_digest,
         },
         "protocol": _plain_json_copy(normalized[0]["protocol"]),
@@ -3135,7 +3711,7 @@ def derive_collection(
                 ),
                 "totalCompletedRuns": total_completed,
                 "totalDurationMicroseconds": total_duration,
-                "aggregateRunsPerSecondMilli": throughput_rate_milli(
+                "aggregateRunsPerSecondMilli": _aggregate_throughput_rate_milli(
                     total_completed, total_duration
                 ),
             },
@@ -3145,6 +3721,42 @@ def derive_collection(
                 ),
                 "rssPeakBytes": _series(rss_peak, label="aggregate RSS peak"),
                 "byPhase": rss_by_phase,
+            },
+            "poolEvidence": {
+                "measurements": pool_measurement_aggregates,
+                "stabilization": {
+                    "launches": pool_stabilization_launches,
+                    "roundDurationMicroseconds": _series(
+                        pool_stabilization_samples,
+                        label="aggregate pool stabilization rounds",
+                    ),
+                    "batchMedianMicroseconds": _series(
+                        pool_stabilization_medians,
+                        label="aggregate pool stabilization medians",
+                    ),
+                },
+                "throughput": {
+                    "windows": pool_throughput_windows,
+                    "statisticsRunsPerSecondMilli": canonical_statistics(
+                        pool_throughput_rates,
+                        label="aggregate pool throughput rates",
+                    ),
+                    "totalCompletedRunsByLane": pool_total_completed_by_lane,
+                    "totalCompletedRuns": pool_total_completed,
+                    "totalDurationMicroseconds": pool_total_duration,
+                    "aggregateRunsPerSecondMilli": _aggregate_throughput_rate_milli(
+                        pool_total_completed, pool_total_duration
+                    ),
+                },
+                "resources": {
+                    "rssCurrentBytes": _series(
+                        pool_rss_current, label="aggregate pool RSS current"
+                    ),
+                    "rssPeakBytes": _series(
+                        pool_rss_peak, label="aggregate pool RSS peak"
+                    ),
+                    "byPhase": pool_rss_by_phase,
+                },
             },
         },
         "claimBoundary": _COLLECTION_CLAIM,

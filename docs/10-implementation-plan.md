@@ -264,9 +264,37 @@ runtime/session, bounded copied/transferable values, serialized queue,
 cooperative cancellation, graceful shutdown, and explicit pool are implemented.
 Strict native tests cover the 1024-entry registry, races, and cancellation of a
 blocking `Run`; Dart tests use real isolates and include an opt-in cross-isolate
-real-shim registry proof plus real ORT CPU inference. These correctness checks
-do not substitute for the target/model-specific pool throughput and RSS
-benchmark required before making a performance claim.
+real-shim registry proof plus real ORT CPU inference.
+
+The 2026-08-09 protocol-v3 checkpoint adds the first bounded public-pool
+measurement contract. It fixes `OrtSessionPool` size and concurrency at two,
+worker protocol at version 4, one 8 MiB-fixture request reservation per worker,
+concurrent stabilization, three two-lane one-second full-isolate-roundtrip
+windows, two strict worker assignment receipts outside timing, seven ordered
+total-process RSS phases, zero request/byte accounting, and idempotent close.
+The serial protocol-v2 field meanings remain intact inside v3, and earlier v2
+artifacts are not rewritten. Collection schema 3 and offline-validation schema
+2 independently preserve and replay the raw five-launch bundle.
+
+Pool startup cleanup has one important ownership boundary. If a later worker
+fails, `OrtSessionPool.spawn` awaits close for every earlier worker whose spawn
+returned successfully. A worker whose own startup timed out retires through the
+worker controller's internal late-ready protocol; the pool-level spawn future
+does not await that later cleanup receipt after the worker spawn has already
+returned its authoritative timeout. Do not describe partial pool startup as a
+single pool-wide join over that unreturned child.
+
+The external-copy benchmark tests pass 18/18, including process-lifetime peak
+RSS, two-worker assignment parity, authentic second admission, and
+occupancy-drain settlement. The focused derivation, collector, and replay
+suites pass 101/101 cases (30, 41, and 30 respectively). An additional
+opt-in exact-ORT pool test passes 1/1 on macOS arm64 with the exact ORT 1.27.1
+dylib, covering two simultaneous reservations, one full-CPU assignment per
+worker, zero accounting, and idempotent close. These focused tests do not
+substitute for the pending final-application five-launch
+protocol-v3 collection and replay. Until that evidence exists, Phase 5 has an
+implemented measurement path but no target/model-specific pool throughput or
+RSS baseline and no performance claim.
 
 ## Phase 6: mobile EPs
 
@@ -606,7 +634,7 @@ advance readiness. Actual target-host, physical-device, final-package,
 licensing, signing, and approval evidence must still be collected through the
 owning external gates; semantic validation cannot manufacture provenance.
 
-The 2026-08-08 CPU measurement checkpoint adds a reproducible 4.29-GFLOP
+The 2026-08-08 serial CPU measurement checkpoint added a reproducible 4.29-GFLOP
 static-weight MatMul with exact input/reference bytes and a bounded
 macOS/Linux final-application target path. The path separates runtime, session,
 input, inference, and output-copy timing; requires observed stabilization;
@@ -615,7 +643,7 @@ phase-labelled total RSS; profiles strict CPU assignment outside timing; and
 settles every owner before publishing a path-free measurement-only fragment.
 One local macOS arm64 Release run passed the complete target path.
 
-The follow-up collection-v2 checkpoint implements a closed protocol-v2 target
+The follow-up collection-v2 checkpoint implemented a closed protocol-v2 target
 fragment, exactly five challenge/PID-bound fresh launches, one raw
 host-observation sidecar, unchanged canonical-application-tree observation,
 unique target-reported runtime-basename binding, native build-contract binding,
@@ -640,6 +668,26 @@ assertion, and Linux thermal observation remains unavailable. This source
 checkpoint contains no controlled five-launch bundle from the new observer;
 any later raw collection and offline
 replay are external evidence.
+
+The 2026-08-09 protocol-v3 follow-up leaves that serial protocol and every
+existing v2 artifact unchanged while appending a fixed two-worker public
+session-pool measurement to each new fragment. The new phase covers input
+preparation, two-worker startup, concurrent stabilization, three one-second
+two-lane full-isolate-roundtrip windows, strict per-worker CPU assignment
+outside timing, seven total-process RSS phases, zero accounting, and
+idempotent close. The collector derives both serial and pool aggregates in
+collection schema 3; live collection and independent replay bind the immutable
+v2 descriptor as `protocolDescriptorV2` and v2 target schema as
+`targetFragmentSchemaV2` alongside the v3 descriptor/schema. Replay emits
+offline-validation schema 2 and pins five schema dependencies: v2 and v3 target-fragment schemas,
+v2 and v3 collection schemas, and validation schema 2.
+
+This is a source and evidence-contract checkpoint. A real final macOS or Linux
+application still needs five fresh challenge/PID-bound v3 launches and an
+independently replayed seven-file bundle. The historical serial-v2 macOS result
+cannot be relabeled as pool evidence. No baseline, threshold, provider
+qualification, platform support, or release claim follows from the v3
+implementation alone.
 
 Controlled target baselines, reviewed thresholds, the Linux target-host run,
 and measurements for every other selected row remain open. Neither the

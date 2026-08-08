@@ -1,0 +1,705 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/cpu-benchmark-collection-v3.json",
+  "title": "Fonix CPU benchmark raw-preserving serial and bounded-pool collection v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "result",
+    "claimStatus",
+    "purpose",
+    "collector",
+    "protocol",
+    "launchCount",
+    "rawHostObservation",
+    "environment",
+    "artifacts",
+    "identityTuple",
+    "rawFragments",
+    "aggregates",
+    "claimBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "result": { "const": "measured" },
+    "claimStatus": { "const": "measurement-only" },
+    "purpose": { "const": "cpu-benchmark-cross-launch-collection" },
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256"],
+      "properties": {
+        "id": { "const": "fonix-cpu-benchmark-collector-v2" },
+        "sha256": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/sha256"
+        }
+      }
+    },
+    "protocol": {
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/protocol"
+    },
+    "launchCount": { "const": 5 },
+    "rawHostObservation": {
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/rawHostObservation"
+    },
+    "environment": {
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/environment"
+    },
+    "artifacts": {
+      "$ref": "#/$defs/artifacts"
+    },
+    "identityTuple": { "$ref": "#/$defs/identityTuple" },
+    "rawFragments": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/rawFragment" }
+    },
+    "aggregates": { "$ref": "#/$defs/aggregates" },
+    "claimBoundary": {
+      "const": "A strict raw-preserving aggregation of fresh-process CPU target fragments for one challenge/PID-bound target tuple and one canonical application tree observed unchanged around the launches. The target-reported runtime basename is bound to one unique packaged member and the shim reports its embedded build contract; supplied native members remain packaged inputs, not independent proof that their exact bytes were loaded. The separately recorded source tree is not a compiled-source provenance proof, and no distribution archive is claimed. Measurement-only and not a baseline, threshold, provider qualification, platform support claim, release approval, or cross-target evidence."
+    }
+  },
+  "$defs": {
+    "repositoryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceManifest",
+        "sourceManifestValidator",
+        "protocolDescriptor",
+        "protocolDescriptorV2",
+        "targetFragmentSchema",
+        "targetFragmentSchemaV2",
+        "model",
+        "inputFixture",
+        "referenceOutput",
+        "metadata",
+        "generator"
+      ],
+      "properties": {
+        "sourceManifest": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "sourceManifestValidator": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "protocolDescriptor": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "protocolDescriptorV2": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "targetFragmentSchema": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "targetFragmentSchemaV2": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "model": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "inputFixture": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "referenceOutput": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "metadata": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "generator": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationTree",
+        "executable",
+        "shimLibrary",
+        "runtimeLibrary",
+        "providerDependencies",
+        "nativeLock",
+        "packageVersion",
+        "runtimeVersion",
+        "resolverManifest",
+        "embeddedBuildManifestSha256",
+        "embeddedBuildManifestCanonicalSha256",
+        "embeddedBuildManifest",
+        "nativePayloadFiles",
+        "nativePayloadRelationship",
+        "repositoryEvidence"
+      ],
+      "properties": {
+        "applicationTree": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/applicationTree"
+        },
+        "executable": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/namedFileIdentity"
+        },
+        "shimLibrary": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/namedFileIdentity"
+        },
+        "runtimeLibrary": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/namedFileIdentity"
+        },
+        "providerDependencies": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/namedFileIdentity"
+          }
+        },
+        "nativeLock": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/fileIdentity"
+        },
+        "packageVersion": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/semver"
+        },
+        "runtimeVersion": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/semver"
+        },
+        "resolverManifest": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/namedFileIdentity"
+        },
+        "embeddedBuildManifestSha256": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/sha256"
+        },
+        "embeddedBuildManifestCanonicalSha256": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/sha256"
+        },
+        "embeddedBuildManifest": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/buildManifest"
+        },
+        "nativePayloadFiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/namedFileIdentity"
+          }
+        },
+        "nativePayloadRelationship": {
+          "const": "lock-resolver-source-bytes;packaged-equivalence-requires-platform-audit"
+        },
+        "repositoryEvidence": { "$ref": "#/$defs/repositoryEvidence" }
+      }
+    },
+    "label": {
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/label"
+    },
+    "identityTuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "model",
+        "runtime",
+        "session",
+        "timing",
+        "providerAssignment",
+        "resourceContract",
+        "lifecycle",
+        "poolEvidenceContract"
+      ],
+      "properties": {
+        "protocol": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/protocol"
+        },
+        "model": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/model"
+        },
+        "runtime": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/runtime"
+        },
+        "session": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/session"
+        },
+        "timing": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/timing"
+        },
+        "providerAssignment": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/providerAssignment"
+        },
+        "resourceContract": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/identityTuple/properties/resourceContract"
+        },
+        "lifecycle": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/properties/lifecycle"
+        },
+        "poolEvidenceContract": {
+          "$ref": "#/$defs/poolEvidenceContract"
+        }
+      }
+    },
+    "poolEvidenceContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executionSurface",
+        "configuration",
+        "timing",
+        "stabilizationPolicy",
+        "providerAssignments",
+        "resourceContract",
+        "lifecycle"
+      ],
+      "properties": {
+        "executionSurface": { "const": "public-ort-session-pool" },
+        "configuration": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/$defs/poolConfiguration"
+        },
+        "timing": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json#/$defs/poolTiming"
+        },
+        "stabilizationPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "batchSize",
+            "thresholdBasisPoints",
+            "requiredConsecutiveTransitions",
+            "maximumRounds",
+            "result"
+          ],
+          "properties": {
+            "method": { "const": "bounded-batch-median-relative-change" },
+            "batchSize": { "const": 5 },
+            "thresholdBasisPoints": { "const": 1000 },
+            "requiredConsecutiveTransitions": { "const": 3 },
+            "maximumRounds": { "const": 100 },
+            "result": { "const": "stabilized" }
+          }
+        },
+        "providerAssignments": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v2.json#/$defs/providerAssignment"
+          }
+        },
+        "resourceContract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rssScope", "nativeRss", "cpuUtilization"],
+          "properties": {
+            "rssScope": { "const": "total-process" },
+            "nativeRss": {
+              "const": { "status": "not-exposed-by-target-api" }
+            },
+            "cpuUtilization": {
+              "const": { "status": "not-exposed-by-target-api" }
+            }
+          }
+        },
+        "lifecycle": {
+          "const": {
+            "initialConcurrentOccupancy": "passed",
+            "zeroOutstandingBeforeClose": "passed",
+            "idempotentClose": "passed",
+            "zeroOutstandingAfterClose": "passed",
+            "strictAssignmentConcurrentOccupancy": "passed",
+            "strictAssignmentPoolClosed": "passed",
+            "temporaryAssignmentArtifacts": "deleted"
+          }
+        }
+      }
+    },
+    "rawFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "sha256",
+        "launchChallenge",
+        "processId",
+        "fragment"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "sha256": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/sha256"
+        },
+        "launchChallenge": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/sha256"
+        },
+        "processId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "fragment": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json"
+        }
+      }
+    },
+    "poolFirstRound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launchIndex",
+        "completedRunsByLane",
+        "totalCompletedRuns",
+        "durationMicroseconds",
+        "maximumObservedInFlightRuns"
+      ],
+      "properties": {
+        "launchIndex": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "completedRunsByLane": { "const": [1, 1] },
+        "totalCompletedRuns": { "const": 2 },
+        "durationMicroseconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        },
+        "maximumObservedInFlightRuns": { "const": 2 }
+      }
+    },
+    "poolStabilizationLaunch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "actualRounds",
+        "roundDurationMicroseconds",
+        "batchMedianMicroseconds"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "actualRounds": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 100,
+          "multipleOf": 5
+        },
+        "roundDurationMicroseconds": {
+          "type": "array",
+          "minItems": 20,
+          "maxItems": 100,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        },
+        "batchMedianMicroseconds": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        }
+      }
+    },
+    "poolThroughputWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launchIndex",
+        "windowIndex",
+        "completedRunsByLane",
+        "totalCompletedRuns",
+        "durationMicroseconds",
+        "maximumObservedInFlightRuns",
+        "runsPerSecondMilli"
+      ],
+      "properties": {
+        "launchIndex": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "windowIndex": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "completedRunsByLane": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          }
+        },
+        "totalCompletedRuns": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 2000000
+        },
+        "durationMicroseconds": {
+          "type": "integer",
+          "minimum": 1000000,
+          "maximum": 1000000000000000
+        },
+        "maximumObservedInFlightRuns": { "const": 2 },
+        "runsPerSecondMilli": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        }
+      }
+    },
+    "poolRssPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "currentBytes", "peakBytes"],
+      "properties": {
+        "phase": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/token"
+        },
+        "currentBytes": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/rssLaunchSeries"
+        },
+        "peakBytes": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/rssLaunchSeries"
+        }
+      }
+    },
+    "poolAggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurements",
+        "stabilization",
+        "throughput",
+        "resources"
+      ],
+      "properties": {
+        "measurements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inputPreparationMicroseconds",
+            "poolStartupMicroseconds",
+            "firstConcurrentRound"
+          ],
+          "properties": {
+            "inputPreparationMicroseconds": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/launchSeries"
+            },
+            "poolStartupMicroseconds": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/launchSeries"
+            },
+            "firstConcurrentRound": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "rounds",
+                "durationMicroseconds",
+                "totalCompletedRunsByLane",
+                "totalCompletedRuns"
+              ],
+              "properties": {
+                "rounds": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
+                  "items": { "$ref": "#/$defs/poolFirstRound" }
+                },
+                "durationMicroseconds": {
+                  "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/launchSeries"
+                },
+                "totalCompletedRunsByLane": { "const": [5, 5] },
+                "totalCompletedRuns": { "const": 10 }
+              }
+            }
+          }
+        },
+        "stabilization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "launches",
+            "roundDurationMicroseconds",
+            "batchMedianMicroseconds"
+          ],
+          "properties": {
+            "launches": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": { "$ref": "#/$defs/poolStabilizationLaunch" }
+            },
+            "roundDurationMicroseconds": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 100,
+                  "maxItems": 500
+                }
+              }
+            },
+            "batchMedianMicroseconds": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 20,
+                  "maxItems": 100
+                }
+              }
+            }
+          }
+        },
+        "throughput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "windows",
+            "statisticsRunsPerSecondMilli",
+            "totalCompletedRunsByLane",
+            "totalCompletedRuns",
+            "totalDurationMicroseconds",
+            "aggregateRunsPerSecondMilli"
+          ],
+          "properties": {
+            "windows": {
+              "type": "array",
+              "minItems": 15,
+              "maxItems": 15,
+              "items": { "$ref": "#/$defs/poolThroughputWindow" }
+            },
+            "statisticsRunsPerSecondMilli": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/statistics"
+            },
+            "totalCompletedRunsByLane": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 15,
+                "maximum": 15000000
+              }
+            },
+            "totalCompletedRuns": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 30000000
+            },
+            "totalDurationMicroseconds": {
+              "type": "integer",
+              "minimum": 15000000,
+              "maximum": 15000000000000000
+            },
+            "aggregateRunsPerSecondMilli": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000000000
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rssCurrentBytes", "rssPeakBytes", "byPhase"],
+          "properties": {
+            "rssCurrentBytes": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 35,
+                  "maxItems": 35
+                }
+              }
+            },
+            "rssPeakBytes": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 35,
+                  "maxItems": 35
+                }
+              }
+            },
+            "byPhase": {
+              "type": "array",
+              "minItems": 7,
+              "maxItems": 7,
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-input-preparation" }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-pool-startup" }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-first-concurrent-round" }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-stabilization" }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-throughput" }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-pool-close" }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": { "const": "after-assignment-evidence" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "aggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurements",
+        "stabilization",
+        "throughput",
+        "resources",
+        "poolEvidence"
+      ],
+      "properties": {
+        "measurements": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/aggregates/properties/measurements"
+        },
+        "stabilization": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/aggregates/properties/stabilization"
+        },
+        "throughput": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/aggregates/properties/throughput"
+        },
+        "resources": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/aggregates/properties/resources"
+        },
+        "poolEvidence": { "$ref": "#/$defs/poolAggregates" }
+      }
+    }
+  }
+}
