@@ -127,6 +127,27 @@ Address/UndefinedBehavior, and ThreadSanitizer modes on this host. Apple
 LeakSanitizer remains unavailable, and the prebuilt ORT binary itself is not
 sanitizer-instrumented.
 
+The bounded seeded-lifecycle follow-up ran on macOS arm64 with exact Dart
+3.11.5. Seeds `5`, `7`, `1`, `3`, `17`, `2`, `15`, and `4` select eight unique
+explicit-gate traces: two graceful-close queued positions, two crash queued
+positions, and all four queued-position by active success/error pool
+orientations. The corpus used 12 real Dart isolate harness workers and 66
+recorded actions; each trace was capped at two workers, four submitted runs,
+nine actions, and 52 aggregate reserved input bytes. It rejected overfill,
+settled queued and active cancellation, awaited all public settlements and
+idempotent closes, and finished with zero Dart run/input reservations, closed
+sessions, and one controller connection-close initiation per worker. Two
+additional workers admitted request IDs `INT64_MAX - 1` and `INT64_MAX`, then
+proved permanent zero-capacity exhaustion and retriable pool backpressure when
+the other peer was live but saturated; a separate oversized request failed
+closed when only the exhausted peer could ever fit it. Cleanup releases a held
+synthetic gate before awaiting close, so an assertion failure retains its
+seed/action trace rather than timing out during teardown. The synthetic traces
+do not prove native-owner leak freedom, target lifecycle behavior, throughput,
+RSS, or platform support; the same focused run separately exercised the strict
+fake cancellation registry
+and lock-pinned exact ORT 1.27.1 worker.
+
 The native-allocation checkpoint routes every shim-owned heap and aligned
 allocation through an internal seam whose fail-Nth activation exists only in
 the POSIX test build. It deterministically injected 29 success-path failures:
@@ -240,11 +261,11 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 259 passed, 18 explicitly provisioned skips on exact Dart 3.11.5 |
-| Provisioned Dart suite | 297 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied |
+| Ordinary offline Dart suite | 260 passed, 18 explicitly provisioned skips on exact Dart 3.11.5 |
+| Provisioned Dart suite | 298 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
 | Native C ABI baseline | 16/16 focused tests and the 14/14 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `0f4004e44fa83c751502ae41bced844799625773505dbb48275067dfd1800464` and canonical file SHA-256 `98ec753a1180bd22367374b1edb4b268589f9dc28c1c08f9b549be23ae500023` |
-| Worker lifecycle and strict JSON with strict fake and exact ORT | 54/54 focused tests passed, including ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
+| Worker lifecycle and strict JSON with strict fake and exact ORT | 55/55 focused tests passed, including eight unique bounded composed lifecycle traces, positive-int64 request-ID exhaustion, ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
 | Shim allocation and partial-output fault injection | 29/29 representative success-path allocation points plus the emergency-status allocation passed with neutral outputs and clean retry; ORT error-plus-owned-output cleanup released exactly once and recovered on the next successful run |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |

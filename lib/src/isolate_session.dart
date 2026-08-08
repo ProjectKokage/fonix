@@ -7,6 +7,7 @@ const int _maximumOutstandingWorkerInputBytes = 1024 * 1024 * 1024;
 const int _maximumPendingWorkerRuns = 1024;
 const int _maximumSessionPoolSize = 32;
 const int _maximumWorkerCompositeChildren = 1024;
+const int _maximumWorkerRequestId = 0x7fffffffffffffff;
 // Account for one retained list/reference slot per string in addition to its
 // UTF-8 content. Empty strings must still consume bounded worker capacity.
 const int _workerStringRetentionBytes = 8;
@@ -119,13 +120,17 @@ final class OrtIsolateSession {
     required this.maxPendingRuns,
     required this.maxMessageBytes,
     required this.maxOutstandingInputBytes,
+    required int initialRequestId,
     required bool Function(int token) requestCancelToken,
+    void Function(String event)? onControllerEventForTesting,
   }) : _commandPort = commandPort,
        _responsePort = responsePort,
        _lifecyclePort = lifecyclePort,
        _responseSubscription = responseSubscription,
        _lifecycleSubscription = lifecycleSubscription,
        _requestCancelToken = requestCancelToken,
+       _onControllerEventForTesting = onControllerEventForTesting,
+       _nextRequestId = initialRequestId,
        inputNames = List<String>.unmodifiable(inputNames),
        outputNames = List<String>.unmodifiable(outputNames);
 
@@ -176,6 +181,7 @@ final class OrtIsolateSession {
   final StreamSubscription<Object?> _responseSubscription;
   final StreamSubscription<Object?> _lifecycleSubscription;
   final bool Function(int token) _requestCancelToken;
+  final void Function(String event)? _onControllerEventForTesting;
   final ListQueue<_PendingIsolateRun> _queue = ListQueue<_PendingIsolateRun>();
   final List<String> inputNames;
   final List<String> outputNames;
@@ -187,7 +193,8 @@ final class OrtIsolateSession {
   final int maxOutstandingInputBytes;
 
   _PendingIsolateRun? _active;
-  int _nextRequestId = 1;
+  int _nextRequestId;
+  bool _requestIdsExhausted = false;
   int _lastSettledRequestId = 0;
   int _outstandingInputBytes = 0;
   bool _closing = false;
@@ -204,9 +211,11 @@ final class OrtIsolateSession {
   bool get isClosed => _closed;
   int get outstandingRuns => _queue.length + (_active == null ? 0 : 1);
   int get outstandingInputBytes => _outstandingInputBytes;
-  int get availableRunSlots => maxPendingRuns - outstandingRuns;
-  int get availableInputBytes =>
-      maxOutstandingInputBytes - outstandingInputBytes;
+  int get availableRunSlots =>
+      _requestIdsExhausted ? 0 : maxPendingRuns - outstandingRuns;
+  int get availableInputBytes => _requestIdsExhausted
+      ? 0
+      : maxOutstandingInputBytes - outstandingInputBytes;
 
   Future<OrtIsolateRunResult> run({
     required Map<String, OrtIsolateValue> inputs,
@@ -262,8 +271,14 @@ final class OrtIsolateSession {
         },
       );
     }
+    final int requestId = _nextRequestId;
+    if (requestId == _maximumWorkerRequestId) {
+      _requestIdsExhausted = true;
+    } else {
+      _nextRequestId = requestId + 1;
+    }
     final _PendingIsolateRun request = _PendingIsolateRun(
-      id: _nextRequestId++,
+      id: requestId,
       inputs: inputs.values,
       inputBytes: inputs.bytes,
       outputNames: outputNames,
@@ -275,6 +290,7 @@ final class OrtIsolateSession {
   }
 
   bool _canAcceptInputBytes(int bytes) =>
+      !_requestIdsExhausted &&
       bytes <= maxOutstandingInputBytes &&
       outstandingRuns < maxPendingRuns &&
       bytes <= availableInputBytes;
@@ -341,6 +357,14 @@ final class OrtIsolateSession {
     final OrtWorkerException? terminal = _terminalFailure;
     if (terminal != null) throw terminal;
     if (_closing || _closed) throw OrtWorkerClosedException();
+    if (_requestIdsExhausted) {
+      throw OrtWorkerClosedException(
+        message: 'The isolate session exhausted its request identifier space.',
+        context: const <String, Object?>{
+          'maximumRequestId': _maximumWorkerRequestId,
+        },
+      );
+    }
   }
 
   Future<OrtRunCancellationDisposition> _cancel(_PendingIsolateRun request) {
@@ -725,6 +749,11 @@ final class OrtIsolateSession {
     unawaited(_lifecycleSubscription.cancel());
     _responsePort.close();
     _lifecyclePort.close();
+    try {
+      _onControllerEventForTesting?.call('connectionsClosed');
+    } on Object {
+      // A package-internal test observer must never affect worker ownership.
+    }
   }
 }
 
@@ -952,9 +981,17 @@ final class OrtSessionPool {
     }
     if (selected == null) {
       if (terminalFailure != null) throw terminalFailure;
-      if (_workers.any(
-        (OrtIsolateSession worker) => worker.isClosing || worker.isClosed,
-      )) {
+      if (_workers
+          .where(
+            (OrtIsolateSession worker) =>
+                checkedInputs.bytes <= worker.maxOutstandingInputBytes,
+          )
+          .every(
+            (OrtIsolateSession worker) =>
+                worker.isClosing ||
+                worker.isClosed ||
+                worker._requestIdsExhausted,
+          )) {
         throw OrtWorkerClosedException(
           message: 'The session pool has no live worker available.',
           context: <String, Object?>{'poolSize': size},
@@ -1030,7 +1067,17 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   bool Function(int token)? requestCancelTokenForTesting,
   void Function(bool, bool, bool, bool)? onParentStateForTesting,
   Future<void>? spawnGateForTesting,
+  int initialRequestIdForTesting = 1,
 }) async {
+  if (initialRequestIdForTesting < 1 ||
+      initialRequestIdForTesting > _maximumWorkerRequestId) {
+    throw RangeError.range(
+      initialRequestIdForTesting,
+      1,
+      _maximumWorkerRequestId,
+      'initialRequestIdForTesting',
+    );
+  }
   final ReceivePort responsePort = ReceivePort();
   final ReceivePort lifecyclePort = ReceivePort();
   final Completer<OrtIsolateSession> ready = Completer<OrtIsolateSession>();
@@ -1231,6 +1278,8 @@ Future<OrtIsolateSession> _spawnOrtWorker({
         maxPendingRuns: maxPendingRuns,
         maxMessageBytes: maxMessageBytes,
         maxOutstandingInputBytes: maxOutstandingInputBytes,
+        initialRequestId: initialRequestIdForTesting,
+        onControllerEventForTesting: onControllerEventForTesting,
         requestCancelToken:
             requestCancelTokenForTesting ??
             FonixNativeApi.nativeAsset().requestCancelToken,
@@ -3760,6 +3809,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
   int maxMessageBytes = 1024 * 1024,
   int? maxOutstandingInputBytes,
   Duration startupTimeout = const Duration(seconds: 5),
+  int initialRequestId = 1,
 }) {
   final int effectiveMaxOutstandingInputBytes =
       maxOutstandingInputBytes ?? maxMessageBytes;
@@ -3799,6 +3849,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     'ortError',
     'unknownField',
     'closeWithoutReceipt',
+    'scripted',
   }.contains(scenario)) {
     throw ArgumentError.value(scenario, 'scenario');
   }
@@ -3822,6 +3873,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
         'fatalProtocolReply',
         'fatalWorkerReply',
         'fatalWorkerStaleReply',
+        'scripted',
       }.contains(scenario) ||
       spawnGate != null;
   if (needsStartupLifecycle != (startupLifecyclePort != null)) {
@@ -3847,6 +3899,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     requestCancelTokenForTesting: requestCancelToken,
     onParentStateForTesting: onParentState,
     spawnGateForTesting: spawnGate,
+    initialRequestIdForTesting: initialRequestId,
   );
 }
 
@@ -4018,6 +4071,57 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       continue;
     }
     final int requestId = _workerPositiveInt(command, 'requestId');
+
+    if (scenario == 'scripted') {
+      responsePort.send(<String, Object?>{
+        'version': _ortWorkerProtocolVersion,
+        'type': 'started',
+        'requestId': requestId,
+        'cancelToken': requestId,
+      });
+      final ReceivePort runGate = ReceivePort();
+      startupLifecyclePort!.send(<String, Object?>{
+        'type': 'scriptedRunGate',
+        'requestId': requestId,
+        'port': runGate.sendPort,
+      });
+      final Object? rawDisposition;
+      try {
+        rawDisposition = await runGate.first;
+      } finally {
+        runGate.close();
+      }
+      if (rawDisposition is! String ||
+          !const <String>{
+            'result',
+            'ortError',
+            'crash',
+          }.contains(rawDisposition)) {
+        throw const FormatException('Unknown scripted run disposition.');
+      }
+      if (rawDisposition == 'crash') {
+        Isolate.current.kill(priority: Isolate.immediate);
+        return;
+      }
+      if (rawDisposition == 'ortError') {
+        responsePort.send(<String, Object?>{
+          'version': _ortWorkerProtocolVersion,
+          'type': 'ortError',
+          'requestId': requestId,
+          'error': <String, Object?>{
+            'operation': 'session_run',
+            'domain': OrtErrorDomain.ortStatus.name,
+            'code': 17,
+            'ortCode': 1,
+            'message': 'Synthetic scripted ORT failure.',
+            'context': const <String, Object?>{},
+          },
+          'wasTerminationRequested': false,
+        });
+        priorRequestId = requestId;
+        continue;
+      }
+    }
 
     Future<void> awaitRunStateCleanupGate() async {
       final ReceivePort cleanupGate = ReceivePort();

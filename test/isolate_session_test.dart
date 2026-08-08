@@ -42,6 +42,451 @@ final class _UnreadableList<T> extends ListBase<T> {
       throw UnsupportedError('immutable test list');
 }
 
+typedef _ScriptedRunGate = ({int requestId, SendPort port});
+
+final class _SeededLifecycleRandom {
+  _SeededLifecycleRandom(this._state);
+
+  int _state;
+
+  int nextInt(int maximum) {
+    _state = (_state * 1664525 + 1013904223) & 0xffffffff;
+    return ((_state >> 16) & 0xffff) % maximum;
+  }
+}
+
+final class _ScriptedLifecycleControl {
+  _ScriptedLifecycleControl() {
+    _subscription = port.listen(_handleEvent);
+  }
+
+  final ReceivePort port = ReceivePort();
+  final List<String> controllerEvents = <String>[];
+  final List<int> cancellationTokens = <int>[];
+  late final StreamSubscription<Object?> _subscription;
+  final List<SendPort> _publishedGates = <SendPort>[];
+  _ScriptedRunGate? _bufferedGate;
+  Completer<_ScriptedRunGate>? _gateWaiter;
+  bool _cleaningUp = false;
+
+  bool requestCancellation(int token) {
+    cancellationTokens.add(token);
+    return true;
+  }
+
+  void _handleEvent(Object? event) {
+    if (event case <Object?, Object?>{
+      'type': 'scriptedRunGate',
+      'requestId': final int requestId,
+      'port': final SendPort gatePort,
+    }) {
+      final _ScriptedRunGate gate = (requestId: requestId, port: gatePort);
+      _publishedGates.add(gatePort);
+      if (_cleaningUp) {
+        gatePort.send('ortError');
+        return;
+      }
+      final Completer<_ScriptedRunGate>? waiter = _gateWaiter;
+      if (waiter != null) {
+        _gateWaiter = null;
+        waiter.complete(gate);
+      } else if (_bufferedGate == null) {
+        _bufferedGate = gate;
+      } else {
+        throw StateError('The scripted worker published overlapping runs.');
+      }
+    }
+  }
+
+  Future<_ScriptedRunGate> nextGate(String replay) {
+    final _ScriptedRunGate? buffered = _bufferedGate;
+    if (buffered != null) {
+      _bufferedGate = null;
+      return Future<_ScriptedRunGate>.value(buffered);
+    }
+    if (_gateWaiter != null) {
+      throw StateError('The scripted worker already has a gate waiter.');
+    }
+    final Completer<_ScriptedRunGate> waiter = Completer<_ScriptedRunGate>();
+    _gateWaiter = waiter;
+    return waiter.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        if (identical(_gateWaiter, waiter)) _gateWaiter = null;
+        throw StateError(
+          'Timed out waiting for a scripted run gate ($replay).',
+        );
+      },
+    );
+  }
+
+  void beginCleanup() {
+    if (_cleaningUp) return;
+    _cleaningUp = true;
+    for (final SendPort gate in _publishedGates) {
+      gate.send('ortError');
+    }
+  }
+
+  Future<void> dispose() async {
+    await _subscription.cancel();
+    port.close();
+  }
+}
+
+Future<Object> _captureSettlement<T extends Object>(Future<T> future) async {
+  try {
+    return await future;
+  } on Object catch (error) {
+    return error;
+  }
+}
+
+void _expectClosedAccounting(
+  OrtIsolateSession worker,
+  _ScriptedLifecycleControl control,
+  String replay,
+) {
+  expect(worker.isClosed, isTrue, reason: replay);
+  expect(worker.outstandingRuns, 0, reason: replay);
+  expect(worker.outstandingInputBytes, 0, reason: replay);
+  expect(
+    control.controllerEvents.where(
+      (String event) => event == 'connectionsClosed',
+    ),
+    hasLength(1),
+    reason: replay,
+  );
+}
+
+Future<OrtIsolateSession> _spawnScriptedWorker(
+  _ScriptedLifecycleControl control, {
+  int maxPendingRuns = 3,
+  int maxOutstandingInputBytes = 39,
+  int initialRequestId = 1,
+}) => spawnOrtIsolateProtocolHarnessForTesting(
+  scenario: 'scripted',
+  startupLifecyclePort: control.port.sendPort,
+  onControllerEvent: control.controllerEvents.add,
+  requestCancelToken: control.requestCancellation,
+  maxPendingRuns: maxPendingRuns,
+  maxMessageBytes: 1024,
+  maxOutstandingInputBytes: maxOutstandingInputBytes,
+  initialRequestId: initialRequestId,
+);
+
+Future<int> _runSeededGracefulWorkerTrace(
+  int seed,
+  _SeededLifecycleRandom random,
+  Set<String> coverage,
+) async {
+  final List<String> trace = <String>[];
+  String replay() => 'seed=0x${seed.toRadixString(16)} trace=$trace';
+  final _ScriptedLifecycleControl control = _ScriptedLifecycleControl();
+  final OrtIsolateSession worker = await _spawnScriptedWorker(control);
+  try {
+    final List<OrtIsolateRun> runs = List<OrtIsolateRun>.generate(3, (
+      int index,
+    ) {
+      trace.add('submit:${index + 1}');
+      return worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[seed.toDouble() + index]),
+        },
+      );
+    });
+    final List<Future<Object>> settlements = runs
+        .map(
+          (OrtIsolateRun run) =>
+              _captureSettlement<OrtIsolateRunResult>(run.result),
+        )
+        .toList(growable: false);
+    expect(worker.outstandingRuns, 3, reason: replay());
+    expect(worker.outstandingInputBytes, 39, reason: replay());
+    expect(
+      () => worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[99]),
+        },
+      ),
+      throwsA(isA<OrtWorkerQueueFullException>()),
+      reason: replay(),
+    );
+    trace.add('overfill-rejected');
+
+    final int cancelledIndex = 1 + random.nextInt(2);
+    coverage.add('graceful:q${cancelledIndex + 1}');
+    expect(
+      await runs[cancelledIndex].cancelWithDisposition(),
+      OrtRunCancellationDisposition.queuedRunRemoved,
+      reason: replay(),
+    );
+    trace.add('cancel-queued:${cancelledIndex + 1}');
+    expect(worker.outstandingRuns, 2, reason: replay());
+    expect(worker.outstandingInputBytes, 26, reason: replay());
+
+    final _ScriptedRunGate gate = await control.nextGate(replay());
+    expect(gate.requestId, 1, reason: replay());
+    final Future<void> firstClose = worker.close();
+    expect(identical(firstClose, worker.close()), isTrue, reason: replay());
+    trace.add('close-twice');
+    expect(
+      await runs.first.cancelWithDisposition(),
+      OrtRunCancellationDisposition.nativeTerminationRequested,
+      reason: replay(),
+    );
+    trace.add('cancel-active');
+    gate.port.send('result');
+    trace.add('settle-active:result');
+
+    final List<Object> outcomes = await Future.wait<Object>(settlements);
+    await firstClose.timeout(const Duration(seconds: 2));
+    expect(outcomes.first, isA<OrtIsolateRunResult>(), reason: replay());
+    expect(
+      outcomes[cancelledIndex],
+      isA<OrtRunCancelledException>(),
+      reason: replay(),
+    );
+    final int closedIndex = cancelledIndex == 1 ? 2 : 1;
+    expect(
+      outcomes[closedIndex],
+      isA<OrtWorkerClosedException>(),
+      reason: replay(),
+    );
+    expect(control.cancellationTokens, <int>[1], reason: replay());
+    _expectClosedAccounting(worker, control, replay());
+  } finally {
+    control.beginCleanup();
+    try {
+      await worker.close();
+    } on OrtWorkerException {
+      // A terminal trace keeps its first worker failure authoritative.
+    }
+    await control.dispose();
+  }
+  return trace.length;
+}
+
+Future<int> _runSeededCrashWorkerTrace(
+  int seed,
+  _SeededLifecycleRandom random,
+  Set<String> coverage,
+) async {
+  final List<String> trace = <String>[];
+  String replay() => 'seed=0x${seed.toRadixString(16)} trace=$trace';
+  final _ScriptedLifecycleControl control = _ScriptedLifecycleControl();
+  final OrtIsolateSession worker = await _spawnScriptedWorker(control);
+  try {
+    final List<OrtIsolateRun> runs = List<OrtIsolateRun>.generate(3, (
+      int index,
+    ) {
+      trace.add('submit:${index + 1}');
+      return worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[seed.toDouble() + index]),
+        },
+      );
+    });
+    final List<Future<Object>> settlements = runs
+        .map(
+          (OrtIsolateRun run) =>
+              _captureSettlement<OrtIsolateRunResult>(run.result),
+        )
+        .toList(growable: false);
+    expect(
+      () => worker.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[99]),
+        },
+      ),
+      throwsA(isA<OrtWorkerQueueFullException>()),
+      reason: replay(),
+    );
+    trace.add('overfill-rejected');
+
+    final int cancelledIndex = 1 + random.nextInt(2);
+    coverage.add('crash:q${cancelledIndex + 1}');
+    expect(
+      await runs[cancelledIndex].cancelWithDisposition(),
+      OrtRunCancellationDisposition.queuedRunRemoved,
+      reason: replay(),
+    );
+    trace.add('cancel-queued:${cancelledIndex + 1}');
+    final _ScriptedRunGate gate = await control.nextGate(replay());
+    expect(
+      await runs.first.cancelWithDisposition(),
+      OrtRunCancellationDisposition.nativeTerminationRequested,
+      reason: replay(),
+    );
+    trace.add('cancel-active');
+    gate.port.send('crash');
+    trace.add('crash-active');
+
+    final List<Object> outcomes = await Future.wait<Object>(settlements);
+    expect(outcomes.first, isA<OrtWorkerCrashedException>(), reason: replay());
+    expect(
+      outcomes[cancelledIndex],
+      isA<OrtRunCancelledException>(),
+      reason: replay(),
+    );
+    final int crashedQueuedIndex = cancelledIndex == 1 ? 2 : 1;
+    expect(
+      outcomes[crashedQueuedIndex],
+      isA<OrtWorkerCrashedException>(),
+      reason: replay(),
+    );
+    Object? closeFailure;
+    try {
+      await worker.close();
+    } on Object catch (error) {
+      closeFailure = error;
+    }
+    expect(closeFailure, isA<OrtWorkerCrashedException>(), reason: replay());
+    expect(control.cancellationTokens, <int>[1], reason: replay());
+    _expectClosedAccounting(worker, control, replay());
+  } finally {
+    control.beginCleanup();
+    try {
+      await worker.close();
+    } on OrtWorkerException {
+      // Expected after the scripted crash.
+    }
+    await control.dispose();
+  }
+  return trace.length;
+}
+
+Future<int> _runSeededPoolTrace(
+  int seed,
+  _SeededLifecycleRandom random,
+  Set<String> coverage,
+) async {
+  final List<String> trace = <String>[];
+  String replay() => 'seed=0x${seed.toRadixString(16)} trace=$trace';
+  final _ScriptedLifecycleControl firstControl = _ScriptedLifecycleControl();
+  final _ScriptedLifecycleControl secondControl = _ScriptedLifecycleControl();
+  final OrtIsolateSession first = await _spawnScriptedWorker(
+    firstControl,
+    maxPendingRuns: 2,
+    maxOutstandingInputBytes: 26,
+  );
+  final OrtIsolateSession second = await _spawnScriptedWorker(
+    secondControl,
+    maxPendingRuns: 2,
+    maxOutstandingInputBytes: 26,
+  );
+  final OrtSessionPool pool = createOrtSessionPoolForTesting(
+    <OrtIsolateSession>[first, second],
+  );
+  try {
+    final List<OrtIsolateRun> runs = List<OrtIsolateRun>.generate(4, (
+      int index,
+    ) {
+      trace.add('pool-submit:${index + 1}');
+      return pool.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[seed.toDouble() + index]),
+        },
+      );
+    });
+    final List<Future<Object>> settlements = runs
+        .map(
+          (OrtIsolateRun run) =>
+              _captureSettlement<OrtIsolateRunResult>(run.result),
+        )
+        .toList(growable: false);
+    expect(pool.outstandingRuns, 4, reason: replay());
+    expect(pool.outstandingInputBytes, 52, reason: replay());
+    expect(
+      () => pool.startRun(
+        inputs: <String, OrtIsolateValue>{
+          'X': _tensor(<double>[99]),
+        },
+      ),
+      throwsA(isA<OrtWorkerQueueFullException>()),
+      reason: replay(),
+    );
+    trace.add('pool-overfill-rejected');
+
+    final int cancelledIndex = 2 + random.nextInt(2);
+    expect(
+      await runs[cancelledIndex].cancelWithDisposition(),
+      OrtRunCancellationDisposition.queuedRunRemoved,
+      reason: replay(),
+    );
+    trace.add('pool-cancel-queued:${cancelledIndex + 1}');
+    expect(pool.outstandingRuns, 3, reason: replay());
+    expect(pool.outstandingInputBytes, 39, reason: replay());
+
+    final _ScriptedRunGate firstGate = await firstControl.nextGate(replay());
+    final _ScriptedRunGate secondGate = await secondControl.nextGate(replay());
+    final Future<void> firstClose = pool.close();
+    expect(identical(firstClose, pool.close()), isTrue, reason: replay());
+    trace.add('pool-close-twice');
+    expect(
+      await runs[0].cancelWithDisposition(),
+      OrtRunCancellationDisposition.nativeTerminationRequested,
+      reason: replay(),
+    );
+    expect(
+      await runs[1].cancelWithDisposition(),
+      OrtRunCancellationDisposition.nativeTerminationRequested,
+      reason: replay(),
+    );
+    trace.add('pool-cancel-active:1,2');
+
+    final bool firstSucceeds = random.nextInt(2) == 0;
+    coverage.add(
+      'pool:q${cancelledIndex + 1}:'
+      '${firstSucceeds ? 'result-error' : 'error-result'}',
+    );
+    firstGate.port.send(firstSucceeds ? 'result' : 'ortError');
+    secondGate.port.send(firstSucceeds ? 'ortError' : 'result');
+    trace.add(
+      'pool-settle-active:${firstSucceeds ? 'result,error' : 'error,result'}',
+    );
+    final List<Object> outcomes = await Future.wait<Object>(settlements);
+    await firstClose.timeout(const Duration(seconds: 2));
+
+    expect(
+      outcomes[0],
+      firstSucceeds ? isA<OrtIsolateRunResult>() : isA<OrtRunException>(),
+      reason: replay(),
+    );
+    expect(
+      outcomes[1],
+      firstSucceeds ? isA<OrtRunException>() : isA<OrtIsolateRunResult>(),
+      reason: replay(),
+    );
+    expect(
+      outcomes[cancelledIndex],
+      isA<OrtRunCancelledException>(),
+      reason: replay(),
+    );
+    final int closedIndex = cancelledIndex == 2 ? 3 : 2;
+    expect(
+      outcomes[closedIndex],
+      isA<OrtWorkerClosedException>(),
+      reason: replay(),
+    );
+    expect(pool.outstandingRuns, 0, reason: replay());
+    expect(pool.outstandingInputBytes, 0, reason: replay());
+    _expectClosedAccounting(first, firstControl, replay());
+    _expectClosedAccounting(second, secondControl, replay());
+  } finally {
+    firstControl.beginCleanup();
+    secondControl.beginCleanup();
+    try {
+      await pool.close();
+    } on OrtWorkerException {
+      // A terminal worker remains authoritative during cleanup.
+    }
+    await firstControl.dispose();
+    await secondControl.dispose();
+  }
+  return trace.length;
+}
+
 void main() {
   group('worker option protocol', () {
     test('preserves typed Core ML cache identity inputs', () {
@@ -1898,6 +2343,174 @@ void main() {
         expect(requestedTokens, <int>[1]);
         expect(uncaughtErrors, isEmpty);
       },
+    );
+
+    test(
+      'bounded seeded lifecycle traces settle workers, pools, and request IDs',
+      () async {
+        const List<int> seeds = <int>[5, 7, 1, 3, 17, 2, 15, 4];
+        var recordedActions = 0;
+        final Set<String> coverage = <String>{};
+        for (final int seed in seeds) {
+          final _SeededLifecycleRandom random = _SeededLifecycleRandom(seed);
+          switch (random.nextInt(3)) {
+            case 0:
+              recordedActions += await _runSeededGracefulWorkerTrace(
+                seed,
+                random,
+                coverage,
+              );
+              break;
+            case 1:
+              recordedActions += await _runSeededCrashWorkerTrace(
+                seed,
+                random,
+                coverage,
+              );
+              break;
+            case 2:
+              recordedActions += await _runSeededPoolTrace(
+                seed,
+                random,
+                coverage,
+              );
+              break;
+          }
+        }
+        expect(recordedActions, 66);
+        expect(coverage, <String>{
+          'graceful:q2',
+          'graceful:q3',
+          'crash:q2',
+          'crash:q3',
+          'pool:q3:result-error',
+          'pool:q3:error-result',
+          'pool:q4:result-error',
+          'pool:q4:error-result',
+        });
+
+        const int penultimateRequestId = 0x7ffffffffffffffe;
+        const int maximumRequestId = 0x7fffffffffffffff;
+        final _ScriptedLifecycleControl exhaustedControl =
+            _ScriptedLifecycleControl();
+        final _ScriptedLifecycleControl liveControl =
+            _ScriptedLifecycleControl();
+        final OrtIsolateSession exhausted = await _spawnScriptedWorker(
+          exhaustedControl,
+          maxPendingRuns: 1,
+          maxOutstandingInputBytes: 26,
+          initialRequestId: penultimateRequestId,
+        );
+        final OrtIsolateSession live = await _spawnScriptedWorker(
+          liveControl,
+          maxPendingRuns: 1,
+          maxOutstandingInputBytes: 13,
+        );
+        final OrtSessionPool pool = createOrtSessionPoolForTesting(
+          <OrtIsolateSession>[exhausted, live],
+        );
+        try {
+          for (final int expectedRequestId in <int>[
+            penultimateRequestId,
+            maximumRequestId,
+          ]) {
+            final OrtIsolateRun run = exhausted.startRun(
+              inputs: <String, OrtIsolateValue>{
+                'X': _tensor(<double>[1]),
+              },
+            );
+            final Future<Object> settlement =
+                _captureSettlement<OrtIsolateRunResult>(run.result);
+            if (expectedRequestId == maximumRequestId) {
+              expect(exhausted.availableRunSlots, 0);
+              expect(exhausted.availableInputBytes, 0);
+            }
+            final _ScriptedRunGate gate = await exhaustedControl.nextGate(
+              'request-id=$expectedRequestId',
+            );
+            expect(gate.requestId, expectedRequestId);
+            gate.port.send('result');
+            expect(await settlement, isA<OrtIsolateRunResult>());
+          }
+          expect(exhausted.outstandingRuns, 0);
+          expect(exhausted.outstandingInputBytes, 0);
+          expect(exhausted.availableRunSlots, 0);
+          expect(exhausted.availableInputBytes, 0);
+          expect(
+            () => exhausted.startRun(
+              inputs: <String, OrtIsolateValue>{
+                'X': _tensor(<double>[2]),
+              },
+            ),
+            throwsA(
+              isA<OrtWorkerClosedException>().having(
+                (OrtWorkerClosedException error) =>
+                    error.context['maximumRequestId'],
+                'permanent request identifier bound',
+                maximumRequestId,
+              ),
+            ),
+          );
+
+          final OrtIsolateRun routed = pool.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': _tensor(<double>[3]),
+            },
+          );
+          final Future<Object> routedSettlement =
+              _captureSettlement<OrtIsolateRunResult>(routed.result);
+          expect(exhausted.outstandingRuns, 0);
+          expect(live.outstandingRuns, 1);
+          final _ScriptedRunGate liveGate = await liveControl.nextGate(
+            'request-id-exhausted pool routing',
+          );
+          expect(liveGate.requestId, 1);
+          expect(
+            () => pool.startRun(
+              inputs: <String, OrtIsolateValue>{
+                'X': _tensor(<double>[4]),
+              },
+            ),
+            throwsA(isA<OrtWorkerQueueFullException>()),
+          );
+          expect(
+            () => pool.startRun(
+              inputs: <String, OrtIsolateValue>{
+                'X': OrtIsolateTensor.fromStrings(
+                  values: const <String>[''],
+                  shape: const <int>[1],
+                ),
+              },
+            ),
+            throwsA(isA<OrtWorkerClosedException>()),
+          );
+          liveGate.port.send('result');
+          expect(await routedSettlement, isA<OrtIsolateRunResult>());
+
+          final Future<void> closing = pool.close();
+          expect(identical(closing, pool.close()), isTrue);
+          await closing.timeout(const Duration(seconds: 2));
+          expect(pool.outstandingRuns, 0);
+          expect(pool.outstandingInputBytes, 0);
+          _expectClosedAccounting(
+            exhausted,
+            exhaustedControl,
+            'request ID exhaustion',
+          );
+          _expectClosedAccounting(live, liveControl, 'request ID exhaustion');
+        } finally {
+          exhaustedControl.beginCleanup();
+          liveControl.beginCleanup();
+          try {
+            await pool.close();
+          } on OrtWorkerException {
+            // Preserve a terminal worker result during cleanup.
+          }
+          await exhaustedControl.dispose();
+          await liveControl.dispose();
+        }
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
     );
 
     test('rejects messages above the configured byte bound', () async {

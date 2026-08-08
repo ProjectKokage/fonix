@@ -553,9 +553,17 @@ status, releases partial owners, and permits a clean retry. A fake ORT `Run`
 also returns an owned output with an error; the shim releases it exactly once,
 preserves the authoritative ORT error, and recovers on the next successful run.
 Normal and Address/UndefinedBehavior sanitizer suites pass on the development
-host. Broader seeded worker lifecycle stress and allocation enumeration for
-less common composite, external-data, and profiling paths continue within this
-phase.
+host. A follow-up bounded seeded-lifecycle checkpoint composes graceful close,
+crash, queued and active cancellation, backpressure, mixed pool settlement,
+and idempotent worker/pool shutdown across eight unique explicit-gate traces.
+Every trace settles to zero Dart run/input reservations, closed sessions, and
+one controller connection-closure initiation per worker. Worker request IDs
+now admit positive `INT64_MAX` once and then permanently exhaust without wrap;
+pools skip that worker while retaining retriable backpressure from another
+live saturated peer and fail closed when every size-capable peer is permanently
+unavailable. Allocation enumeration for less common composite, external-data,
+and profiling paths continues within this phase, as do target-specific pool
+throughput and RSS measurements.
 
 The follow-up source-closure checkpoint validates release ZIP and gzip-compressed
 Git tar archives without extraction. It binds the archive's declared revision,

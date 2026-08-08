@@ -12,6 +12,10 @@
   ordered error/exit lifecycle channel; hardened cancellation with unlocked
   per-token native settlement, retryable failures, and non-reused monotonic
   tokens.
+- Added bounded, replayable composed worker/pool lifecycle traces and made
+  positive-int64 worker request IDs permanently exhaust instead of wrapping;
+  exhausted workers no longer hide retriable capacity on another live pool
+  worker.
 - Enforced the exact strict-JSON nesting bound for empty containers and added a
   deterministic generated/mutated protocol corpus.
 - Released bounded ORT-owned provider and model-metadata outputs even when ORT

@@ -142,6 +142,26 @@ of treating them as stale results, gate valid result/error publication behind
 run-state disposal, exercise aggregate input-byte exhaustion/release and
 byte-aware pool routing, and surface terminal pool failures before
 backpressure.
+
+One bounded composed-trace regression derives eight unique traces from the
+fixed seeds `5`, `7`, `1`, `3`, `17`, `2`, `15`, and `4`. Explicit worker
+gates, not elapsed-time choices, cover both queued positions for graceful
+close, both queued positions for crash, and all four queued-position by
+success/error orientations for a two-worker pool. A trace owns at most two
+workers, four submitted runs, nine recorded actions, and 52 aggregate reserved
+input bytes. Every trace rejects overfill, exercises queued and active
+cancellation, awaits every result and close future, and ends with zero Dart
+run/input reservations, closed sessions, and one controller connection-close
+initiation per worker. The same test admits request IDs
+`INT64_MAX - 1` and `INT64_MAX` once, proves permanent zero-capacity
+exhaustion, and verifies that an exhausted peer does not turn a live saturated
+peer's backpressure into a closed-pool result, while an undersized live peer
+cannot make an impossible route retriable. Its two-second waits are
+deadlock watchdogs; trace assertions and gate watchdogs report the seed and
+action trace, and cleanup releases any held synthetic gate before awaiting
+close. This synthetic harness does not claim native-owner leak freedom, target
+execution, throughput, or RSS.
+
 Its opt-in native-asset case registers cancellation inside the worker isolate
 and requests it from the caller isolate. The public disposition must report
 `nativeTerminationRequested`, proving that the request reached the same

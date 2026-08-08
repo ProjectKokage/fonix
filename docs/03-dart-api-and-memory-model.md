@@ -464,6 +464,15 @@ fixed per-element budget even when every string is empty. Optional None carries
 its recursive element type. No pointer, native wrapper, runtime, session, or
 run-options handle crosses an isolate message.
 
+Controller request IDs are monotonic positive int64 values. The maximum value
+may be admitted exactly once; the session then reports no available run or
+input capacity and permanently rejects new work instead of wrapping or
+aliasing a stale request. A pool skips an exhausted worker, but a different
+live worker that is only temporarily full still produces retriable
+backpressure rather than a closed-pool result. If every worker large enough for
+that request is permanently unavailable, a smaller live peer does not make the
+request retriable.
+
 `startRun` returns an `OrtIsolateRun` whose idempotent `cancel` operation either
 removes a queued request or uses an opaque process-local token to request ORT
 termination. `cancelWithDisposition` exposes the exact closed outcome:
