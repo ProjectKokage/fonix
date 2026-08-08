@@ -11,7 +11,6 @@
 #include <string.h>
 
 #if defined(_WIN32)
-#include <malloc.h>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
@@ -106,14 +105,6 @@ static int dort_data_lease_is_valid(const dort_data_lease_t* lease) {
           lease->owner_kind == DORT_LEASE_OWNER_VALUE);
 }
 
-static void dort_aligned_free(void* pointer) {
-#if defined(_WIN32)
-  _aligned_free(pointer);
-#else
-  free(pointer);
-#endif
-}
-
 static void dort_buffer_lock(dort_buffer_t* buffer) {
 #if defined(_WIN32)
   AcquireSRWLockExclusive(&buffer->lock);
@@ -173,13 +164,7 @@ dort_status_t* DORT_CALL dort_buffer_allocate(
         "buffer_allocate",
         "Alignment must be a power of two between pointer alignment and 4096 bytes.");
   }
-#if defined(_WIN32)
-  data = _aligned_malloc(allocation_length, alignment);
-#else
-  if (posix_memalign(&data, alignment, allocation_length) != 0) {
-    data = NULL;
-  }
-#endif
+  data = dort_memory_aligned_allocate(allocation_length, alignment);
   if (data == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -189,9 +174,9 @@ dort_status_t* DORT_CALL dort_buffer_allocate(
         "Could not allocate the aligned native buffer.");
   }
   memset(data, 0, allocation_length);
-  buffer = (dort_buffer_t*)calloc(1u, sizeof(*buffer));
+  buffer = (dort_buffer_t*)dort_memory_allocate_zeroed(1u, sizeof(*buffer));
   if (buffer == NULL) {
-    dort_aligned_free(data);
+    dort_memory_aligned_free(data);
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
         DORT_ERROR_ALLOCATION_FAILED,
@@ -211,7 +196,7 @@ dort_status_t* DORT_CALL dort_buffer_allocate(
 #else
   if (pthread_mutex_init(&buffer->lock, NULL) != 0) {
     buffer->magic = 0u;
-    dort_aligned_free(data);
+    dort_memory_aligned_free(data);
     free(buffer);
     dort_runtime_release(runtime);
     return dort_status_create(
@@ -261,7 +246,7 @@ void DORT_CALL dort_buffer_release(dort_buffer_t* buffer) {
 #if !defined(_WIN32)
     (void)pthread_mutex_destroy(&buffer->lock);
 #endif
-    dort_aligned_free(data);
+    dort_memory_aligned_free(data);
     free(buffer);
     dort_runtime_release(runtime);
   }
@@ -388,7 +373,7 @@ dort_status_t* DORT_CALL dort_buffer_data_acquire(
         "buffer_data_acquire",
         "The native buffer handle is null or invalid.");
   }
-  lease = (dort_data_lease_t*)calloc(1u, sizeof(*lease));
+  lease = (dort_data_lease_t*)dort_memory_allocate_zeroed(1u, sizeof(*lease));
   if (lease == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -702,7 +687,7 @@ static dort_status_t* dort_value_allocate(
         "value_wrap",
         "The runtime, value kind, nesting depth, or ONNX Runtime value is invalid.");
   }
-  value = (dort_value_t*)calloc(1u, sizeof(*value));
+  value = (dort_value_t*)dort_memory_allocate_zeroed(1u, sizeof(*value));
   if (value == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -742,7 +727,7 @@ static dort_status_t* dort_value_attach_sources(
         operation == NULL ? "value_attach_sources" : operation,
         "Composite source ownership parameters are invalid.");
   }
-  retained = (dort_value_t**)calloc(source_count, sizeof(*retained));
+  retained = (dort_value_t**)dort_memory_allocate_zeroed(source_count, sizeof(*retained));
   if (retained == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -1470,7 +1455,7 @@ dort_status_t* DORT_CALL dort_sequence_create(
   if (status != NULL) {
     return status;
   }
-  ort_values = (const OrtValue**)calloc(value_count, sizeof(*ort_values));
+  ort_values = (const OrtValue**)dort_memory_allocate_zeroed(value_count, sizeof(*ort_values));
   if (ort_values == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -2315,9 +2300,9 @@ static dort_status_t* dort_validate_string_tensor_contents(
   if (status != NULL) {
     return status;
   }
-  contents = (uint8_t*)malloc(total_bytes == 0u ? 1u : total_bytes);
+  contents = (uint8_t*)dort_memory_allocate(total_bytes == 0u ? 1u : total_bytes);
   if (string_count > 0u) {
-    offsets = (size_t*)calloc(string_count, sizeof(*offsets));
+    offsets = (size_t*)dort_memory_allocate_zeroed(string_count, sizeof(*offsets));
   }
   if (contents == NULL || (string_count > 0u && offsets == NULL)) {
     free(contents);
@@ -2854,7 +2839,7 @@ dort_status_t* DORT_CALL dort_tensor_string_get(
         "tensor_string_get",
         "The string tensor element exceeds the owned-string limit.");
   }
-  copy = (uint8_t*)malloc(allocation_length);
+  copy = (uint8_t*)dort_memory_allocate(allocation_length);
   if (copy == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -2999,7 +2984,7 @@ dort_status_t* DORT_CALL dort_tensor_data_acquire(
       }
     }
   }
-  lease = (dort_data_lease_t*)calloc(1u, sizeof(*lease));
+  lease = (dort_data_lease_t*)dort_memory_allocate_zeroed(1u, sizeof(*lease));
   if (lease == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,

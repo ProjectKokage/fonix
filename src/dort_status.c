@@ -34,7 +34,7 @@ dort_status_t* dort_status_create(
     int32_t ort_code,
     const char* operation,
     const char* message) {
-  dort_status_t* status = (dort_status_t*)calloc(1u, sizeof(*status));
+  dort_status_t* status = (dort_status_t*)dort_memory_allocate_zeroed(1u, sizeof(*status));
   if (status == NULL) {
     return &dort_emergency_status;
   }

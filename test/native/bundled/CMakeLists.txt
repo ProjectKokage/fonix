@@ -94,6 +94,7 @@ if(NOT WIN32)
       android_bundled_loader_test.c
       "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_loader_posix.c"
       "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_core.c"
+      "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_memory.c"
       "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_status.c"
     )
     target_include_directories(

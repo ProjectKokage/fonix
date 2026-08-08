@@ -67,6 +67,7 @@ add_library(
   dort_core.c
   dort_loader_posix.c
   dort_loader_windows.c
+  dort_memory.c
   dort_provider.c
   dort_runtime.c
   dort_run.c

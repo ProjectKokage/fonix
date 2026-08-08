@@ -166,7 +166,7 @@ static int dort_json_reserve(dort_json_builder_t* builder, size_t addition) {
   if (capacity < required) {
     return 0;
   }
-  resized = (char*)realloc(builder->data, capacity);
+  resized = (char*)dort_memory_reallocate(builder->data, capacity);
   if (resized == NULL) {
     return 0;
   }
@@ -909,7 +909,7 @@ static wchar_t* dort_utf8_to_wide_path(const char* path) {
   if (required <= 0) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required, sizeof(wchar_t));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required, sizeof(wchar_t));
   if (result == NULL ||
       MultiByteToWideChar(
           CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, result, required) != required) {
@@ -948,7 +948,7 @@ static wchar_t* dort_windows_full_path(const wchar_t* path) {
   if (required == 0u || required >= DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required + 1u, sizeof(wchar_t));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required + 1u, sizeof(wchar_t));
   if (result == NULL) {
     return NULL;
   }
@@ -968,7 +968,7 @@ static wchar_t* dort_windows_final_path(HANDLE handle) {
   if (required == 0u || required >= DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required + 1u, sizeof(wchar_t));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required + 1u, sizeof(wchar_t));
   if (result == NULL) {
     return NULL;
   }
@@ -1029,7 +1029,7 @@ static wchar_t* dort_windows_copy_wide_string(
   if (length >= DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc(length + 1u, sizeof(wchar_t));
+  result = (wchar_t*)dort_memory_allocate_zeroed(length + 1u, sizeof(wchar_t));
   if (result != NULL) {
     memcpy(result, value, length * sizeof(wchar_t));
   }
@@ -1043,7 +1043,7 @@ static char* dort_windows_wide_path_to_utf8(const wchar_t* path) {
   if (required <= 0 || (size_t)required > DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (char*)malloc((size_t)required);
+  result = (char*)dort_memory_allocate((size_t)required);
   if (result == NULL ||
       WideCharToMultiByte(
           CP_UTF8,
@@ -1311,7 +1311,7 @@ static dort_status_t* dort_prepare_artifact_path(
           goto windows_artifact_cleanup;
         }
         canonical_path =
-            (wchar_t*)calloc(result_length, sizeof(wchar_t));
+            (wchar_t*)dort_memory_allocate_zeroed(result_length, sizeof(wchar_t));
         if (canonical_path != NULL) {
           memcpy(
               canonical_path,
@@ -1496,7 +1496,7 @@ windows_artifact_cleanup:
           "session_options_create",
           "A normalized session artifact path exceeds the ABI limit.");
     }
-    result = (char*)malloc(result_length);
+    result = (char*)dort_memory_allocate(result_length);
     if (result != NULL) {
       (void)snprintf(
           result,
@@ -1624,7 +1624,7 @@ static dort_status_t* dort_prepare_coreml_cache_directory(
             "The scoped Core ML cache path exceeds its ABI limit.");
         goto coreml_cache_cleanup;
       }
-      cache_path = (char*)malloc(cache_path_length);
+      cache_path = (char*)dort_memory_allocate(cache_path_length);
       if (cache_path == NULL) {
         status = dort_status_create(
             DORT_ERROR_DOMAIN_ALLOCATION,
@@ -1752,8 +1752,8 @@ static dort_status_t* dort_provider_option_vectors(
   if (provider->option_count == 0u) {
     return NULL;
   }
-  keys = (const char**)calloc(provider->option_count, sizeof(*keys));
-  values = (const char**)calloc(provider->option_count, sizeof(*values));
+  keys = (const char**)dort_memory_allocate_zeroed(provider->option_count, sizeof(*keys));
+  values = (const char**)dort_memory_allocate_zeroed(provider->option_count, sizeof(*values));
   if (keys == NULL || values == NULL) {
     free(keys);
     free(values);
@@ -2440,7 +2440,7 @@ dort_status_t* DORT_CALL dort_session_options_create(
       goto cleanup;
     }
   }
-  options = (dort_session_options_t*)calloc(1u, sizeof(*options));
+  options = (dort_session_options_t*)dort_memory_allocate_zeroed(1u, sizeof(*options));
   if (options == NULL) {
     status = dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -3684,15 +3684,19 @@ static dort_status_t* dort_initialize_session_metadata(dort_session_t* session) 
   session->output_count = output_count;
   if (session->input_count > 0u) {
     session->input_names =
-        (char**)calloc(session->input_count, sizeof(*session->input_names));
+        (char**)dort_memory_allocate_zeroed(
+            session->input_count, sizeof(*session->input_names));
     session->input_kinds =
-        (uint32_t*)calloc(session->input_count, sizeof(*session->input_kinds));
+        (uint32_t*)dort_memory_allocate_zeroed(
+            session->input_count, sizeof(*session->input_kinds));
   }
   if (session->output_count > 0u) {
     session->output_names =
-        (char**)calloc(session->output_count, sizeof(*session->output_names));
+        (char**)dort_memory_allocate_zeroed(
+            session->output_count, sizeof(*session->output_names));
     session->output_kinds =
-        (uint32_t*)calloc(session->output_count, sizeof(*session->output_kinds));
+        (uint32_t*)dort_memory_allocate_zeroed(
+            session->output_count, sizeof(*session->output_kinds));
   }
   if ((session->input_count > 0u &&
        (session->input_names == NULL || session->input_kinds == NULL)) ||
@@ -3787,7 +3791,7 @@ static dort_status_t* dort_wrap_session(
     dort_session_t** out_session) {
   dort_session_t* session = NULL;
   dort_status_t* status = NULL;
-  session = (dort_session_t*)calloc(1u, sizeof(*session));
+  session = (dort_session_t*)dort_memory_allocate_zeroed(1u, sizeof(*session));
   if (session == NULL) {
     dort_runtime_api(runtime)->ReleaseSession(ort_session);
     return dort_status_create(
@@ -4045,14 +4049,14 @@ dort_status_t* DORT_CALL dort_session_create_from_bytes_with_external_data(
         "A session requires non-empty model bytes.");
   }
 
-  names = (char**)calloc(external_data_count, sizeof(*names));
-  buffers = (char**)calloc(external_data_count, sizeof(*buffers));
-  lengths = (size_t*)calloc(external_data_count, sizeof(*lengths));
+  names = (char**)dort_memory_allocate_zeroed(external_data_count, sizeof(*names));
+  buffers = (char**)dort_memory_allocate_zeroed(external_data_count, sizeof(*buffers));
+  lengths = (size_t*)dort_memory_allocate_zeroed(external_data_count, sizeof(*lengths));
   name_lengths =
-      (size_t*)calloc(external_data_count, sizeof(*name_lengths));
+      (size_t*)dort_memory_allocate_zeroed(external_data_count, sizeof(*name_lengths));
 #if defined(_WIN32)
   native_names =
-      (wchar_t**)calloc(external_data_count, sizeof(*native_names));
+      (wchar_t**)dort_memory_allocate_zeroed(external_data_count, sizeof(*native_names));
 #endif
   if (names == NULL || buffers == NULL || lengths == NULL ||
       name_lengths == NULL
@@ -4111,9 +4115,9 @@ dort_status_t* DORT_CALL dort_session_create_from_bytes_with_external_data(
       goto cleanup;
     }
     names[index] =
-        (char*)malloc(entry->relative_name_length + 1u);
+        (char*)dort_memory_allocate(entry->relative_name_length + 1u);
     buffers[index] =
-        (char*)malloc(entry->data_length == 0u ? 1u : entry->data_length);
+        (char*)dort_memory_allocate(entry->data_length == 0u ? 1u : entry->data_length);
     if (names[index] == NULL || buffers[index] == NULL) {
       status = dort_status_create(
           DORT_ERROR_DOMAIN_ALLOCATION,
@@ -4349,7 +4353,7 @@ static dort_status_t* dort_read_model_file(
       goto windows_model_cleanup;
     }
     traversal =
-        (wchar_t*)calloc(DORT_MAX_PATH_BYTES, sizeof(wchar_t));
+        (wchar_t*)dort_memory_allocate_zeroed(DORT_MAX_PATH_BYTES, sizeof(wchar_t));
     if (traversal != NULL) {
       memcpy(
           traversal,
@@ -4498,7 +4502,7 @@ static dort_status_t* dort_read_model_file(
           "The model file is empty, oversized, or could not be measured.");
       goto windows_model_cleanup;
     }
-    bytes = (uint8_t*)malloc((size_t)file_size.QuadPart);
+    bytes = (uint8_t*)dort_memory_allocate((size_t)file_size.QuadPart);
     if (bytes == NULL) {
       status = dort_status_create(
           DORT_ERROR_DOMAIN_ALLOCATION,
@@ -4661,7 +4665,7 @@ windows_model_cleanup:
           "session_create_file",
           "The model file is not a bounded non-empty regular file.");
     }
-    bytes = (uint8_t*)malloc((size_t)file_stat.st_size);
+    bytes = (uint8_t*)dort_memory_allocate((size_t)file_stat.st_size);
     if (bytes == NULL) {
       (void)close(descriptor);
       return dort_status_create(

@@ -36,7 +36,11 @@ set(
   CACHE PATH "" FORCE
 )
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src" fonix_shim_build)
-target_compile_definitions(fonix_shim PRIVATE FONIX_DESKTOP_PROVIDER_TESTING=1)
+target_compile_definitions(
+  fonix_shim PRIVATE
+  FONIX_DESKTOP_PROVIDER_TESTING=1
+  FONIX_ALLOCATION_TESTING=1
+)
 
 function(fonix_strict_target target)
   if(MSVC)
@@ -129,6 +133,7 @@ add_executable(
   fonix_string_limit_tests
   string_limit_tests.c
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_memory.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_status.c"
 )
 target_include_directories(
@@ -150,6 +155,7 @@ add_executable(
   fonix_android_sherpa_owner_contract
   android_owner_contract.c
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_memory.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_status.c"
 )
 target_include_directories(
@@ -226,6 +232,7 @@ add_executable(
   fonix_cancel_during_run_tests
   cancel_during_run_tests.c
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_memory.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_run.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_status.c"
 )
@@ -262,6 +269,24 @@ fonix_strict_target(fonix_phase3_null_metadata_guard)
 add_test(
   NAME phase3-null-metadata-guard
   COMMAND fonix_phase3_null_metadata_guard
+    "$<TARGET_FILE:fake_ort_null_metadata>"
+    "$<TARGET_FILE_DIR:fake_ort_null_metadata>"
+)
+
+add_executable(fonix_allocation_fault_tests allocation_fault_tests.c)
+target_link_libraries(
+  fonix_allocation_fault_tests
+  PRIVATE fonix_shim Threads::Threads ${CMAKE_DL_LIBS}
+)
+target_include_directories(
+  fonix_allocation_fault_tests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src"
+)
+fonix_strict_target(fonix_allocation_fault_tests)
+add_test(
+  NAME shim-allocation-fault-injection
+  COMMAND fonix_allocation_fault_tests
+    "$<TARGET_FILE:fake_ort_good>"
+    "$<TARGET_FILE_DIR:fake_ort_good>"
     "$<TARGET_FILE:fake_ort_null_metadata>"
     "$<TARGET_FILE_DIR:fake_ort_null_metadata>"
 )

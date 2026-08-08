@@ -105,7 +105,7 @@ and dedicated ThreadSanitizer modes, with a separate Linux x64 TSan workflow.
 If native profiling disable fails, run-options reuse is rejected before another
 native `Run`; finish may be retried, and disposal releases the native owner
 before removing the retained private directory. The Linux TSan workflow was
-not executed from this macOS host; the same 15-test TSan suite passed locally
+not executed from this macOS host; the same 16-test TSan suite passed locally
 with AppleClang and the exact pinned ORT.
 
 The follow-up portable-lifecycle checkpoint orders worker errors and exit on a
@@ -119,10 +119,24 @@ the exact configured container depth for empty leaves and passes 4,096
 deterministic generated mutations. Provider discovery and model/custom
 metadata fault injection prove that bounded partial ORT owners are released on
 error without allowing corrupt oversized counts to authorize entry iteration.
-The integrated exact-ORT native suite passed 15/15 in each of normal,
+The integrated exact-ORT native suite passed 16/16 in each of normal,
 Address/UndefinedBehavior, and ThreadSanitizer modes on this host. Apple
 LeakSanitizer remains unavailable, and the prebuilt ORT binary itself is not
 sanitizer-instrumented.
+
+The native-allocation checkpoint routes every shim-owned heap and aligned
+allocation through an internal seam whose fail-Nth activation exists only in
+the POSIX test build. It deterministically injected 29 success-path failures:
+one build-manifest string, five runtime-open, five provider-discovery, one
+session-options, fourteen session-construction/metadata, and three aligned
+tensor-creation allocations. Each failure left its public output neutral,
+returned the allocation-domain or static emergency status, and permitted an
+immediate clean retry. The metadata fake made every retry conditional on prior
+partial-owner release. A separate fake ORT `Run` returned one owned output with
+an error; the shim released it exactly once, preserved the ORT-domain run
+failure, then completed and disposed a successful recovery run. The 14-test
+source POSIX suite and its Address/UndefinedBehavior variant both passed on
+this host; Apple LeakSanitizer remains unavailable.
 
 The CPU measurement checkpoint adds a reproducible 4.29-GFLOP float32 MatMul
 fixture and an exact opt-in macOS/Linux final-application path over the public
@@ -223,10 +237,12 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 292 passed, 9 explicitly provisioned skips on exact Dart 3.11.5 with strict fake and exact ORT fixtures provisioned |
+| Ordinary offline Dart suite | 259 passed, 18 explicitly provisioned skips on exact Dart 3.11.5 |
+| Provisioned Dart suite | 297 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
-| Native C ABI baseline | 16/16 focused tests and the 13/13 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `d3b63b0c27b70ee0e0aff88e0808f069894354b66ff5f2960472f9170b423772` and canonical file SHA-256 `fa43629f0667dcbb2ce762db7095798ec8387cbd72832855cd88fbeb7f01f982` |
+| Native C ABI baseline | 16/16 focused tests and the 14/14 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `0f4004e44fa83c751502ae41bced844799625773505dbb48275067dfd1800464` and canonical file SHA-256 `98ec753a1180bd22367374b1edb4b268589f9dc28c1c08f9b549be23ae500023` |
 | Worker lifecycle and strict JSON with strict fake and exact ORT | 54/54 focused tests passed, including ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
+| Shim allocation and partial-output fault injection | 29/29 representative success-path allocation points plus the emergency-status allocation passed with neutral outputs and clean retry; ORT error-plus-owned-output cleanup released exactly once and recovered on the next successful run |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
@@ -242,15 +258,15 @@ paths.
 | iOS reference-gate focused tests | 97/97 passed |
 | macOS reference/final-app gate focused tests | 32/32 passed |
 | Standalone Python verifier tests | 62/62 passed |
-| C source quality | 35/35 files passed the closed byte/style gate |
+| C source quality | 37/37 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
 | Deterministic fixture inventory | 23 files and 23 closed model/data paths |
 | Deterministic XNNPACK MatMul fixture | Generator check and exact-ORT packaged-asset identity/inference test passed |
 | Deterministic CPU benchmark MatMul fixture | 8/8 generator tests, deflated Android package audit coverage, and exact-ORT packaged-asset identity/inference passed for the 4.29-GFLOP model, input, and exact reference output |
 | Exact ORT standalone fixture CTests | 2/2 passed |
-| Native POSIX CTests with exact ORT | 15/15 passed |
-| Native POSIX ASan+UBSan CTests with exact ORT | 15/15 passed; Apple LeakSanitizer unavailable |
-| Native POSIX ThreadSanitizer CTests with exact ORT | 15/15 passed locally with AppleClang; the new required Linux x64 TSan workflow remains pending CI-host execution |
+| Native POSIX CTests with exact ORT | 16/16 passed |
+| Native POSIX ASan+UBSan CTests with exact ORT | 16/16 passed; Apple LeakSanitizer unavailable |
+| Native POSIX ThreadSanitizer CTests with exact ORT | 16/16 passed locally with AppleClang; the new required Linux x64 TSan workflow remains pending CI-host execution |
 | Adjacent/bundled-loader CTests | 5/5 passed, including Android arm64/x86_64 APK namespace paths and desktop regressions |
 | Five-artifact offline audit | 8/8 passed |
 | macOS/iOS build-hook suite with exact archives | 28/28 passed |
@@ -293,7 +309,7 @@ entries, missing paths, and bounded-walk violations.
 ## Native and packaged evidence
 
 Native compilation used Apple Clang 21.0.0, CMake 4.4.2, and warnings as
-errors. The normal, ASan+UBSan, and TSan suites each passed all 15 CTests
+errors. The normal, ASan+UBSan, and TSan suites each passed all 16 CTests
 against the exact runtime; Apple Clang does not provide LeakSanitizer on this
 host. The dedicated Linux x64 TSan job is checked in but was not executed from
 this macOS validation. The bundled loader passed adjacency, Flutter-framework,

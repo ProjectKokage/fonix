@@ -50,6 +50,7 @@ add_executable(
   fonix_windows_path_security_test
   windows_path_security_test.c
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_core.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_memory.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_loader_posix.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_loader_windows.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_run.c"
@@ -88,6 +89,7 @@ add_executable(
   fonix_windows_profile_security_test
   windows_profile_security_test.c
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_core.c"
+  "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_memory.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_loader_posix.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_loader_windows.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../../src/dort_run.c"

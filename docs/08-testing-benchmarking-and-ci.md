@@ -88,6 +88,16 @@ Cover:
 - process mode without link-time ORT dependency.
 
 Use fault injection for allocation, loader, and ORT error-plus-output failures.
+The POSIX shim test build routes every wrapper-owned `malloc`, `calloc`,
+`realloc`, and aligned allocation through one internal fail-Nth seam that is
+absent from production activation. The deterministic suite enumerates each
+success-path allocation in representative status/string, runtime, provider,
+session-options, session-metadata, and tensor-owner operations. Every failure
+must leave its output neutral, preserve the allocation-domain status (including
+the static emergency status), release partial native owners, and permit a clean
+retry. A separate fake `Run` returns an owned output together with an ORT error;
+the shim must release that output exactly once, preserve the ORT error, and
+complete a later successful run.
 Compile separate Address/UndefinedBehavior and ThreadSanitizer variants where
 toolchains/providers permit. The required Linux x64 TSan lane always runs the
 fake-backed shared-value test; real-ORT concurrency remains an additional

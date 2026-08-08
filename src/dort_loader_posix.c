@@ -394,7 +394,7 @@ static dort_status_t* dort_allocate_adjacent_path(
         "runtime_open",
         "The adjacent bundled runtime path exceeds the ABI limit.");
   }
-  *out_path = (char*)malloc(path_length);
+  *out_path = (char*)dort_memory_allocate(path_length);
   if (*out_path == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -457,8 +457,8 @@ static dort_status_t* dort_open_macos_flutter_framework_runtime(
         "runtime_open",
         "The Flutter framework runtime path exceeds the ABI limit.");
   }
-  framework_root = (char*)malloc(framework_root_length + 1u);
-  runtime_path = (char*)malloc(runtime_path_length);
+  framework_root = (char*)dort_memory_allocate(framework_root_length + 1u);
+  runtime_path = (char*)dort_memory_allocate(runtime_path_length);
   if (framework_root == NULL || runtime_path == NULL) {
     free(runtime_path);
     free(framework_root);
@@ -546,7 +546,7 @@ static dort_status_t* dort_open_bundled(
   shim_directory_length = separator == shim_path
                               ? 1u
                               : (size_t)(separator - shim_path);
-  shim_directory = (char*)malloc(shim_directory_length + 1u);
+  shim_directory = (char*)dort_memory_allocate(shim_directory_length + 1u);
   if (shim_directory == NULL) {
     free(shim_path);
     return dort_status_create(

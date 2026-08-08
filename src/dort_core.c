@@ -179,7 +179,7 @@ char* dort_copy_c_string(const char* value, size_t length) {
   if (value == NULL || !dort_checked_add_size(length, 1u, &allocation_size)) {
     return NULL;
   }
-  copy = (char*)malloc(allocation_size);
+  copy = (char*)dort_memory_allocate(allocation_size);
   if (copy == NULL) {
     return NULL;
   }
@@ -308,7 +308,7 @@ char* dort_json_escape(const char* value, size_t length) {
   if (!dort_checked_add_size(escaped_length, 1u, &escaped_length)) {
     return NULL;
   }
-  result = (char*)malloc(escaped_length);
+  result = (char*)dort_memory_allocate(escaped_length);
   if (result == NULL) {
     return NULL;
   }

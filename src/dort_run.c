@@ -269,7 +269,7 @@ dort_windows_profile_path_components_are_directories(const wchar_t* path) {
   if (root_length == 0u || root_length >= length) {
     return 0;
   }
-  traversal = (wchar_t*)calloc(length + 1u, sizeof(*traversal));
+  traversal = (wchar_t*)dort_memory_allocate_zeroed(length + 1u, sizeof(*traversal));
   if (traversal == NULL) {
     return 0;
   }
@@ -331,7 +331,7 @@ static wchar_t* dort_windows_profile_utf8_to_wide(const char* value) {
   if (required <= 0 || (size_t)required > DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required, sizeof(*result));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required, sizeof(*result));
   if (result == NULL ||
       MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value, -1, result,
                           required) != required) {
@@ -348,7 +348,7 @@ static wchar_t* dort_windows_profile_full_path(const wchar_t* path) {
   if (required == 0u || required >= DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required + 1u, sizeof(*result));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required + 1u, sizeof(*result));
   if (result == NULL) {
     return NULL;
   }
@@ -367,7 +367,7 @@ static wchar_t* dort_windows_profile_long_path(const wchar_t* path) {
   if (required == 0u || required >= DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required + 1u, sizeof(*result));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required + 1u, sizeof(*result));
   if (result == NULL) {
     return NULL;
   }
@@ -387,7 +387,7 @@ static wchar_t* dort_windows_profile_final_path(HANDLE handle) {
   if (required == 0u || required >= DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc((size_t)required + 1u, sizeof(*result));
+  result = (wchar_t*)dort_memory_allocate_zeroed((size_t)required + 1u, sizeof(*result));
   if (result == NULL) {
     return NULL;
   }
@@ -430,7 +430,7 @@ dort_windows_profile_expected_final_path(const wchar_t* full_path) {
       total > DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc(total, sizeof(*result));
+  result = (wchar_t*)dort_memory_allocate_zeroed(total, sizeof(*result));
   if (result == NULL) {
     return NULL;
   }
@@ -466,7 +466,7 @@ static wchar_t* dort_windows_profile_join(const wchar_t* parent,
       total > DORT_MAX_PATH_BYTES) {
     return NULL;
   }
-  result = (wchar_t*)calloc(total, sizeof(*result));
+  result = (wchar_t*)dort_memory_allocate_zeroed(total, sizeof(*result));
   if (result == NULL) {
     return NULL;
   }
@@ -968,7 +968,7 @@ dort_profile_read_and_remove(const wchar_t* directory, HANDLE* root_handle,
       }
       name_length = wcslen(found.cFileName);
       expected_name =
-          (wchar_t*)calloc(name_length + 1u, sizeof(*expected_name));
+          (wchar_t*)dort_memory_allocate_zeroed(name_length + 1u, sizeof(*expected_name));
       if (expected_name == NULL) {
         status = dort_status_create(
             DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
@@ -1042,7 +1042,7 @@ dort_profile_read_and_remove(const wchar_t* directory, HANDLE* root_handle,
     goto windows_profile_read_cleanup;
   }
   expected_length = (size_t)first_size.QuadPart;
-  bytes = (char*)malloc(expected_length + 1u);
+  bytes = (char*)dort_memory_allocate(expected_length + 1u);
   if (bytes == NULL) {
     status = dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
@@ -1232,7 +1232,7 @@ static dort_status_t* dort_profile_prepare(const char* root,
         "The profiling artifact path exceeds its ABI limit.");
   }
   directory_length = root_length + 25u;
-  directory = (char*)malloc(directory_length + 1u);
+  directory = (char*)dort_memory_allocate(directory_length + 1u);
   if (directory != NULL) {
     (void)snprintf(directory, directory_length + 1u,
                    "%s/fonix-run-profile-XXXXXX", canonical_root);
@@ -1246,7 +1246,7 @@ static dort_status_t* dort_profile_prepare(const char* root,
         0, "run_options_profiling_start",
         "The private profiling directory could not be created.");
   }
-  prefix = (char*)malloc(strlen(directory) + 9u);
+  prefix = (char*)dort_memory_allocate(strlen(directory) + 9u);
   if (prefix == NULL) {
     dort_profile_remove_directory(directory);
     free(directory);
@@ -1331,7 +1331,7 @@ dort_profile_read_and_remove(const char* directory,
     goto profile_read_cleanup;
   }
   expected_length = (size_t)file_stat.st_size;
-  bytes = (char*)malloc(expected_length + 1u);
+  bytes = (char*)dort_memory_allocate(expected_length + 1u);
   if (bytes == NULL) {
     status = dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
@@ -1440,7 +1440,7 @@ dort_status_t* DORT_CALL dort_run_options_create(
                                       DORT_ERROR_RUN_FAILED,
                                       "run_options_create");
   }
-  options = (dort_run_options_t*)calloc(1u, sizeof(*options));
+  options = (dort_run_options_t*)dort_memory_allocate_zeroed(1u, sizeof(*options));
   if (options == NULL) {
     dort_runtime_api(runtime)->ReleaseRunOptions(ort_options);
     return dort_status_create(
@@ -1759,7 +1759,7 @@ dort_status_t* DORT_CALL dort_cancel_token_register(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_INVALID_ARGUMENT, 0,
         "cancel_token_register", "The run-options handle is null or invalid.");
   }
-  entry = (dort_cancel_entry_t*)calloc(1u, sizeof(*entry));
+  entry = (dort_cancel_entry_t*)dort_memory_allocate_zeroed(1u, sizeof(*entry));
   if (entry == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
@@ -2200,16 +2200,16 @@ dort_status_t* DORT_CALL dort_session_run(dort_session_t* session,
 
   if (actual_input_count > 0u) {
     input_names =
-        (const char**)calloc(actual_input_count, sizeof(*input_names));
+        (const char**)dort_memory_allocate_zeroed(actual_input_count, sizeof(*input_names));
     input_values =
-        (const OrtValue**)calloc(actual_input_count, sizeof(*input_values));
+        (const OrtValue**)dort_memory_allocate_zeroed(actual_input_count, sizeof(*input_values));
   }
-  outputs = (OrtValue**)calloc(output_count, sizeof(*outputs));
-  result = (dort_run_result_t*)calloc(1u, sizeof(*result));
+  outputs = (OrtValue**)dort_memory_allocate_zeroed(output_count, sizeof(*outputs));
+  result = (dort_run_result_t*)dort_memory_allocate_zeroed(1u, sizeof(*result));
   if (result != NULL) {
-    result->names = (char**)calloc(output_count, sizeof(*result->names));
+    result->names = (char**)dort_memory_allocate_zeroed(output_count, sizeof(*result->names));
     result->values =
-        (dort_value_t**)calloc(output_count, sizeof(*result->values));
+        (dort_value_t**)dort_memory_allocate_zeroed(output_count, sizeof(*result->values));
   }
   if ((actual_input_count > 0u &&
        (input_names == NULL || input_values == NULL)) ||

@@ -389,7 +389,7 @@ static dort_status_t* dort_negotiate_runtime(
         config->required_ort_api_version);
   }
 
-  identity = (dort_runtime_identity_t*)calloc(1u, sizeof(*identity));
+  identity = (dort_runtime_identity_t*)dort_memory_allocate_zeroed(1u, sizeof(*identity));
   if (identity == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,
@@ -557,7 +557,7 @@ dort_status_t* DORT_CALL dort_runtime_open(
     dort_loader_discard(&library);
   }
   if (status == NULL) {
-    runtime = (dort_runtime_t*)calloc(1u, sizeof(*runtime));
+    runtime = (dort_runtime_t*)dort_memory_allocate_zeroed(1u, sizeof(*runtime));
     if (runtime == NULL) {
       status = dort_status_create(
           DORT_ERROR_DOMAIN_ALLOCATION,
@@ -905,7 +905,7 @@ dort_status_t* DORT_CALL dort_runtime_info_json(
         "runtime_info",
         "The runtime diagnostics exceed the ABI limit.");
   }
-  json = (char*)malloc((size_t)required + 1u);
+  json = (char*)dort_memory_allocate((size_t)required + 1u);
   if (json == NULL) {
     free(escaped_version);
     free(escaped_identity);

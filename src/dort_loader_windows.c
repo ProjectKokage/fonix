@@ -35,7 +35,7 @@ static wchar_t* dort_utf8_to_wide(const char* value) {
   if (required <= 0) {
     return NULL;
   }
-  output = (wchar_t*)calloc((size_t)required, sizeof(wchar_t));
+  output = (wchar_t*)dort_memory_allocate_zeroed((size_t)required, sizeof(wchar_t));
   if (output == NULL) {
     return NULL;
   }
@@ -58,7 +58,7 @@ static char* dort_wide_to_utf8(const wchar_t* value) {
   if (required <= 0) {
     return NULL;
   }
-  output = (char*)malloc((size_t)required);
+  output = (char*)dort_memory_allocate((size_t)required);
   if (output == NULL) {
     return NULL;
   }
@@ -114,7 +114,7 @@ static wchar_t* dort_final_path(const wchar_t* path, int directory) {
     CloseHandle(handle);
     return NULL;
   }
-  output = (wchar_t*)calloc((size_t)required + 1u, sizeof(wchar_t));
+  output = (wchar_t*)dort_memory_allocate_zeroed((size_t)required + 1u, sizeof(wchar_t));
   if (output == NULL) {
     CloseHandle(handle);
     return NULL;
@@ -357,7 +357,7 @@ static dort_status_t* dort_open_windows_bundled(
   runtime_path_length = directory_length +
                         (sizeof(runtime_name) / sizeof(wchar_t)) + 1u;
   runtime_path =
-      (wchar_t*)calloc(runtime_path_length, sizeof(*runtime_path));
+      (wchar_t*)dort_memory_allocate_zeroed(runtime_path_length, sizeof(*runtime_path));
   if (runtime_path == NULL) {
     return dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,

@@ -36,6 +36,7 @@ REQUIRED_TESTS: Mapping[str, frozenset[str]] = {
             "phase2-shared-value-thread-safety",
             "phase5-cancel-registry",
             "phase5-cancel-during-run",
+            "shim-allocation-fault-injection",
             "exported-symbol-allowlist",
             "external-shim-has-no-ort-link",
         }
@@ -370,6 +371,8 @@ def run_native_tests(
         raise NativeTestError(f"native test source is missing: {source_directory}")
 
     environment = os.environ.copy()
+    environment.pop("FONIX_TEST_ALLOCATION_EPOCH", None)
+    environment.pop("FONIX_TEST_ALLOCATION_FAIL_AT", None)
     if sanitizers:
         environment = sanitizer_environment(host_system, environment)
         if host_system == "Darwin":

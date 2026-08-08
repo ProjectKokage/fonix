@@ -77,7 +77,7 @@ dort_status_t* DORT_CALL dort_runtime_available_providers_json(
   }
 
   if (provider_count > 0) {
-    escaped = (char**)calloc((size_t)provider_count, sizeof(*escaped));
+    escaped = (char**)dort_memory_allocate_zeroed((size_t)provider_count, sizeof(*escaped));
     if (escaped == NULL) {
       status = dort_status_create(
           DORT_ERROR_DOMAIN_ALLOCATION,
@@ -142,7 +142,7 @@ dort_status_t* DORT_CALL dort_runtime_available_providers_json(
         "Provider discovery JSON size overflowed.");
     goto cleanup;
   }
-  json = (char*)calloc(json_length, 1u);
+  json = (char*)dort_memory_allocate_zeroed(json_length, 1u);
   if (json == NULL) {
     status = dort_status_create(
         DORT_ERROR_DOMAIN_ALLOCATION,

@@ -30,6 +30,11 @@ struct dort_session {
   uint32_t marker;
 };
 
+struct dort_value {
+  uint32_t reference_count;
+  OrtValue* value;
+};
+
 typedef struct fake_run_options {
   uint32_t terminated;
   char* profile_prefix;
@@ -65,6 +70,9 @@ static uint32_t profile_invalid_utf8 = 0u;
 static uint32_t profile_disable_failures = 0u;
 static uint32_t release_saw_profile_directory = 0u;
 static uint32_t run_call_count = 0u;
+static uint32_t fake_run_mode = 0u;
+static size_t fake_value_owner_count = 0u;
+static size_t fake_value_release_count = 0u;
 static pthread_mutex_t cancel_gate_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cancel_gate_condition = PTHREAD_COND_INITIALIZER;
 static uint32_t block_next_terminate_set = 0u;
@@ -260,8 +268,18 @@ fake_run(OrtSession* session, const OrtRunOptions* options,
   (void)inputs;
   (void)input_count;
   (void)output_names;
-  (void)output_count;
-  (void)outputs;
+
+  if (fake_run_mode != 0u) {
+    if (output_count != 1u || outputs == NULL) {
+      return (OrtStatus*)malloc(1u);
+    }
+    outputs[0] = (OrtValue*)malloc(1u);
+    if (outputs[0] == NULL) {
+      return (OrtStatus*)malloc(1u);
+    }
+    ++fake_value_owner_count;
+    return fake_run_mode == 1u ? (OrtStatus*)malloc(1u) : NULL;
+  }
 
   (void)timespec_get(&deadline, TIME_UTC);
   deadline.tv_sec += 5;
@@ -282,6 +300,10 @@ fake_run(OrtSession* session, const OrtRunOptions* options,
 }
 
 static void ORT_API_CALL fake_release_value(OrtValue* value) NO_EXCEPTION {
+  if (value != NULL && fake_value_owner_count > 0u) {
+    --fake_value_owner_count;
+    ++fake_value_release_count;
+  }
   free(value);
 }
 
@@ -397,13 +419,11 @@ void DORT_CALL dort_session_retain(dort_session_t* session) { (void)session; }
 void DORT_CALL dort_session_release(dort_session_t* session) { (void)session; }
 
 dort_runtime_t* dort_value_runtime(const dort_value_t* value) {
-  (void)value;
-  return NULL;
+  return value == NULL ? NULL : &test_runtime;
 }
 
 OrtValue* dort_value_ort_for_run(const dort_value_t* value) {
-  (void)value;
-  return NULL;
+  return value == NULL ? NULL : value->value;
 }
 
 int dort_value_is_optional_none(const dort_value_t* value) {
@@ -426,29 +446,57 @@ dort_status_t* dort_value_validate_and_set_unpublished_depth(
 
 dort_status_t* DORT_CALL dort_value_kind(const dort_value_t* value,
                                          uint32_t* out_kind) {
-  (void)value;
   if (out_kind != NULL) {
-    *out_kind = 0u;
+    *out_kind = value == NULL ? 0u : DORT_VALUE_KIND_TENSOR;
   }
   return NULL;
 }
 
-void DORT_CALL dort_value_retain(dort_value_t* value) { (void)value; }
+void DORT_CALL dort_value_retain(dort_value_t* value) {
+  if (value != NULL) {
+    ++value->reference_count;
+  }
+}
 
-void DORT_CALL dort_value_release(dort_value_t* value) { (void)value; }
+void DORT_CALL dort_value_release(dort_value_t* value) {
+  if (value == NULL || value->reference_count == 0u) {
+    return;
+  }
+  --value->reference_count;
+  if (value->reference_count == 0u) {
+    fake_release_value(value->value);
+    free(value);
+  }
+}
 
 dort_status_t* dort_value_wrap_owned(dort_runtime_t* runtime,
                                      OrtValue* ort_value,
                                      dort_value_t** out_value) {
-  (void)runtime;
-  (void)ort_value;
-  if (out_value != NULL) {
-    *out_value = NULL;
+  dort_value_t* value = NULL;
+  if (out_value == NULL) {
+    fake_release_value(ort_value);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_INVALID_ARGUMENT, 0,
+        "value_wrap_owned", "The output value pointer is null.");
   }
-  return dort_status_create(
-      DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_INVALID_ARGUMENT, 0,
-      "value_wrap_owned",
-      "The blocking test must return before output wrapping.");
+  *out_value = NULL;
+  if (runtime != &test_runtime || ort_value == NULL) {
+    fake_release_value(ort_value);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_INVALID_ARGUMENT, 0,
+        "value_wrap_owned", "The test output value is invalid.");
+  }
+  value = (dort_value_t*)calloc(1u, sizeof(*value));
+  if (value == NULL) {
+    fake_release_value(ort_value);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
+        "value_wrap_owned", "Could not allocate the test output wrapper.");
+  }
+  value->reference_count = 1u;
+  value->value = ort_value;
+  *out_value = value;
+  return NULL;
 }
 
 dort_status_t* dort_value_wrap_optional_output(dort_runtime_t* runtime,
@@ -463,6 +511,46 @@ static void* execute_run(void* opaque_context) {
   context->status = dort_session_run(context->session, context->options, NULL,
                                      0u, output_names, 1u, &context->result);
   return NULL;
+}
+
+static int test_partial_output_error_cleanup(void) {
+  const char* output_names[] = {"Y"};
+  dort_run_options_t* options = NULL;
+  dort_run_result_t* result = NULL;
+  dort_status_t* status = NULL;
+  size_t releases_before = fake_value_release_count;
+
+  status = dort_run_options_create(&test_runtime, &options);
+  CHECK(status == NULL && options != NULL,
+        "could not create partial-output run options");
+  fake_run_mode = 1u;
+  result = (dort_run_result_t*)(uintptr_t)1u;
+  status = dort_session_run(&test_session, options, NULL, 0u, output_names,
+                            1u, &result);
+  CHECK(status != NULL && result == NULL,
+        "ORT error with a partial output returned a result");
+  CHECK(dort_status_domain(status) == DORT_ERROR_DOMAIN_ORT_STATUS &&
+            dort_status_code(status) == DORT_ERROR_RUN_FAILED,
+        "partial-output error lost the authoritative ORT status");
+  CHECK(fake_value_owner_count == 0u &&
+            fake_value_release_count == releases_before + 1u,
+        "partial ORT output was not released exactly once");
+  dort_status_release(status);
+
+  fake_run_mode = 2u;
+  status = dort_session_run(&test_session, options, NULL, 0u, output_names,
+                            1u, &result);
+  CHECK(status == NULL && result != NULL,
+        "clean run did not recover after partial-output failure");
+  CHECK(fake_value_owner_count == 1u,
+        "successful recovery did not retain its output owner");
+  dort_run_result_release(result);
+  CHECK(fake_value_owner_count == 0u &&
+            fake_value_release_count == releases_before + 2u,
+        "successful recovery output was not released exactly once");
+  dort_run_options_release(options);
+  fake_run_mode = 0u;
+  return 0;
 }
 
 static int wait_until_run_entered(void) {
@@ -939,6 +1027,8 @@ int main(void) {
   char profile_root[] = "/tmp/fonix-profile-native-XXXXXX";
 
   memset(&context, 0, sizeof(context));
+  CHECK(test_partial_output_error_cleanup() == 0,
+        "partial-output cleanup and recovery failed");
   status = dort_run_options_create(&test_runtime, &options);
   CHECK(status == NULL && options != NULL, "could not create run options");
   status = dort_cancel_token_register(options, &token);

@@ -541,8 +541,21 @@ held until observed exit. The strict JSON pre-decoder enforces its exact
 container-depth bound even for empty leaves and has a deterministic mutation
 corpus. Provider discovery and model/custom-metadata fault tests now require
 bounded partial owners to be released on error and prove an oversized returned
-count cannot authorize entry iteration. Broader seeded lifecycle stress and
-further allocation fault injection continue within this phase.
+count cannot authorize entry iteration.
+
+The follow-up native-allocation checkpoint routes all wrapper-owned heap and
+aligned allocations through one internal seam while leaving the public ABI and
+production activation unchanged. Its bounded POSIX regression enumerates 29
+success-path fail-Nth points across status/string, runtime loading, provider
+discovery, session options, session construction/metadata, and tensor creation.
+Every injected failure neutralizes outputs, returns an allocation or emergency
+status, releases partial owners, and permits a clean retry. A fake ORT `Run`
+also returns an owned output with an error; the shim releases it exactly once,
+preserves the authoritative ORT error, and recovers on the next successful run.
+Normal and Address/UndefinedBehavior sanitizer suites pass on the development
+host. Broader seeded worker lifecycle stress and allocation enumeration for
+less common composite, external-data, and profiling paths continue within this
+phase.
 
 The 2026-08-08 CPU measurement checkpoint adds a reproducible 4.29-GFLOP
 static-weight MatMul with exact input/reference bytes and a bounded
