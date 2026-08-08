@@ -88,6 +88,16 @@ bundle against the frozen scope, exact evidence inventory, out-of-band bundle
 digest, and five detached approval domains. No external candidate bundle,
 evidence directory, signatures, or approvals have been produced for this
 snapshot, so this is a validation capability rather than a readiness claim.
+Evidence satisfaction is closed and default-deny under
+`closed-default-deny-v1`: a record that is present and passes identity,
+media-type, size, and SHA-256 checks is not thereby satisfied. Unregistered
+semantic evidence remains unvalidated and produces a blocker. The first
+registered receipt contract is `macos-arm64-cpu-full-assignment-v1`; the
+separately derived source-closure record is the other currently satisfiable
+slot. Consequently, the complete synthetic bundle has 55 present, 2
+satisfied, 53 unvalidated, and 0 missing slots and remains blocked. The exact
+macOS receipt content does not authenticate capture, clean-machine execution,
+or final-package provenance.
 
 This checkpoint also adds deterministic, reviewable records for the resolved
 public Dart API and structural native C ABI. The Dart record is reconstructed
@@ -322,18 +332,18 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 807/807 passed after regenerating the closed source manifest; the 110-test CPU collection subset also passed independently |
+| Python CI-script tests | 814/814 passed after regenerating the closed source manifest; the 110-test CPU collection subset also passed independently |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `77afac75f64af4df4156e7c60b9fd291d32fc51f41bcdc3cff949de070ed5c58` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Source-release archive validator | 25/25 focused tests passed; exact Git-tree and manifest closure, ZIP and gzip/tar structure, revision rebinding, verified-source loading, retained-descriptor ownership, malformed input, tamper, bounds, and deterministic publication are covered without extraction |
-| Scoped candidate approval validator | 33/33 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 807-test Python suite |
+| Scoped candidate approval validator | 37/37 focused tests passed; exact 48 composition and 7 shared evidence records, closed-default-deny semantic classification, the registered macOS CPU-assignment receipt and derived source closure, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 814-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed, including exact loaded-glibc identity and malformed/unavailable identity rejection; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
 | Android load-order receipt validator | 30/30 focused tests passed; the exact transitive native-library verifier is pinned before its captured bytes can execute |
 | Apple final-application auditor focused tests | 54/54 passed |
 | iOS reference-gate focused tests | 97/97 passed |
-| macOS reference/final-app gate focused tests | 32/32 passed |
+| macOS reference/final-app gate focused tests | 35/35 passed |
 | Standalone Python verifier tests | 62/62 passed |
 | C source quality | 38/38 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
@@ -883,6 +893,16 @@ mandatory even for excluded tuples.
 The scoped candidate validator does not perform cryptographic signature
 verification. It binds every evidence file by exact ID, media type, size, and
 SHA-256 and binds the candidate statement to an out-of-band bundle SHA-256.
+Those checks establish presence and byte identity, not semantic satisfaction.
+The report uses `semanticValidationMode: "closed-default-deny-v1"` and separates
+`presentEvidenceSlotIds`, semantically validated `satisfiedEvidenceSlotIds`,
+absent `missingEvidenceSlotIds`, and present-but-unregistered
+`unvalidatedEvidenceSlotIds`. Every unvalidated slot produces a canonical
+`unvalidated-evidence:<slot>` blocker; an absent slot produces
+`missing-evidence:<slot>`. A registered record whose contents violate its
+contract is malformed and produces no readiness result. Detached approvals
+cannot override any evidence blocker.
+
 The source archive additionally undergoes bounded no-extraction semantic
 inspection through that same retained descriptor, and the shared source-closure
 record must exactly match the canonical derived result. This proves offline
@@ -890,6 +910,16 @@ archive/repository consistency, not archive origin or provenance. External
 verification receipts, their authority, and the actual detached-signature
 verification remain external release inputs. Until the complete external
 bundle passes with `--require-scoped-ready`, scoped publication remains blocked.
+
+The first registered receipt contract,
+`macos-arm64-cpu-full-assignment-v1`, accepts only the exact closed macOS arm64
+CPU-assignment record described in the release-maintenance guide. The
+validator pins its schema and reports the pin as
+`macosCpuAssignmentReceiptSchemaSha256`. Satisfying that content contract
+proves only that the supplied JSON makes the frozen claim. It does not
+authenticate who captured it, that it came from a clean machine or the final
+package, or that the claimed execution happened; those remain separate
+external evidence and approval gates.
 
 In particular, the reference app's local ad-hoc build disables library
 validation because it has no authorized Team ID shared with FlutterMacOS. That

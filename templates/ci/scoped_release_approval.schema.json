@@ -102,6 +102,7 @@
       ]
     },
     "evidenceReference": {
+      "$comment": "An evidence reference constrains inventory identity, location, size, digest, and media type only. It does not semantically satisfy its evidence category unless the consuming validator registers an exact semantic validator for that record ID and successfully validates the referenced bytes.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "path", "sha256", "sizeBytes", "mediaType"],

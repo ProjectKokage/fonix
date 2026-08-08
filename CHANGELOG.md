@@ -48,6 +48,12 @@
 - Added five-platform build-hook paths, pinned artifact resolution, Android
   single-runtime ownership enforcement, final-package auditors, aligned-build
   tooling, SBOM generation, and source checksum verification.
+- Made scoped candidate evidence satisfaction closed and default-deny.
+  Presence plus media-type, size, and SHA-256 validity no longer implies
+  satisfaction; unregistered semantic evidence remains a named readiness
+  blocker. The exact `macos-arm64-cpu-full-assignment` receipt is the first
+  registered receipt contract, while its validated contents still do not
+  authenticate capture or execution.
 - Added a committed iOS arm64, macOS arm64, and Android arm64-v8a Flutter
   reference application that uses only the public API and owns worker
   lifecycle/cancellation/retry.

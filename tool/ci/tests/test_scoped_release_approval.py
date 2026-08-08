@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
+from typing import Any
 import unittest
 from unittest import mock
 
@@ -30,6 +31,9 @@ import validate_source_release_archive as source_archive_validator
 
 
 SCHEMA = REPOSITORY / "templates/ci/scoped_release_approval.schema.json"
+MACOS_RECEIPT_SCHEMA = (
+    REPOSITORY / "templates/ci/macos_cpu_assignment_receipt_v1.schema.json"
+)
 SOURCE_MANIFEST = REPOSITORY / "MANIFEST.sha256"
 
 CLAIM_BOUNDARY = (
@@ -63,6 +67,27 @@ APPROVAL_CATEGORIES = (
     "signing",
     "publication",
 )
+MACOS_CPU_ASSIGNMENT_RECEIPT = {
+    "schemaVersion": 1,
+    "status": "passed",
+    "runtimeVersion": "1.27.1",
+    "runtimeSource": "bundled",
+    "runtimeOwner": "wrapper",
+    "artifactFlavor": "cpu",
+    "platform": "macos",
+    "architecture": "arm64",
+    "shimBuildId": "onnxruntime-1.27.1-macos-arm64-cpu",
+    "artifactSha256": (
+        "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6"
+    ),
+    "modelSha256": (
+        "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
+    ),
+    "outputValues": [1, 4, 9, 16, 25, 36],
+    "activeProviders": ["cpu"],
+    "fullCpuAssignment": True,
+    "doubleClose": "passed",
+}
 REPORT_KEYS = frozenset(
     {
         "schemaVersion",
@@ -76,13 +101,17 @@ REPORT_KEYS = frozenset(
         "referencedEvidenceSha256",
         "validatorSha256",
         "schemaSha256",
+        "macosCpuAssignmentReceiptSchemaSha256",
         "scopeValidatorSha256",
         "sourceManifestValidatorSha256",
         "scopeValidationRecordSha256",
         "sourceBaseline",
         "compositionIds",
+        "semanticValidationMode",
         "requiredEvidenceSlotIds",
+        "presentEvidenceSlotIds",
         "satisfiedEvidenceSlotIds",
+        "unvalidatedEvidenceSlotIds",
         "missingEvidenceSlotIds",
         "requiredSharedRegressionCategoryIds",
         "presentSharedRegressionCategoryIds",
@@ -359,6 +388,15 @@ def _required_evidence_slot_ids() -> tuple[str, ...]:
 
 
 REQUIRED_EVIDENCE_SLOT_IDS = _required_evidence_slot_ids()
+MACOS_CPU_ASSIGNMENT_SLOT_ID = (
+    "composition:macos-arm64-default-cpu-bundled:"
+    "providerAssignmentRecords:macos-arm64-cpu-full-assignment"
+)
+SOURCE_CLOSURE_SLOT_ID = "shared:source-closure:shared-source-closure"
+SEMANTICALLY_SATISFIED_SLOT_IDS = (
+    MACOS_CPU_ASSIGNMENT_SLOT_ID,
+    SOURCE_CLOSURE_SLOT_ID,
+)
 
 
 def _sha256(contents: bytes) -> str:
@@ -641,7 +679,9 @@ class _ApprovalFixture:
         identifier: str,
         media_type: str,
     ) -> dict[str, object]:
-        if media_type in {
+        if identifier == "macos-arm64-cpu-full-assignment":
+            contents = _canonical_json(MACOS_CPU_ASSIGNMENT_RECEIPT)
+        elif media_type in {
             "application/zip",
             "application/vnd.android.package-archive",
         }:
@@ -766,6 +806,16 @@ class _ApprovalFixture:
             if value["category"] == category
         )
 
+    def macos_cpu_assignment_reference(self) -> dict[str, object]:
+        records = self.composition(
+            "macos-arm64-default-cpu-bundled"
+        )["evidence"]["providerAssignmentRecords"]
+        return next(
+            reference
+            for reference in records
+            if reference["id"] == "macos-arm64-cpu-full-assignment"
+        )
+
     def referenced_path(self, reference: dict[str, object]) -> Path:
         return self.evidence_root.joinpath(*str(reference["path"]).split("/"))
 
@@ -879,6 +929,17 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         self.assertEqual(first_report["claimStatus"], "scoped-release-readiness")
         self.assertIs(first_report["ready"], False)
         self.assertEqual(first_report["evidenceReferenceCount"], 6)
+        self.assertEqual(
+            first_report["semanticValidationMode"],
+            "closed-default-deny-v1",
+        )
+        self.assertEqual(first_report["presentEvidenceSlotIds"], [])
+        self.assertEqual(first_report["satisfiedEvidenceSlotIds"], [])
+        self.assertEqual(first_report["unvalidatedEvidenceSlotIds"], [])
+        self.assertEqual(
+            first_report["missingEvidenceSlotIds"],
+            list(REQUIRED_EVIDENCE_SLOT_IDS),
+        )
         expected_blockers = [
             f"missing-evidence:{slot}" for slot in REQUIRED_EVIDENCE_SLOT_IDS
         ]
@@ -899,19 +960,22 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         self.assertTrue(gated_output.is_file())
         self.assertEqual(first_output.read_bytes(), gated_output.read_bytes())
 
-    def test_exact_external_bundle_is_ready_with_scoped_flag(self) -> None:
+    def test_complete_reference_set_is_default_deny_and_deterministic(self) -> None:
         fixture = self.fixture(ready=True)
         ordinary, ordinary_output = self.run_validator(fixture)
         self.assertEqual(ordinary.returncode, 0, ordinary.stderr)
         ordinary_report = json.loads(ordinary_output.read_bytes())
         self.assertEqual(set(ordinary_report), REPORT_KEYS)
-        self.assertEqual(ordinary_report["result"], "ready")
+        self.assertEqual(ordinary_report["result"], "blocked")
+        self.assertEqual(
+            ordinary_report["semanticValidationMode"],
+            "closed-default-deny-v1",
+        )
         self.assertEqual(
             ordinary_report["signatureVerificationMode"],
             "external-verification-receipts-only",
         )
-        self.assertIs(ordinary_report["ready"], True)
-        self.assertEqual(ordinary_report["blockerIds"], [])
+        self.assertIs(ordinary_report["ready"], False)
         self.assertEqual(
             ordinary_report["candidateSubjectSha256"], fixture.subject_sha256()
         )
@@ -919,7 +983,41 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
             ordinary_report["requiredEvidenceSlotIds"],
             list(REQUIRED_EVIDENCE_SLOT_IDS),
         )
+        self.assertEqual(
+            ordinary_report["presentEvidenceSlotIds"],
+            list(REQUIRED_EVIDENCE_SLOT_IDS),
+        )
+        self.assertEqual(
+            ordinary_report["satisfiedEvidenceSlotIds"],
+            list(SEMANTICALLY_SATISFIED_SLOT_IDS),
+        )
+        unvalidated = [
+            slot
+            for slot in REQUIRED_EVIDENCE_SLOT_IDS
+            if slot not in SEMANTICALLY_SATISFIED_SLOT_IDS
+        ]
+        self.assertEqual(
+            ordinary_report["unvalidatedEvidenceSlotIds"], unvalidated
+        )
+        self.assertEqual(ordinary_report["missingEvidenceSlotIds"], [])
+        self.assertEqual(len(ordinary_report["presentEvidenceSlotIds"]), 55)
+        self.assertEqual(len(ordinary_report["satisfiedEvidenceSlotIds"]), 2)
+        self.assertEqual(len(ordinary_report["unvalidatedEvidenceSlotIds"]), 53)
+        self.assertEqual(
+            ordinary_report["blockerIds"],
+            [f"unvalidated-evidence:{slot}" for slot in unvalidated],
+        )
+        self.assertEqual(
+            ordinary_report["approvedApprovalCategoryIds"],
+            list(APPROVAL_CATEGORIES),
+        )
+        self.assertEqual(ordinary_report["missingApprovalCategoryIds"], [])
+        self.assertEqual(ordinary_report["rejectedApprovalCategoryIds"], [])
         self.assertEqual(ordinary_report["evidenceReferenceCount"], 76)
+        self.assertEqual(
+            ordinary_report["macosCpuAssignmentReceiptSchemaSha256"],
+            approval_validator.EXPECTED_MACOS_CPU_ASSIGNMENT_SCHEMA_SHA256,
+        )
         source_archive_bytes, source_closure_bytes = _closed_source_archive_fixture(
             self.repository
         )
@@ -939,7 +1037,7 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         )
 
         gated, gated_output = self.run_validator(fixture, require_ready=True)
-        self.assertEqual(gated.returncode, 0, gated.stderr)
+        self.assertNotEqual(gated.returncode, 0)
         self.assertEqual(ordinary_output.read_bytes(), gated_output.read_bytes())
 
         independent_fixture = self.fixture(ready=True)
@@ -950,6 +1048,195 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         self.assertEqual(ordinary_output.read_bytes(), independent_output.read_bytes())
         self.assertNotIn(
             str(self.root), independent_output.read_text(encoding="utf-8")
+        )
+
+    def test_validator_macos_receipt_contract_matches_pinned_schema(self) -> None:
+        raw = MACOS_RECEIPT_SCHEMA.read_bytes()
+        self.assertEqual(
+            _sha256(raw),
+            approval_validator.EXPECTED_MACOS_CPU_ASSIGNMENT_SCHEMA_SHA256,
+        )
+        schema = approval_validator._strict_json(
+            raw, label="test macOS CPU-assignment receipt schema"
+        )
+        self.assertEqual(
+            approval_validator.MACOS_CPU_ASSIGNMENT_RECEIPT,
+            MACOS_CPU_ASSIGNMENT_RECEIPT,
+        )
+        expected = approval_validator.MACOS_CPU_ASSIGNMENT_RECEIPT
+        self.assertEqual(schema["type"], "object")
+        self.assertIs(schema["additionalProperties"], False)
+        self.assertEqual(schema["required"], list(expected))
+        self.assertEqual(list(schema["properties"]), list(expected))
+
+        json_types = {bool: "boolean", int: "integer", str: "string"}
+        for field, expected_value in expected.items():
+            with self.subTest(field=field):
+                contract = schema["properties"][field]
+                if isinstance(expected_value, list):
+                    self.assertEqual(contract["type"], "array")
+                    self.assertEqual(contract["minItems"], len(expected_value))
+                    self.assertEqual(contract["maxItems"], len(expected_value))
+                    self.assertIs(contract["items"], False)
+                    prefix = contract["prefixItems"]
+                    self.assertEqual(
+                        [entry["const"] for entry in prefix], expected_value
+                    )
+                    self.assertEqual(
+                        [entry["type"] for entry in prefix],
+                        [json_types[type(item)] for item in expected_value],
+                    )
+                else:
+                    self.assertEqual(
+                        contract["type"], json_types[type(expected_value)]
+                    )
+                    self.assertEqual(contract["const"], expected_value)
+
+    def test_registered_macos_receipt_rejects_every_field_tamper(self) -> None:
+        expected = MACOS_CPU_ASSIGNMENT_RECEIPT
+
+        def assert_receipt_malformed(
+            mutate: Any,
+        ) -> None:
+            fixture = self.fixture(ready=True)
+            reference = fixture.macos_cpu_assignment_reference()
+            receipt = json.loads(fixture.referenced_path(reference).read_bytes())
+            mutate(receipt)
+            fixture.replace_reference_contents(reference, _canonical_json(receipt))
+            fixture.rebind_candidate_and_approvals()
+            result = self.assert_malformed(fixture)
+            self.assertIn("macos-arm64-cpu-full-assignment", result.stderr)
+
+        for field, value in expected.items():
+            with self.subTest(field=field, mutation="missing"):
+                assert_receipt_malformed(
+                    lambda receipt, field=field: receipt.pop(field),
+                )
+
+            if type(value) is bool:
+                wrong_value: object = not value
+                wrong_type: object = 1
+            elif type(value) is int:
+                wrong_value = value + 1
+                wrong_type = True
+            elif type(value) is str:
+                wrong_value = value + "-changed"
+                wrong_type = 1
+            elif field == "outputValues":
+                wrong_value = list(reversed(value))
+                wrong_type = {"values": value}
+            else:
+                wrong_value = ["changed"]
+                wrong_type = {"providers": value}
+
+            with self.subTest(field=field, mutation="value"):
+                assert_receipt_malformed(
+                    lambda receipt, field=field, changed=wrong_value: receipt.update(
+                        {field: changed}
+                    ),
+                )
+            with self.subTest(field=field, mutation="type"):
+                assert_receipt_malformed(
+                    lambda receipt, field=field, changed=wrong_type: receipt.update(
+                        {field: changed}
+                    ),
+                )
+
+        with self.subTest(mutation="unknown-key"):
+            assert_receipt_malformed(
+                lambda receipt: receipt.update({"unknown": True}),
+            )
+
+        for field in ("outputValues", "activeProviders"):
+            value = expected[field]
+            assert isinstance(value, list)
+            for mutation, changed in (
+                ("short", value[:-1]),
+                ("long", [*value, value[-1]]),
+            ):
+                with self.subTest(field=field, mutation=mutation):
+                    assert_receipt_malformed(
+                        lambda receipt, field=field, changed=changed: receipt.update(
+                            {field: changed}
+                        ),
+                    )
+
+        output_values = expected["outputValues"]
+        assert isinstance(output_values, list)
+        with self.subTest(field="outputValues", mutation="reordered"):
+            assert_receipt_malformed(
+                lambda receipt: receipt.update(
+                    {"outputValues": list(reversed(output_values))}
+                ),
+            )
+
+    def test_registered_macos_receipt_requires_strict_json(self) -> None:
+        raw_cases = (
+            b'{"schemaVersion":1,"schemaVersion":1}\n',
+            b'{"schemaVersion":NaN}\n',
+            (b'{"nested":' * 64) + b"null" + (b"}" * 64),
+            br'{"schemaVersion":1,"status":"\ud800"}' + b"\n",
+        )
+        for index, raw in enumerate(raw_cases):
+            with self.subTest(case=index):
+                fixture = self.fixture(ready=True)
+                reference = fixture.macos_cpu_assignment_reference()
+                fixture.replace_reference_contents(reference, raw)
+                fixture.rebind_candidate_and_approvals()
+                result = self.assert_malformed(fixture)
+                self.assertIn(
+                    "macos-arm64-cpu-full-assignment", result.stderr
+                )
+
+    def test_missing_and_unvalidated_blockers_follow_required_slot_order(
+        self,
+    ) -> None:
+        fixture = self.fixture(ready=True)
+        missing_slots = {
+            REQUIRED_EVIDENCE_SLOT_IDS[0],
+            MACOS_CPU_ASSIGNMENT_SLOT_ID,
+            REQUIRED_EVIDENCE_SLOT_IDS[-1],
+        }
+        fixture.composition(COMPOSITION_CONTRACTS[0]["id"])["evidence"][
+            "targetExecutionRecords"
+        ] = []
+        fixture.composition("macos-arm64-default-cpu-bundled")["evidence"][
+            "providerAssignmentRecords"
+        ] = []
+        fixture.candidate_statement["sharedRegressionEvidence"][-1]["records"] = []
+        fixture.rebind_candidate_and_approvals()
+
+        result, output = self.run_validator(fixture)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(output.read_bytes())
+        expected_present = [
+            slot for slot in REQUIRED_EVIDENCE_SLOT_IDS if slot not in missing_slots
+        ]
+        expected_satisfied = [SOURCE_CLOSURE_SLOT_ID]
+        expected_unvalidated = [
+            slot for slot in expected_present if slot not in expected_satisfied
+        ]
+        expected_blockers = [
+            (
+                f"missing-evidence:{slot}"
+                if slot in missing_slots
+                else f"unvalidated-evidence:{slot}"
+            )
+            for slot in REQUIRED_EVIDENCE_SLOT_IDS
+            if slot not in expected_satisfied
+        ]
+        self.assertEqual(report["presentEvidenceSlotIds"], expected_present)
+        self.assertEqual(report["satisfiedEvidenceSlotIds"], expected_satisfied)
+        self.assertEqual(
+            report["unvalidatedEvidenceSlotIds"], expected_unvalidated
+        )
+        self.assertEqual(
+            report["missingEvidenceSlotIds"],
+            [slot for slot in REQUIRED_EVIDENCE_SLOT_IDS if slot in missing_slots],
+        )
+        self.assertEqual(report["blockerIds"], expected_blockers)
+        self.assertEqual(
+            report["approvedApprovalCategoryIds"], list(APPROVAL_CATEGORIES)
         )
 
     def test_git_revision_binding_ignores_hostile_environment(self) -> None:
@@ -987,7 +1274,7 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
                     fixture, environment=environment
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIs(json.loads(output.read_bytes())["ready"], True)
+                self.assertIs(json.loads(output.read_bytes())["ready"], False)
 
     def test_pinned_helpers_ignore_hostile_preloaded_modules(self) -> None:
         hostile = SimpleNamespace(

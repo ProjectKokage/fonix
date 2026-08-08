@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/macos-cpu-assignment-receipt-v1.json",
+  "title": "Fonix macOS arm64 CPU assignment receipt v1",
+  "description": "The exact path-free ReferenceSmokeReceipt emitted by the packaged macOS arm64 public-API reference application. This receipt records only the closed smoke result for its exact runtime, artifact, model, and assignment constants; it is not clean-machine, loaded-byte, signing, distribution, or release-readiness evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "runtimeVersion",
+    "runtimeSource",
+    "runtimeOwner",
+    "artifactFlavor",
+    "platform",
+    "architecture",
+    "shimBuildId",
+    "artifactSha256",
+    "modelSha256",
+    "outputValues",
+    "activeProviders",
+    "fullCpuAssignment",
+    "doubleClose"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "status": {
+      "type": "string",
+      "const": "passed"
+    },
+    "runtimeVersion": {
+      "type": "string",
+      "const": "1.27.1"
+    },
+    "runtimeSource": {
+      "type": "string",
+      "const": "bundled"
+    },
+    "runtimeOwner": {
+      "type": "string",
+      "const": "wrapper"
+    },
+    "artifactFlavor": {
+      "type": "string",
+      "const": "cpu"
+    },
+    "platform": {
+      "type": "string",
+      "const": "macos"
+    },
+    "architecture": {
+      "type": "string",
+      "const": "arm64"
+    },
+    "shimBuildId": {
+      "type": "string",
+      "const": "onnxruntime-1.27.1-macos-arm64-cpu"
+    },
+    "artifactSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "const": "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6"
+    },
+    "modelSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "const": "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
+    },
+    "outputValues": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        { "type": "integer", "const": 1 },
+        { "type": "integer", "const": 4 },
+        { "type": "integer", "const": 9 },
+        { "type": "integer", "const": 16 },
+        { "type": "integer", "const": 25 },
+        { "type": "integer", "const": 36 }
+      ],
+      "items": false
+    },
+    "activeProviders": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [
+        { "type": "string", "const": "cpu" }
+      ],
+      "items": false
+    },
+    "fullCpuAssignment": {
+      "type": "boolean",
+      "const": true
+    },
+    "doubleClose": {
+      "type": "string",
+      "const": "passed"
+    }
+  }
+}

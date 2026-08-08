@@ -44,6 +44,9 @@ MAX_JSON_STRING_BYTES = 256 * 1024
 
 SCOPE_PATH = "release/scoped-pre-1.0-v1.json"
 SCHEMA_PATH = "templates/ci/scoped_release_approval.schema.json"
+MACOS_CPU_ASSIGNMENT_SCHEMA_PATH = (
+    "templates/ci/macos_cpu_assignment_receipt_v1.schema.json"
+)
 SCOPE_HELPER_PATH = "tool/ci/validate_scoped_release_scope.py"
 SOURCE_HELPER_PATH = "tool/ci/source_checksum_manifest.py"
 SOURCE_ARCHIVE_HELPER_PATH = "tool/ci/validate_source_release_archive.py"
@@ -53,7 +56,10 @@ NATIVE_LOCK_PATH = "native/versions.lock.yaml"
 SHERPA_LOCK_PATH = "templates/android/sherpa_reference_app/pubspec.lock"
 
 EXPECTED_SCHEMA_SHA256 = (
-    "9bf93a714ae89a0fdea3bb6a564fb497c1b09f1fd61e8a008a56335fdc443663"
+    "a92a0dc73b270906a12d0389a09d22f590196f4e1dbf3c3b957d73d85febb0f2"
+)
+EXPECTED_MACOS_CPU_ASSIGNMENT_SCHEMA_SHA256 = (
+    "81b16c9db50136206aaa9c0b3bafd048e74589f46d731a8a5087570b893aaa77"
 )
 EXPECTED_SCOPE_HELPER_SHA256 = (
     "fb498411be31111c4540b60d4c18090055aacd61c08646877ca9cefc4b3f0e9d"
@@ -299,6 +305,34 @@ class CompositionContract:
 class EvidenceRecordContract:
     identifier: str
     media_type: str
+    semantic_contract: str | None = None
+
+
+SEMANTIC_VALIDATION_MODE = "closed-default-deny-v1"
+MACOS_CPU_ASSIGNMENT_SEMANTIC_CONTRACT = (
+    "macos-arm64-cpu-full-assignment-v1"
+)
+MACOS_CPU_ASSIGNMENT_RECEIPT: dict[str, Any] = {
+    "schemaVersion": 1,
+    "status": "passed",
+    "runtimeVersion": "1.27.1",
+    "runtimeSource": "bundled",
+    "runtimeOwner": "wrapper",
+    "artifactFlavor": "cpu",
+    "platform": "macos",
+    "architecture": "arm64",
+    "shimBuildId": "onnxruntime-1.27.1-macos-arm64-cpu",
+    "artifactSha256": (
+        "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6"
+    ),
+    "modelSha256": (
+        "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
+    ),
+    "outputValues": [1, 4, 9, 16, 25, 36],
+    "activeProviders": ["cpu"],
+    "fullCpuAssignment": True,
+    "doubleClose": "passed",
+}
 
 
 CPU_PROVIDER = {"id": "cpu", "requirement": "full-assignment"}
@@ -392,9 +426,12 @@ COMPOSITION_CONTRACTS = (
 
 
 def _record_contract(
-    identifier: str, media_type: str = "application/json"
+    identifier: str,
+    media_type: str = "application/json",
+    *,
+    semantic_contract: str | None = None,
 ) -> EvidenceRecordContract:
-    return EvidenceRecordContract(identifier, media_type)
+    return EvidenceRecordContract(identifier, media_type, semantic_contract)
 
 
 COMPOSITION_EVIDENCE_CONTRACTS: dict[
@@ -431,7 +468,10 @@ COMPOSITION_EVIDENCE_CONTRACTS: dict[
             _record_contract("macos-arm64-clean-machine-execution"),
         ),
         "providerAssignmentRecords": (
-            _record_contract("macos-arm64-cpu-full-assignment"),
+            _record_contract(
+                "macos-arm64-cpu-full-assignment",
+                semantic_contract=MACOS_CPU_ASSIGNMENT_SEMANTIC_CONTRACT,
+            ),
         ),
         "finalPackageRecords": (
             _record_contract("macos-arm64-release-archive", "application/zip"),
@@ -567,6 +607,10 @@ def _strict_json(raw: bytes, *, label: str) -> dict[str, Any]:
             object_pairs_hook=_duplicate_keys,
             parse_constant=_invalid_json_constant,
         )
+    except ScopedReleaseApprovalError as error:
+        raise ScopedReleaseApprovalError(
+            f"{label} is not strict JSON: {error}"
+        ) from error
     except (UnicodeDecodeError, UnicodeEncodeError, json.JSONDecodeError, RecursionError) as error:
         raise ScopedReleaseApprovalError(f"{label} must be strict UTF-8 JSON") from error
     if not isinstance(value, dict):
@@ -1176,6 +1220,24 @@ def _validate_repository_baseline(
         raise ScopedReleaseApprovalError(
             "approval schema bytes do not match the validator-pinned schema"
         )
+    semantic_schema_path = _repository_file(
+        repository, MACOS_CPU_ASSIGNMENT_SCHEMA_PATH
+    )
+    semantic_schema_raw = _read_regular(
+        semantic_schema_path,
+        label="macOS CPU-assignment receipt schema",
+        maximum=MAX_SCHEMA_BYTES,
+    )
+    _strict_json(
+        semantic_schema_raw,
+        label="macOS CPU-assignment receipt schema",
+    )
+    semantic_schema_sha256 = hashlib.sha256(semantic_schema_raw).hexdigest()
+    if semantic_schema_sha256 != EXPECTED_MACOS_CPU_ASSIGNMENT_SCHEMA_SHA256:
+        raise ScopedReleaseApprovalError(
+            "macOS CPU-assignment receipt schema bytes do not match the "
+            "validator-pinned schema"
+        )
 
     # Load the source helper first so transitive imports by the scope helper
     # cannot select a same-named module from another directory.
@@ -1287,6 +1349,7 @@ def _validate_repository_baseline(
         raise ScopedReleaseApprovalError("repository HEAD is not one exact Git commit")
     baseline = {
         "schemaSha256": schema_sha256,
+        "macosCpuAssignmentReceiptSchemaSha256": semantic_schema_sha256,
         "sourceManifestSha256": source_manifest_sha256,
         "sourceManifestSizeBytes": len(source_manifest_raw),
         "sourceManifestEntryCount": source_manifest_entry_count,
@@ -1622,6 +1685,45 @@ def _validate_source_binding(
     }, archive_record_bytes
 
 
+def _strict_json_value_matches(actual: Any, expected: Any) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _strict_json_value_matches(actual[key], expected_value)
+            for key, expected_value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _strict_json_value_matches(actual_value, expected_value)
+            for actual_value, expected_value in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
+def _validate_semantic_evidence(
+    semantic_contract: str,
+    contents: EvidenceContents,
+    *,
+    label: str,
+) -> None:
+    if semantic_contract != MACOS_CPU_ASSIGNMENT_SEMANTIC_CONTRACT:
+        raise ScopedReleaseApprovalError(
+            f"{label} selects an unknown internal semantic contract"
+        )
+    record = _object(contents.parsed_json, f"{label} document")
+    _exact_keys(
+        record,
+        frozenset(MACOS_CPU_ASSIGNMENT_RECEIPT),
+        f"{label} document",
+    )
+    for field, expected in MACOS_CPU_ASSIGNMENT_RECEIPT.items():
+        if not _strict_json_value_matches(record[field], expected):
+            raise ScopedReleaseApprovalError(
+                f"{label} document field {field!r} differs from its closed contract"
+            )
+
+
 def _validate_record_subset(
     value: Any,
     *,
@@ -1630,12 +1732,13 @@ def _validate_record_subset(
     slot_prefix: str,
     reader: EvidenceReader,
     expected_raw_by_id: Mapping[str, bytes] | None = None,
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     records = _array(value, label, minimum=0, maximum=8)
     contract_indexes = {
         contract.identifier: index for index, contract in enumerate(contracts)
     }
     present: set[str] = set()
+    satisfied: set[str] = set()
     last_index = -1
     for record_index, raw_reference in enumerate(records):
         reference_label = f"{label}[{record_index}]"
@@ -1667,29 +1770,56 @@ def _validate_record_subset(
             raise ScopedReleaseApprovalError(
                 f"{reference_label} does not match its exact derived record"
             )
+        if expected_raw is not None:
+            satisfied.add(reference.identifier)
+        elif contract.semantic_contract is not None:
+            _validate_semantic_evidence(
+                contract.semantic_contract,
+                contents,
+                label=f"{reference_label} evidence {reference.identifier!r}",
+            )
+            satisfied.add(reference.identifier)
 
     required_slots = [
         f"{slot_prefix}:{contract.identifier}" for contract in contracts
     ]
-    satisfied_slots = [
+    present_slots = [
         f"{slot_prefix}:{contract.identifier}"
         for contract in contracts
         if contract.identifier in present
+    ]
+    satisfied_slots = [
+        f"{slot_prefix}:{contract.identifier}"
+        for contract in contracts
+        if contract.identifier in satisfied
+    ]
+    unvalidated_slots = [
+        f"{slot_prefix}:{contract.identifier}"
+        for contract in contracts
+        if contract.identifier in present and contract.identifier not in satisfied
     ]
     missing_slots = [
         f"{slot_prefix}:{contract.identifier}"
         for contract in contracts
         if contract.identifier not in present
     ]
-    return required_slots, satisfied_slots, missing_slots
+    return (
+        required_slots,
+        present_slots,
+        satisfied_slots,
+        unvalidated_slots,
+        missing_slots,
+    )
 
 
 def _validate_compositions(
     value: Any, *, reader: EvidenceReader
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     compositions = _array(value, "candidateStatement.compositions", minimum=5, maximum=5)
     required_slots: list[str] = []
+    present_slots: list[str] = []
     satisfied_slots: list[str] = []
+    unvalidated_slots: list[str] = []
     missing_slots: list[str] = []
     for index, (raw_composition, contract) in enumerate(
         zip(compositions, COMPOSITION_CONTRACTS)
@@ -1729,29 +1859,49 @@ def _validate_compositions(
         _exact_keys(evidence, _EVIDENCE_KEY_SET, f"{label}.evidence")
         evidence_contract = COMPOSITION_EVIDENCE_CONTRACTS[contract.identifier]
         for evidence_key in _EVIDENCE_KEYS:
-            required, satisfied, missing = _validate_record_subset(
-                evidence[evidence_key],
-                contracts=evidence_contract[evidence_key],
-                label=f"{label}.evidence.{evidence_key}",
-                slot_prefix=(
-                    f"composition:{contract.identifier}:{evidence_key}"
-                ),
-                reader=reader,
+            required, present, satisfied, unvalidated, missing = (
+                _validate_record_subset(
+                    evidence[evidence_key],
+                    contracts=evidence_contract[evidence_key],
+                    label=f"{label}.evidence.{evidence_key}",
+                    slot_prefix=(
+                        f"composition:{contract.identifier}:{evidence_key}"
+                    ),
+                    reader=reader,
+                )
             )
             required_slots.extend(required)
+            present_slots.extend(present)
             satisfied_slots.extend(satisfied)
+            unvalidated_slots.extend(unvalidated)
             missing_slots.extend(missing)
-    return required_slots, satisfied_slots, missing_slots
+    return (
+        required_slots,
+        present_slots,
+        satisfied_slots,
+        unvalidated_slots,
+        missing_slots,
+    )
 
 
 def _validate_shared_regressions(
     value: Any, *, reader: EvidenceReader, source_closure_record: bytes
-) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
+) -> tuple[
+    list[str],
+    list[str],
+    list[str],
+    list[str],
+    list[str],
+    list[str],
+    list[str],
+]:
     regressions = _array(
         value, "candidateStatement.sharedRegressionEvidence", minimum=0, maximum=7
     )
     present_categories: list[str] = []
+    present_slots: list[str] = []
     satisfied_slots: list[str] = []
+    unvalidated_slots: list[str] = []
     missing_slots: list[str] = []
     last_index = -1
     for index, raw_regression in enumerate(regressions):
@@ -1771,7 +1921,7 @@ def _validate_shared_regressions(
             )
         last_index = category_index
         present_categories.append(category)
-        _, satisfied, missing = _validate_record_subset(
+        _, present, satisfied, unvalidated, missing = _validate_record_subset(
             regression["records"],
             contracts=(
                 _record_contract(f"shared-{category}"),
@@ -1785,7 +1935,9 @@ def _validate_shared_regressions(
                 else None
             ),
         )
+        present_slots.extend(present)
         satisfied_slots.extend(satisfied)
+        unvalidated_slots.extend(unvalidated)
         missing_slots.extend(missing)
 
     present = set(present_categories)
@@ -1799,8 +1951,14 @@ def _validate_shared_regressions(
     # absent category were encountered at different points in the subset.
     missing_set = set(missing_slots)
     missing_slots = [slot for slot in required_slots if slot in missing_set]
+    present_set = set(present_slots)
+    present_slots = [slot for slot in required_slots if slot in present_set]
     satisfied_set = set(satisfied_slots)
     satisfied_slots = [slot for slot in required_slots if slot in satisfied_set]
+    unvalidated_set = set(unvalidated_slots)
+    unvalidated_slots = [
+        slot for slot in required_slots if slot in unvalidated_set
+    ]
     absent_categories = [
         category for category in SHARED_CATEGORIES if category not in present
     ]
@@ -1808,7 +1966,9 @@ def _validate_shared_regressions(
         present_categories,
         absent_categories,
         required_slots,
+        present_slots,
         satisfied_slots,
+        unvalidated_slots,
         missing_slots,
     )
 
@@ -2057,14 +2217,18 @@ def validate_approval(
         )
         (
             composition_required_slots,
+            composition_present_slots,
             composition_satisfied_slots,
+            composition_unvalidated_slots,
             composition_missing_slots,
         ) = _validate_compositions(candidate["compositions"], reader=reader)
         (
             present_shared_categories,
             absent_shared_categories,
             shared_required_slots,
+            shared_present_slots,
             shared_satisfied_slots,
+            shared_unvalidated_slots,
             shared_missing_slots,
         ) = _validate_shared_regressions(
             candidate["sharedRegressionEvidence"],
@@ -2084,11 +2248,33 @@ def validate_approval(
         evidence_bytes = reader.total_bytes
 
     required_slots = composition_required_slots + shared_required_slots
+    present_set = set(composition_present_slots + shared_present_slots)
     satisfied_set = set(composition_satisfied_slots + shared_satisfied_slots)
+    unvalidated_set = set(
+        composition_unvalidated_slots + shared_unvalidated_slots
+    )
     missing_set = set(composition_missing_slots + shared_missing_slots)
+    present_slots = [slot for slot in required_slots if slot in present_set]
     satisfied_slots = [slot for slot in required_slots if slot in satisfied_set]
+    unvalidated_slots = [
+        slot for slot in required_slots if slot in unvalidated_set
+    ]
     missing_slots = [slot for slot in required_slots if slot in missing_set]
-    blocker_ids = [f"missing-evidence:{slot}" for slot in missing_slots]
+    if (
+        present_set | missing_set != set(required_slots)
+        or present_set & missing_set
+        or satisfied_set | unvalidated_set != present_set
+        or satisfied_set & unvalidated_set
+    ):
+        raise ScopedReleaseApprovalError(
+            "internal semantic evidence partition is inconsistent"
+        )
+    blocker_ids: list[str] = []
+    for slot in required_slots:
+        if slot in missing_set:
+            blocker_ids.append(f"missing-evidence:{slot}")
+        elif slot in unvalidated_set:
+            blocker_ids.append(f"unvalidated-evidence:{slot}")
     for category in APPROVAL_CATEGORIES:
         if category in missing_categories:
             blocker_ids.append(f"missing-approval:{category}")
@@ -2116,13 +2302,19 @@ def validate_approval(
         "referencedEvidenceSha256": referenced_evidence_sha256,
         "validatorSha256": hashlib.sha256(validator_raw).hexdigest(),
         "schemaSha256": baseline["schemaSha256"],
+        "macosCpuAssignmentReceiptSchemaSha256": baseline[
+            "macosCpuAssignmentReceiptSchemaSha256"
+        ],
         "scopeValidatorSha256": EXPECTED_SCOPE_HELPER_SHA256,
         "sourceManifestValidatorSha256": EXPECTED_SOURCE_HELPER_SHA256,
         "scopeValidationRecordSha256": scope_validation_record_sha256,
         "sourceBaseline": source_baseline,
         "compositionIds": [contract.identifier for contract in COMPOSITION_CONTRACTS],
+        "semanticValidationMode": SEMANTIC_VALIDATION_MODE,
         "requiredEvidenceSlotIds": required_slots,
+        "presentEvidenceSlotIds": present_slots,
         "satisfiedEvidenceSlotIds": satisfied_slots,
+        "unvalidatedEvidenceSlotIds": unvalidated_slots,
         "missingEvidenceSlotIds": missing_slots,
         "requiredSharedRegressionCategoryIds": list(SHARED_CATEGORIES),
         "presentSharedRegressionCategoryIds": present_shared_categories,

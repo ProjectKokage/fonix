@@ -358,7 +358,20 @@ publication claim; every selected composition still needs its owning evidence
 and an externally controlled bundle conforming to
 [`scoped_release_approval.schema.json`](templates/ci/scoped_release_approval.schema.json).
 The repository contains the fail-closed validator but no approved bundle or
-publication authority. Local development can proceed in parallel with
+publication authority. Evidence handling is closed and default-deny: a
+referenced file that is present and passes its path, media-type, size, and
+SHA-256 checks is present, not satisfied. Only evidence with a
+repository-registered semantic contract can be satisfied; unregistered
+evidence remains unvalidated and blocks readiness. The first registered
+receipt contract is `macos-arm64-cpu-full-assignment-v1`, for the exact
+`macos-arm64-cpu-full-assignment` record. Together with the separately derived
+source-closure record, a fully populated synthetic bundle therefore reports 55
+present, 2 satisfied, 53 unvalidated, and 0 missing evidence slots, and cannot
+be ready. Exact receipt contents do not authenticate capture or target
+execution and cannot replace the separate clean-machine, final-package,
+signing, provider-qualification, support, or release gates.
+
+Local development can proceed in parallel with
 lifecycle/performance stabilization for those exact macOS, iOS-device, Linux,
 and Android-without-QNN candidates. These are four selected OS target rows and
 five CPU compositions: macOS arm64 bundled, iOS arm64 linked device, Linux

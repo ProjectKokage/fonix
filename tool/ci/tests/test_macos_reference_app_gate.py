@@ -14,6 +14,14 @@ from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "run_macos_reference_app_gate.py"
 WORKFLOW = Path(__file__).resolve().parents[3] / ".github/workflows/ci.yml"
+RECEIPT_SCHEMA = (
+    Path(__file__).resolve().parents[3]
+    / "templates/ci/macos_cpu_assignment_receipt_v1.schema.json"
+)
+APPROVAL_SCHEMA = (
+    Path(__file__).resolve().parents[3]
+    / "templates/ci/scoped_release_approval.schema.json"
+)
 SPEC = importlib.util.spec_from_file_location("run_macos_reference_app_gate", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 run_macos_reference_app_gate = importlib.util.module_from_spec(SPEC)
@@ -289,6 +297,89 @@ class MacOsReferenceAppGateReceiptTest(unittest.TestCase):
         self.assertEqual(
             parsed, run_macos_reference_app_gate.EXPECTED_REFERENCE_RECEIPT
         )
+
+    def test_receipt_schema_matches_the_exact_gate_contract(self) -> None:
+        schema = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+        expected = run_macos_reference_app_gate.EXPECTED_REFERENCE_RECEIPT
+
+        self.assertEqual(
+            schema["$id"],
+            "https://fonix.invalid/schemas/"
+            "macos-cpu-assignment-receipt-v1.json",
+        )
+        self.assertEqual(schema["type"], "object")
+        self.assertIs(schema["additionalProperties"], False)
+        self.assertEqual(schema["required"], list(expected))
+        self.assertEqual(set(schema["properties"]), set(expected))
+
+        json_types = {
+            bool: "boolean",
+            int: "integer",
+            str: "string",
+        }
+        for key, expected_value in expected.items():
+            with self.subTest(key=key):
+                contract = schema["properties"][key]
+                if isinstance(expected_value, list):
+                    self.assertEqual(contract["type"], "array")
+                    self.assertEqual(contract["minItems"], len(expected_value))
+                    self.assertEqual(contract["maxItems"], len(expected_value))
+                    self.assertIs(contract["items"], False)
+                    prefix = contract["prefixItems"]
+                    self.assertEqual(
+                        [entry["const"] for entry in prefix], expected_value
+                    )
+                    self.assertEqual(
+                        [entry["type"] for entry in prefix],
+                        [json_types[type(item)] for item in expected_value],
+                    )
+                else:
+                    self.assertEqual(contract["type"], json_types[type(expected_value)])
+                    self.assertEqual(contract["const"], expected_value)
+
+    def test_gate_rejects_every_exact_value_and_array_shape_mutation(self) -> None:
+        expected = run_macos_reference_app_gate.EXPECTED_REFERENCE_RECEIPT
+        for key, value in expected.items():
+            if type(value) is bool:
+                changed: object = not value
+            elif type(value) is int:
+                changed = value + 1
+            elif type(value) is str:
+                changed = value + "-changed"
+            elif key == "outputValues":
+                changed = [2, *value[1:]]
+            else:
+                changed = ["changed"]
+            mutated = dict(expected)
+            mutated[key] = changed
+            with self.subTest(key=key, mutation="value"):
+                with self.assertRaises(
+                    run_macos_reference_app_gate.MacOsReferenceAppGateError
+                ):
+                    run_macos_reference_app_gate._validate_reference_receipt(mutated)
+
+        for key in ("outputValues", "activeProviders"):
+            value = expected[key]
+            assert isinstance(value, list)
+            for changed in (value[:-1], [*value, value[-1]]):
+                mutated = dict(expected)
+                mutated[key] = changed
+                with self.subTest(key=key, mutation="length"):
+                    with self.assertRaises(
+                        run_macos_reference_app_gate.MacOsReferenceAppGateError
+                    ):
+                        run_macos_reference_app_gate._validate_reference_receipt(
+                            mutated
+                        )
+
+    def test_approval_schema_does_not_treat_a_reference_as_semantic_evidence(
+        self,
+    ) -> None:
+        schema = json.loads(APPROVAL_SCHEMA.read_text(encoding="utf-8"))
+        comment = schema["$defs"]["evidenceReference"]["$comment"]
+        self.assertIn("inventory identity", comment)
+        self.assertIn("does not semantically satisfy", comment)
+        self.assertIn("registers an exact semantic validator", comment)
 
     def test_rejects_duplicate_json_key(self) -> None:
         line = self._receipt_line()

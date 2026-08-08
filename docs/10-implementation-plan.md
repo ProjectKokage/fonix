@@ -587,6 +587,25 @@ approval requires the exact canonical derived closure record; the result is
 offline consistency evidence only, not archive provenance, reproducibility,
 signing, readiness, or publication authority.
 
+The follow-up semantic-evidence checkpoint makes scoped readiness closed and
+default-deny. Reference identity, media type, size, and SHA-256 establish only
+that a required record is present. Satisfaction additionally requires a
+repository-registered semantic contract; every present unregistered record is
+reported as unvalidated and blocks readiness. The first registered receipt
+contract is `macos-arm64-cpu-full-assignment-v1`, alongside the separately
+derived source-closure validation. A complete synthetic bundle therefore
+reports 55 present, 2 satisfied, 53 unvalidated, and 0 missing evidence slots
+and cannot become ready. The macOS contract validates exact closed receipt
+content but does not authenticate capture, clean-machine or final-package
+execution, signing, provider qualification, support, or release approval.
+
+Subsequent release-engineering slices should register one bounded semantic
+contract at a time for the remaining evidence inventory and add both accepted
+and hostile-content tests. Merely populating the remaining 53 files cannot
+advance readiness. Actual target-host, physical-device, final-package,
+licensing, signing, and approval evidence must still be collected through the
+owning external gates; semantic validation cannot manufacture provenance.
+
 The 2026-08-08 CPU measurement checkpoint adds a reproducible 4.29-GFLOP
 static-weight MatMul with exact input/reference bytes and a bounded
 macOS/Linux final-application target path. The path separates runtime, session,

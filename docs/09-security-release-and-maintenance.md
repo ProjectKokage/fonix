@@ -474,6 +474,65 @@ The other selected targets likewise require their frozen clean-machine or
 device execution, CPU assignment, final archive, SPDX SBOM, package audit,
 reproducibility, notices, and distribution-signing records.
 
+Semantic evidence validation is closed and default-deny. The report declares
+`semanticValidationMode: "closed-default-deny-v1"` and keeps four canonical,
+ordered classifications distinct:
+
+- `presentEvidenceSlotIds` lists references that passed identity, media-type,
+  size, SHA-256, and retained-descriptor checks;
+- `satisfiedEvidenceSlotIds` lists only present records whose repository-
+  registered semantic contract also passed;
+- `missingEvidenceSlotIds` lists absent required references; and
+- `unvalidatedEvidenceSlotIds` lists present records for which no semantic
+  contract is registered.
+
+Presence and a valid hash never imply satisfaction. An absent record produces
+`missing-evidence:<slot>`, while a present unregistered record produces
+`unvalidated-evidence:<slot>`; both block readiness in canonical evidence order
+before approval blockers are appended. If a registered record is present but
+does not match its exact semantic contract, the bundle is malformed and no
+readiness result is published. Detached approvals cannot override these
+failures. A fully populated synthetic bundle consequently reports 55 present,
+2 satisfied, 53 unvalidated, and 0 missing slots and remains blocked under
+`--require-scoped-ready`. Its two satisfied slots are the canonically derived
+`shared-source-closure` record and the exact macOS CPU-assignment receipt below.
+
+The first registered receipt contract is
+`macos-arm64-cpu-full-assignment-v1`, bound only to evidence record
+`macos-arm64-cpu-full-assignment`. The exact schema is
+[`macos_cpu_assignment_receipt_v1.schema.json`](../templates/ci/macos_cpu_assignment_receipt_v1.schema.json);
+the validator pins its SHA-256 as
+`81b16c9db50136206aaa9c0b3bafd048e74589f46d731a8a5087570b893aaa77`
+and repeats that digest as `macosCpuAssignmentReceiptSchemaSha256` in the
+result. It accepts only this strict object and rejects extra keys, type
+substitutions, changed values, and changed array shapes:
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "runtimeVersion": "1.27.1",
+  "runtimeSource": "bundled",
+  "runtimeOwner": "wrapper",
+  "artifactFlavor": "cpu",
+  "platform": "macos",
+  "architecture": "arm64",
+  "shimBuildId": "onnxruntime-1.27.1-macos-arm64-cpu",
+  "artifactSha256": "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6",
+  "modelSha256": "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10",
+  "outputValues": [1, 4, 9, 16, 25, 36],
+  "activeProviders": ["cpu"],
+  "fullCpuAssignment": true,
+  "doubleClose": "passed"
+}
+```
+
+This contract validates the closed content of the supplied receipt only. It
+does not authenticate the capture, the actor or machine that produced it,
+clean-machine or final-package execution, final-package identity or signing,
+provider qualification, support, or release approval. Those claims require
+their own external evidence and authority.
+
 Five detached approval domains are required for readiness: API/ABI, licensing,
 security, signing, and publication. Each approval statement binds the exact
 candidate subject, decision, time, approver, key, and signature algorithm. Its
