@@ -115,11 +115,6 @@ class MacOsProcessInfoState(NamedTuple):
     low_power_mode: bool | None
 
 
-class MacOsPowerProfile(NamedTuple):
-    settings: tuple[str, ...]
-    low_power_mode: str | None
-
-
 class DirectoryIdentity(NamedTuple):
     device: int
     inode: int
@@ -608,7 +603,7 @@ def _parse_macos_power_source(value: str) -> tuple[str, str] | None:
 
 def _parse_macos_power_profiles(
     value: str,
-) -> dict[str, MacOsPowerProfile] | None:
+) -> dict[str, tuple[str, ...]] | None:
     lines = _strict_pmset_lines(
         value,
         maximum_bytes=MAX_PMSET_CUSTOM_STDOUT_BYTES,
@@ -650,28 +645,12 @@ def _parse_macos_power_profiles(
         if field_count > MAX_PMSET_PROFILE_FIELDS:
             return None
         current.append(content)
-    if not raw_profiles or any(not settings for settings in raw_profiles.values()):
+    if not raw_profiles:
         return None
-    profiles: dict[str, MacOsPowerProfile] = {}
-    for header, settings in raw_profiles.items():
-        low_power_lines = [
-            setting
-            for setting in settings
-            if re.match(r"^lowpowermode(?:[ \t]|$)", setting) is not None
-        ]
-        if len(low_power_lines) != 1:
-            return None
-        low_power_match = re.fullmatch(
-            r"lowpowermode[ \t]+([01])",
-            low_power_lines[0],
-        )
-        if low_power_match is None:
-            return None
-        profiles[header] = MacOsPowerProfile(
-            tuple(sorted(settings)),
-            low_power_match.group(1),
-        )
-    return profiles
+    return {
+        header: tuple(sorted(settings))
+        for header, settings in raw_profiles.items()
+    }
 
 
 def _macos_power_mode(
@@ -711,15 +690,11 @@ def _macos_power_mode(
         return HOST_API_UNAVAILABLE
     source_name, source_id = source
     active_profile = profiles.get(source_name)
-    if active_profile is None:
-        return HOST_API_UNAVAILABLE
-    low_power_value = active_profile.low_power_mode
-    expected_low_power = "1" if low_power_mode else "0"
-    if low_power_value not in {"0", "1"} or low_power_value != expected_low_power:
+    if not active_profile:
         return HOST_API_UNAVAILABLE
     canonical_profile = json.dumps(
         {
-            "settings": active_profile.settings,
+            "settings": active_profile,
             "source": source_id,
         },
         ensure_ascii=True,

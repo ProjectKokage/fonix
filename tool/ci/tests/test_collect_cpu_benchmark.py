@@ -680,7 +680,11 @@ cpu MHz : 800.000
     ) -> None:
         calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
 
-        def observe(inactive_sleep: int, active_separator: str = " ") -> str:
+        def observe(
+            inactive_sleep: int,
+            active_separator: str = " ",
+            dynamic_low_power: bool = False,
+        ) -> str:
             def runner(command: object, **options: object) -> object:
                 typed_command = tuple(command)  # type: ignore[arg-type]
                 calls.append((typed_command, dict(options)))
@@ -692,12 +696,12 @@ cpu MHz : 800.000
                 else:
                     stdout = (
                         "Battery Power:\n"
-                        " lowpowermode 1\n"
+                        " powermode 1\n"
                         f" sleep {inactive_sleep}\n"
                         " hibernatefile /private/hidden/inactive\n"
                         "AC Power:\n"
                         " Sleep On Power Button 1\n"
-                        " lowpowermode         0\n"
+                        " powermode         0\n"
                         f" hibernatefile{active_separator}/private/hidden/active\n"
                     )
                 return SimpleNamespace(stdout=stdout, stderr="")
@@ -707,14 +711,26 @@ cpu MHz : 800.000
                 "_regular_file",
                 return_value=collector.MACOS_PMSET,
             ):
-                return collector._macos_power_mode(False, runner=runner)
+                return collector._macos_power_mode(
+                    dynamic_low_power,
+                    runner=runner,
+                )
 
         first = observe(5)
         second = observe(99)
         changed_active_spacing = observe(99, "  ")
+        dynamic_low_power = observe(99, dynamic_low_power=True)
 
         self.assertEqual(first, second)
         self.assertNotEqual(second, changed_active_spacing)
+        self.assertRegex(
+            dynamic_low_power,
+            r"^macos-ac-power-low-power-on-profile-sha256-[0-9a-f]{64}$",
+        )
+        self.assertEqual(
+            second.rsplit("profile-sha256-", 1)[1],
+            dynamic_low_power.rsplit("profile-sha256-", 1)[1],
+        )
         self.assertRegex(
             first,
             r"^macos-ac-power-low-power-off-profile-sha256-[0-9a-f]{64}$",
@@ -751,13 +767,22 @@ cpu MHz : 800.000
             collector.MAX_PMSET_STDERR_BYTES,
         )
 
-    def test_macos_pmset_accepts_only_closed_power_sources(self) -> None:
+    def test_macos_pmset_accepts_closed_sources_and_opaque_profiles(self) -> None:
         sources = {
-            "AC Power": "ac-power",
-            "Battery Power": "battery-power",
-            "UPS Power": "ups-power",
+            "AC Power": (
+                "ac-power",
+                "AC Power:\n sleep 1\nBattery Power:\n",
+            ),
+            "Battery Power": (
+                "battery-power",
+                "Battery Power:\n powermode 2\n",
+            ),
+            "UPS Power": (
+                "ups-power",
+                "UPS Power:\n lowpowermode 1\n powermode future-value\n",
+            ),
         }
-        for source, slug in sources.items():
+        for source, (slug, opaque_profile) in sources.items():
             with self.subTest(source=source):
                 outputs = iter(
                     (
@@ -766,7 +791,7 @@ cpu MHz : 800.000
                             stderr="",
                         ),
                         SimpleNamespace(
-                            stdout=f"{source}:\n lowpowermode 0\n",
+                            stdout=opaque_profile,
                             stderr="",
                         ),
                         SimpleNamespace(
@@ -789,12 +814,17 @@ cpu MHz : 800.000
                     rf"^macos-{slug}-low-power-off-profile-sha256-[0-9a-f]{{64}}$",
                 )
 
-    def test_macos_pmset_malformed_or_inconsistent_data_is_unavailable(self) -> None:
+    def test_macos_pmset_malformed_or_ambiguous_data_is_unavailable(self) -> None:
         valid_battery = "Now drawing from 'AC Power'\n"
-        valid_profile = "AC Power:\n lowpowermode         0\n sleep 1\n"
+        valid_profile = "AC Power:\n sleep 1\n hibernatefile /private/opaque\n"
         too_many_fields = "AC Power:\n" + "".join(
             f" field{index} 1\n"
             for index in range(collector.MAX_PMSET_PROFILE_FIELDS + 1)
+        )
+        too_long_setting = (
+            "AC Power:\n "
+            + "x" * (collector.MAX_PMSET_SETTING_BYTES + 1)
+            + "\n"
         )
         cases = {
             "carriage-return": (
@@ -817,7 +847,7 @@ cpu MHz : 800.000
             ),
             "duplicate-header": (
                 valid_battery,
-                valid_profile + "AC Power:\n sleep 2\n",
+                valid_profile + "AC Power:\n standby 2\n",
                 False,
                 "",
             ),
@@ -827,31 +857,58 @@ cpu MHz : 800.000
                 False,
                 "",
             ),
-            "duplicate-key": (
+            "empty-active-profile": (
                 valid_battery,
-                valid_profile + " lowpowermode 0\n",
+                "AC Power:\n",
                 False,
                 "",
             ),
-            "invalid-low-power": (
+            "duplicate-setting": (
                 valid_battery,
-                valid_profile.replace(
-                    "lowpowermode         0",
-                    "lowpowermode         2",
-                ),
+                valid_profile + " sleep 1\n",
                 False,
                 "",
             ),
-            "conflicting-low-power": (
+            "setting-before-header": (
                 valid_battery,
-                valid_profile + " lowpowermode 1\n",
+                " sleep 1\n" + valid_profile,
                 False,
                 "",
             ),
-            "foundation-mismatch": (
+            "unknown-profile-header": (
                 valid_battery,
-                valid_profile,
-                True,
+                "Solar Power:\n sleep 1\n",
+                False,
+                "",
+            ),
+            "malformed-profile-header": (
+                valid_battery,
+                "AC Power\n sleep 1\n",
+                False,
+                "",
+            ),
+            "trailing-setting-whitespace": (
+                valid_battery,
+                valid_profile.replace("sleep 1", "sleep 1 "),
+                False,
+                "",
+            ),
+            "empty-setting": (
+                valid_battery,
+                "AC Power:\n \n",
+                False,
+                "",
+            ),
+            "control-character": (
+                valid_battery,
+                valid_profile.replace("sleep 1", "sleep\x1f1"),
+                False,
+                "",
+            ),
+            "too-long-setting": (
+                valid_battery,
+                too_long_setting,
+                False,
                 "",
             ),
             "too-many-fields": (
@@ -893,7 +950,7 @@ cpu MHz : 800.000
                 SimpleNamespace(
                     stdout=(
                         valid_profile
-                        + "Battery Power:\n lowpowermode         0\n sleep 5\n"
+                        + "Battery Power:\n sleep 5\n"
                     ),
                     stderr="",
                 ),

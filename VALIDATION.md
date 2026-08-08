@@ -212,19 +212,22 @@ macOS arm64 Release collection and replay passed with `incomplete`
 comparability under the unavailable macOS power/thermal observer.
 
 The current macOS observer reads the public `NSProcessInfo` thermal enum and
-low-power boolean, cross-checks low-power state against bounded `pmset`
-active-source and configured-profile output, and publishes only a
-domain-separated digest of that profile. Focused tests cover the API mapping,
-closed power sources, active-profile selection, digest stability, malformed and
-contradictory data, platform-specific grammar, derivation, and independent
-replay. Apple `nominal` can also mean the thermal state was undetermined, a
-stable elevated state still requires review, and the configured `pmset` profile
-does not establish every dynamic power assertion. `baseline-comparable` means
-only that the recorded inputs are complete and stable enough to match in a
-later review; it is not thermal-health or baseline approval. Linux thermal
-observation remains unavailable. This source checkpoint contains no controlled
-five-launch bundle from the new observer; any later raw collection and offline
-replay are external evidence.
+current dynamic Low Power boolean. Separately, bounded `pmset` output supplies
+the source-stable active power source and matching opaque configured profile.
+The power label pairs the closed source and API boolean with a domain-separated
+profile digest; no `pmset` key is interpreted or compared with the API boolean.
+Focused tests cover the API mapping, closed power sources, opaque active-profile
+selection, exact-line digest stability, malformed and ambiguous structure,
+platform-specific grammar, derivation, and independent replay. API-reported Low
+Power `off` can also mean that the state was unknown or unsupported. Apple
+`nominal` can likewise mean the thermal state was undetermined, a stable
+elevated state still requires review, and the configured `pmset` profile does
+not establish every dynamic power assertion. `baseline-comparable` means only
+that the recorded inputs are complete and stable enough to match in a later
+review; it is not thermal-health or baseline approval. Linux thermal observation
+remains unavailable. This source checkpoint contains no controlled five-launch
+bundle from the new observer; any later raw collection and offline replay are
+external evidence.
 
 The raw fragments are not independently authenticated, supplied native members
 are packaged inputs rather than exact loaded-byte proof, repository evidence is

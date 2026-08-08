@@ -369,10 +369,13 @@ host collector records five challenge-bound fresh processes, preserves the raw
 target fragments and host observations, and derives a collection-v2 record;
 the separate offline validator independently reopens that raw bundle and emits
 only a schema-1 `offline-consistency-only` validation record. On macOS, the
-collector reads the public `NSProcessInfo` thermal enum and low-power boolean,
-cross-checks low-power state against bounded `pmset` active-source and
-configured-profile output, and publishes only a domain-separated digest of
-that profile. `baseline-comparable` means that the recorded controls are
+collector reads the public `NSProcessInfo` thermal enum and current dynamic Low
+Power boolean. Separately, bounded `pmset` output supplies the source-stable
+active power source and matching opaque configured profile. The power label
+pairs the closed source and API boolean with a domain-separated digest of that
+profile; no `pmset` key is interpreted or compared with the API boolean.
+API-reported Low Power `off` can also mean that the state was unknown or
+unsupported. `baseline-comparable` means that the recorded controls are
 complete and stable enough to match as input to a later review; it is not a
 thermal-health judgment or baseline approval. Apple `nominal` can also mean
 the thermal state was undetermined, stable elevated states still require

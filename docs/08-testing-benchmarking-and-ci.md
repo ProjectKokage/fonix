@@ -665,27 +665,34 @@ must be retained and independently reopened for every later evaluation; the
 schema-1 validation record is not a substitute for those samples.
 
 The macOS observer reads the public `NSProcessInfo` thermal-state enum and
-low-power-mode boolean. It also invokes the absolute `/usr/bin/pmset` through
-the bounded-process boundary, selects the active source from `-g batt`, parses
-the bounded configured-profile set from `-g custom`, selects only the profile
-matching that active source, and requires its closed `lowpowermode` value to
-agree with `NSProcessInfo`. The raw
-profile can contain paths and other host details, so evidence receives only a
-domain-separated SHA-256 digest together with closed source and low-power
-labels. The configured `pmset` profile is not an assertion that every dynamic
-power condition currently matches that configuration.
+dynamic low-power-mode boolean. It also invokes the absolute `/usr/bin/pmset`
+through the bounded-process boundary, requires the same closed active source
+before and after `-g custom`, parses the bounded configured-profile set, and
+selects the nonempty profile matching that source. Profile headers are closed;
+after stripping required leading indentation, each bounded setting contains
+printable ASCII with horizontal tabs permitted. Trailing spaces or tabs, other
+control bytes, and exact duplicate settings are rejected. The observer sorts
+those exact remaining lines only to make the fingerprint order-independent. It
+does not interpret any `pmset` key, including `lowpowermode` or `powermode`.
+Evidence receives only a domain-separated SHA-256 profile digest together with
+the closed source and current API-reported Low Power label; raw settings, paths,
+and values remain withheld. The API boolean and configured-profile fingerprint
+are paired observations with no equality condition.
 
 The four API-reported Apple thermal values are `nominal`, `fair`, `serious`,
 and `critical`. Apple's `nominal` case can also mean the current thermal state
 could not be determined, so it is not a positive thermal-health attestation.
-Likewise, a stable elevated value may be matchable across the five launches
-but still requires explicit review. `baseline-comparable` means only that all
-ten surrounding observations were available and stable enough to serve as
-matchable input to a later baseline or threshold review. It does not approve a
-baseline. Missing APIs, malformed or contradictory `pmset` output, or a
-low-power mismatch remain `incomplete`; observed changes remain
-`non-comparable`. Linux continues to expose its bounded CPU-governor label but
-reports thermal state as unavailable. This source checkpoint contains no
+Foundation likewise reports Low Power `off` when the state is unknown or
+unsupported, so that label is API-reported rather than a positive attestation
+of support or a disabled state. A stable elevated thermal value may be
+matchable across the five launches but still requires explicit review.
+`baseline-comparable` means only that all ten surrounding observations were
+available and stable enough to serve as matchable input to a later baseline
+or threshold review. It does not approve a baseline. Missing APIs or
+malformed, ambiguous, or source-drifting `pmset` output remain
+`incomplete`; observed changes remain `non-comparable`. Linux continues to
+expose its bounded CPU-governor label but reports thermal state as unavailable.
+This source checkpoint contains no
 controlled five-launch bundle from the new observer; any later raw collection
 and offline replay are external evidence.
 
