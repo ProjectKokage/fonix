@@ -24,6 +24,9 @@
 #define DORT_RUN_OPTIONS_MAGIC 0x44524f31u
 #define DORT_RUN_RESULT_MAGIC 0x44525231u
 #define DORT_MAX_CANCEL_TOKENS 1024u
+#ifndef DORT_CANCEL_TOKEN_UPPER_BOUND
+#define DORT_CANCEL_TOKEN_UPPER_BOUND ((uint64_t)INT64_MAX)
+#endif
 
 struct dort_run_options {
   uint32_t magic;
@@ -60,8 +63,23 @@ typedef struct dort_cancel_entry {
   struct dort_cancel_entry* next;
   uint64_t token;
   dort_run_options_t* run_options;
-  int termination_requested;
+  uint32_t state;
 } dort_cancel_entry_t;
+
+enum {
+  DORT_CANCEL_STATE_REGISTERED = 0u,
+  DORT_CANCEL_STATE_REQUESTING = 1u,
+  DORT_CANCEL_STATE_REQUESTED = 2u,
+  DORT_CANCEL_STATE_UNSETTING = 3u,
+};
+
+/*
+ * The registry lock owns list membership and state transitions. A requesting
+ * or unsetting entry stays linked, and therefore retains its run options,
+ * while the owning thread calls ONNX Runtime without the process-wide lock.
+ * Same-token callers wait and re-resolve the token after every wake; unrelated
+ * tokens never wait for that native call.
+ */
 
 static dort_cancel_entry_t* dort_cancel_registry = NULL;
 static size_t dort_cancel_registry_count = 0u;
@@ -69,19 +87,37 @@ static uint64_t dort_next_cancel_token = 1u;
 
 #if defined(_WIN32)
 static SRWLOCK dort_cancel_registry_lock = SRWLOCK_INIT;
+static CONDITION_VARIABLE dort_cancel_registry_condition =
+    CONDITION_VARIABLE_INIT;
 static void dort_cancel_lock(void) {
   AcquireSRWLockExclusive(&dort_cancel_registry_lock);
 }
 static void dort_cancel_unlock(void) {
   ReleaseSRWLockExclusive(&dort_cancel_registry_lock);
 }
+static int dort_cancel_wait(void) {
+  return SleepConditionVariableSRW(&dort_cancel_registry_condition,
+                                   &dort_cancel_registry_lock, INFINITE, 0u) !=
+         0;
+}
+static void dort_cancel_wake_all(void) {
+  WakeAllConditionVariable(&dort_cancel_registry_condition);
+}
 #else
 static pthread_mutex_t dort_cancel_registry_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t dort_cancel_registry_condition = PTHREAD_COND_INITIALIZER;
 static void dort_cancel_lock(void) {
   (void)pthread_mutex_lock(&dort_cancel_registry_lock);
 }
 static void dort_cancel_unlock(void) {
   (void)pthread_mutex_unlock(&dort_cancel_registry_lock);
+}
+static int dort_cancel_wait(void) {
+  return pthread_cond_wait(&dort_cancel_registry_condition,
+                           &dort_cancel_registry_lock) == 0;
+}
+static void dort_cancel_wake_all(void) {
+  (void)pthread_cond_broadcast(&dort_cancel_registry_condition);
 }
 #endif
 
@@ -1711,7 +1747,6 @@ dort_status_t* DORT_CALL dort_cancel_token_register(
   dort_cancel_entry_t* entry = NULL;
   dort_cancel_entry_t* current = NULL;
   uint64_t token = 0u;
-  size_t attempts = 0u;
   if (out_token == NULL) {
     return dort_status_create(DORT_ERROR_DOMAIN_SHIM,
                               DORT_ERROR_INVALID_ARGUMENT, 0,
@@ -1751,26 +1786,23 @@ dort_status_t* DORT_CALL dort_cancel_token_register(
           "The run-options handle already has an active cancellation token.");
     }
   }
-  for (attempts = 0u; attempts <= DORT_MAX_CANCEL_TOKENS; ++attempts) {
-    token = dort_next_cancel_token;
-    dort_next_cancel_token = dort_next_cancel_token == (uint64_t)INT64_MAX
-                                 ? 1u
-                                 : dort_next_cancel_token + 1u;
-    if (token != 0u && dort_cancel_find_locked(token, NULL) == NULL) {
-      break;
-    }
-  }
-  if (token == 0u || dort_cancel_find_locked(token, NULL) != NULL) {
+  if (dort_next_cancel_token == 0u ||
+      dort_next_cancel_token > DORT_CANCEL_TOKEN_UPPER_BOUND) {
     dort_cancel_unlock();
     free(entry);
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_CANCEL_REGISTRY_FULL, 0,
         "cancel_token_register",
-        "Could not allocate a unique bounded cancellation token.");
+        "The process cancellation-token space is exhausted.");
   }
+  token = dort_next_cancel_token;
+  dort_next_cancel_token = token == DORT_CANCEL_TOKEN_UPPER_BOUND
+                               ? 0u
+                               : token + 1u;
   dort_run_options_retain(run_options);
   entry->token = token;
   entry->run_options = run_options;
+  entry->state = DORT_CANCEL_STATE_REGISTERED;
   entry->next = dort_cancel_registry;
   dort_cancel_registry = entry;
   ++dort_cancel_registry_count;
@@ -1782,6 +1814,7 @@ dort_status_t* DORT_CALL dort_cancel_token_register(
 dort_status_t* DORT_CALL dort_cancel_token_request(uint64_t token,
                                                    uint32_t* out_did_request) {
   dort_cancel_entry_t* entry = NULL;
+  dort_run_options_t* run_options = NULL;
   dort_status_t* status = NULL;
   if (out_did_request == NULL) {
     return dort_status_create(
@@ -1797,21 +1830,47 @@ dort_status_t* DORT_CALL dort_cancel_token_request(uint64_t token,
         "The cancellation token is unknown or already finished.");
   }
   dort_cancel_lock();
-  entry = dort_cancel_find_locked(token, NULL);
-  if (entry == NULL) {
-    dort_cancel_unlock();
-    return dort_status_create(
-        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_CANCEL_TOKEN_UNKNOWN, 0,
-        "cancel_token_request",
-        "The cancellation token is unknown or already finished.");
+  for (;;) {
+    entry = dort_cancel_find_locked(token, NULL);
+    if (entry == NULL) {
+      dort_cancel_unlock();
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_CANCEL_TOKEN_UNKNOWN, 0,
+          "cancel_token_request",
+          "The cancellation token is unknown or already finished.");
+    }
+    if (entry->state == DORT_CANCEL_STATE_REQUESTED) {
+      dort_cancel_unlock();
+      return NULL;
+    }
+    if (entry->state == DORT_CANCEL_STATE_REGISTERED) {
+      entry->state = DORT_CANCEL_STATE_REQUESTING;
+      run_options = entry->run_options;
+      break;
+    }
+    if (!dort_cancel_wait()) {
+      dort_cancel_unlock();
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+          "cancel_token_request",
+          "Could not wait for cancellation-token ownership settlement.");
+    }
   }
-  if (!entry->termination_requested) {
-    status = dort_set_terminate(entry->run_options, 1);
+  dort_cancel_unlock();
+
+  status = dort_set_terminate(run_options, 1);
+
+  dort_cancel_lock();
+  entry = dort_cancel_find_locked(token, NULL);
+  if (entry != NULL && entry->state == DORT_CANCEL_STATE_REQUESTING &&
+      entry->run_options == run_options) {
+    entry->state = status == NULL ? DORT_CANCEL_STATE_REQUESTED
+                                  : DORT_CANCEL_STATE_REGISTERED;
     if (status == NULL) {
-      entry->termination_requested = 1;
       *out_did_request = 1u;
     }
   }
+  dort_cancel_wake_all();
   dort_cancel_unlock();
   return status;
 }
@@ -1820,6 +1879,7 @@ dort_status_t* DORT_CALL dort_cancel_token_finish(uint64_t token,
                                                   uint32_t* out_was_requested) {
   dort_cancel_entry_t* entry = NULL;
   dort_cancel_entry_t** link = NULL;
+  dort_run_options_t* run_options = NULL;
   dort_status_t* status = NULL;
   if (out_was_requested == NULL) {
     return dort_status_create(
@@ -1835,26 +1895,69 @@ dort_status_t* DORT_CALL dort_cancel_token_finish(uint64_t token,
         "The cancellation token is unknown or already finished.");
   }
   dort_cancel_lock();
+  for (;;) {
+    entry = dort_cancel_find_locked(token, &link);
+    if (entry == NULL || link == NULL) {
+      dort_cancel_unlock();
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_CANCEL_TOKEN_UNKNOWN, 0,
+          "cancel_token_finish",
+          "The cancellation token is unknown or already finished.");
+    }
+    if (entry->state == DORT_CANCEL_STATE_REGISTERED) {
+      *link = entry->next;
+      --dort_cancel_registry_count;
+      run_options = entry->run_options;
+      dort_cancel_wake_all();
+      dort_cancel_unlock();
+      dort_run_options_release(run_options);
+      free(entry);
+      return NULL;
+    }
+    if (entry->state == DORT_CANCEL_STATE_REQUESTED) {
+      entry->state = DORT_CANCEL_STATE_UNSETTING;
+      run_options = entry->run_options;
+      break;
+    }
+    if (!dort_cancel_wait()) {
+      dort_cancel_unlock();
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+          "cancel_token_finish",
+          "Could not wait for cancellation-token ownership settlement.");
+    }
+  }
+  dort_cancel_unlock();
+
+  status = dort_set_terminate(run_options, 0);
+
+  dort_cancel_lock();
   entry = dort_cancel_find_locked(token, &link);
-  if (entry == NULL || link == NULL) {
+  if (status != NULL) {
+    if (entry != NULL && entry->state == DORT_CANCEL_STATE_UNSETTING &&
+        entry->run_options == run_options) {
+      entry->state = DORT_CANCEL_STATE_REQUESTED;
+    }
+    dort_cancel_wake_all();
+    dort_cancel_unlock();
+    return status;
+  }
+  if (entry == NULL || link == NULL ||
+      entry->state != DORT_CANCEL_STATE_UNSETTING ||
+      entry->run_options != run_options) {
+    dort_cancel_wake_all();
     dort_cancel_unlock();
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_CANCEL_TOKEN_UNKNOWN, 0,
         "cancel_token_finish",
-        "The cancellation token is unknown or already finished.");
+        "The cancellation token changed during native settlement.");
   }
-  if (entry->termination_requested) {
-    status = dort_set_terminate(entry->run_options, 0);
-    if (status != NULL) {
-      dort_cancel_unlock();
-      return status;
-    }
-  }
-  *out_was_requested = entry->termination_requested ? 1u : 0u;
+  *out_was_requested = 1u;
   *link = entry->next;
   --dort_cancel_registry_count;
+  dort_cancel_wake_all();
   dort_cancel_unlock();
-  dort_run_options_release(entry->run_options);
+  dort_run_options_release(run_options);
   free(entry);
   return NULL;
 }

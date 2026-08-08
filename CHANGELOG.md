@@ -8,6 +8,15 @@
 - Added worker-isolate sessions, bounded session pools, and an exact public
   cancellation disposition that distinguishes queued removal from an accepted
   active native termination request.
+- Hardened worker failure ordering with acknowledged startup retirement and one
+  ordered error/exit lifecycle channel; hardened cancellation with unlocked
+  per-token native settlement, retryable failures, and non-reused monotonic
+  tokens.
+- Enforced the exact strict-JSON nesting bound for empty containers and added a
+  deterministic generated/mutated protocol corpus.
+- Released bounded ORT-owned provider and model-metadata outputs even when ORT
+  also reports an error, while preventing malformed oversized counts from
+  authorizing pointer-array cleanup iteration.
 - Added execution-provider discovery, normalized diagnostics, strict per-run
   assignment evidence, typed mobile-provider configuration, and CoreML cache
   identity isolation.

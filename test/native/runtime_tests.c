@@ -264,6 +264,50 @@ static int test_provider_discovery_failure(
   return 0;
 }
 
+static int test_provider_partial_owner_cleanup(
+    const char* partial_path,
+    const char* allowed_root) {
+  dort_runtime_config_t config = base_config(DORT_RUNTIME_SOURCE_FILE);
+  dort_runtime_t* runtime = NULL;
+  dort_string_t discovery;
+  dort_status_t* status = NULL;
+
+  config.library_path_utf8 = partial_path;
+  config.allowed_root_utf8 = allowed_root;
+  status = dort_runtime_open(&config, &runtime);
+  CHECK(status == NULL, "partial-discovery fake did not open");
+  CHECK(runtime != NULL, "partial-discovery fake returned a null runtime");
+
+  memset(&discovery, 0xff, sizeof(discovery));
+  status = dort_runtime_available_providers_json(runtime, &discovery);
+  CHECK(
+      discovery.struct_size == (uint32_t)sizeof(discovery) &&
+          discovery.data == NULL && discovery.length == 0u &&
+          discovery.private_owner == NULL,
+      "partial provider-discovery error did not clear its output");
+  CHECK(
+      expect_error(
+          status,
+          DORT_ERROR_DOMAIN_ORT_STATUS,
+          DORT_ERROR_PROVIDER_UNSUPPORTED,
+          "runtime_available_providers_json",
+          "fake ONNX Runtime error") == 0,
+      "partial provider-discovery error assertion failed");
+
+  memset(&discovery, 0, sizeof(discovery));
+  status = dort_runtime_available_providers_json(runtime, &discovery);
+  CHECK(
+      status == NULL,
+      "provider discovery did not recover after releasing partial output");
+  CHECK(
+      discovery.data != NULL &&
+          strstr((const char*)discovery.data, "CPUExecutionProvider") != NULL,
+      "recovered provider discovery omitted its provider array");
+  dort_string_release(&discovery);
+  dort_runtime_release(runtime);
+  return 0;
+}
+
 typedef struct concurrent_open_context {
   const char* good_path;
   const char* allowed_root;
@@ -365,7 +409,7 @@ static int test_loader_failures(
 
 int main(int argc, char** argv) {
   CHECK(
-      argc == 7,
+      argc == 9,
       "expected paths for good/root/missing/unsupported/discovery fakes");
   CHECK(test_build_contract() == 0, "build contract tests failed");
   CHECK(test_closed_config_validation(argv[1]) == 0, "configuration tests failed");
@@ -376,6 +420,9 @@ int main(int argc, char** argv) {
   CHECK(
       test_provider_discovery_failure(argv[5], argv[6]) == 0,
       "provider discovery guard tests failed");
+  CHECK(
+      test_provider_partial_owner_cleanup(argv[7], argv[8]) == 0,
+      "provider partial-owner cleanup tests failed");
   printf("Fonix native ABI/runtime tests passed.\n");
   return 0;
 }

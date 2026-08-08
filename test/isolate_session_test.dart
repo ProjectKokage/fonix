@@ -970,7 +970,13 @@ void main() {
     test('distinguishes startup, crash, and protocol failures', () async {
       await expectLater(
         spawnOrtIsolateProtocolHarnessForTesting(scenario: 'startupError'),
-        throwsA(isA<OrtWorkerStartupException>()),
+        throwsA(
+          isA<OrtWorkerStartupException>().having(
+            (OrtWorkerStartupException error) => error.message,
+            'exact startup error',
+            'Synthetic bounded startup failure.',
+          ),
+        ),
       );
       await expectLater(
         spawnOrtIsolateProtocolHarnessForTesting(scenario: 'startupExit'),
@@ -1024,6 +1030,150 @@ void main() {
         );
       }
     });
+
+    test(
+      'worker-authored startup error is acknowledged before cleanup exit',
+      () async {
+        final ReceivePort lifecyclePort = ReceivePort();
+        final Completer<SendPort> startupGate = Completer<SendPort>();
+        final Completer<void> workerDisposed = Completer<void>();
+        final Completer<void> controllerClosed = Completer<void>();
+        final List<String> workerEvents = <String>[];
+        final List<String> controllerEvents = <String>[];
+        final StreamSubscription<Object?> subscription = lifecyclePort.listen((
+          Object? event,
+        ) {
+          if (event case <Object?, Object?>{
+            'type': 'startupGate',
+            'port': final SendPort port,
+          }) {
+            startupGate.complete(port);
+            return;
+          }
+          if (event is String) {
+            workerEvents.add(event);
+            if (event == 'disposed' && !workerDisposed.isCompleted) {
+              workerDisposed.complete();
+            }
+          }
+        });
+        void observeController(String event) {
+          controllerEvents.add(event);
+          if (event == 'connectionsClosed' && !controllerClosed.isCompleted) {
+            controllerClosed.complete();
+          }
+        }
+
+        try {
+          final Future<OrtIsolateSession> spawning =
+              spawnOrtIsolateProtocolHarnessForTesting(
+                scenario: 'startupGateError',
+                startupLifecyclePort: lifecyclePort.sendPort,
+                onControllerEvent: observeController,
+              );
+          final SendPort gate = await startupGate.future.timeout(
+            const Duration(seconds: 2),
+          );
+          gate.send('continue');
+          await expectLater(
+            spawning,
+            throwsA(
+              isA<OrtWorkerStartupException>().having(
+                (OrtWorkerStartupException error) => error.message,
+                'exact startup error',
+                'Synthetic delayed bounded startup failure.',
+              ),
+            ),
+          );
+          await Future.wait<void>(<Future<void>>[
+            workerDisposed.future,
+            controllerClosed.future,
+          ]).timeout(const Duration(seconds: 2));
+
+          expect(workerEvents, <String>[
+            'startupError',
+            'startupRetired:retire',
+            'disposed',
+          ]);
+          expect(controllerEvents, <String>[
+            'callerAbandoned',
+            'startupRetireSent',
+            'connectionsClosed',
+          ]);
+        } finally {
+          await subscription.cancel();
+          lifecyclePort.close();
+        }
+      },
+    );
+
+    test('uncaught startup error remains authoritative over exit', () async {
+      final Completer<void> controllerClosed = Completer<void>();
+      final List<String> controllerEvents = <String>[];
+      void observeController(String event) {
+        controllerEvents.add(event);
+        if (event == 'connectionsClosed' && !controllerClosed.isCompleted) {
+          controllerClosed.complete();
+        }
+      }
+
+      await expectLater(
+        spawnOrtIsolateProtocolHarnessForTesting(
+          scenario: 'startupCrash',
+          onControllerEvent: observeController,
+        ),
+        throwsA(
+          isA<OrtWorkerStartupException>().having(
+            (OrtWorkerStartupException error) => error.message,
+            'uncaught isolate error',
+            contains('Synthetic uncaught startup isolate failure.'),
+          ),
+        ),
+      );
+      await controllerClosed.future.timeout(const Duration(seconds: 2));
+      expect(controllerEvents, <String>[
+        'callerAbandoned',
+        'connectionsClosed',
+      ]);
+    });
+
+    test(
+      'uncaught run error retains active bytes until ordered exit',
+      () async {
+        final OrtIsolateSession worker =
+            await spawnOrtIsolateProtocolHarnessForTesting(
+              scenario: 'crashWithError',
+              maxMessageBytes: 1024,
+              maxOutstandingInputBytes: 13,
+            );
+        final OrtIsolateRun run = worker.startRun(
+          inputs: <String, OrtIsolateValue>{
+            'X': _tensor(<double>[1]),
+          },
+        );
+        final Matcher exactCrash = isA<OrtWorkerCrashedException>().having(
+          (OrtWorkerCrashedException error) => error.message,
+          'uncaught isolate error',
+          contains('Synthetic uncaught run isolate failure.'),
+        );
+        final Completer<(int, bool)> failureSnapshot = Completer<(int, bool)>();
+        await run.result.then<void>(
+          (_) => fail('The crashing worker unexpectedly returned a result.'),
+          onError: (Object error, StackTrace stackTrace) {
+            expect(error, exactCrash);
+            failureSnapshot.complete((
+              worker.outstandingInputBytes,
+              worker.isClosed,
+            ));
+          },
+        );
+        expect(await failureSnapshot.future, (13, false));
+
+        await expectLater(worker.close(), throwsA(exactCrash));
+        expect(worker.outstandingInputBytes, 0);
+        expect(worker.isClosed, isTrue);
+      },
+    );
 
     test(
       'malformed reply fails the run before ordered worker retirement',

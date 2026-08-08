@@ -43,6 +43,15 @@ dort_status_t* dort_session_create(
 
 The status copies the ORT message before releasing `OrtStatus`. It must survive independently of ORT object lifetime.
 
+An ORT error does not erase a non-null owner returned through another output.
+The shim releases such partial provider-discovery or model-metadata owners when
+their pointer/count contract is bounded and internally consistent. It never
+walks an ORT-returned pointer array until the reported count is representable
+and within the ABI limit. If a corrupt metadata count is oversized, cleanup may
+free only the separately known outer allocation; it must not index the claimed
+entries. An invalid provider pointer/count pair is not passed back to ORT's
+counted release API.
+
 Suggested domains:
 
 - shim validation;
@@ -303,7 +312,18 @@ tokens fail closed. `finish` is called only after `Run` returns. If termination
 was requested, it unsets termination before removing the entry and releasing
 the registry retain. If unset fails, the entry and retain deliberately remain
 live rather than freeing state that cannot be proven safe. The registry is
-bounded to 1024 entries and reports a distinct full-registry error.
+bounded to 1024 entries and reports a distinct full-registry error. Tokens are
+monotonic and never wrap or alias a stale token; exhausting `[1, INT64_MAX]`
+permanently closes registration for that process and reports the same bounded
+exhaustion error.
+
+The registry lock protects only membership and the closed
+`registered`/`requesting`/`requested`/`unsetting` state machine. Native
+`RunOptionsSetTerminate` and `RunOptionsUnsetTerminate` execute without that
+process-wide lock. Same-token callers wait and re-resolve membership after the
+in-flight native call; unrelated tokens continue independently. A failed set
+restores the registered state for retry, while a failed unset restores the
+requested state and preserves the authoritative registry retain.
 
 Cross-thread cancellation follows ORT's documented thread-safety and maintains
 the run-options lifetime until the run exits. A terminated run-options object

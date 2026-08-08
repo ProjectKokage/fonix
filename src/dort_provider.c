@@ -56,11 +56,12 @@ dort_status_t* DORT_CALL dort_runtime_available_providers_json(
 
   ort_status = api->GetAvailableProviders(&providers, &provider_count);
   if (ort_status != NULL) {
-    return dort_status_from_ort(
+    status = dort_status_from_ort(
         runtime,
         ort_status,
         DORT_ERROR_PROVIDER_UNSUPPORTED,
         "runtime_available_providers_json");
+    goto cleanup;
   }
   if (provider_count < 0 || provider_count > DORT_MAX_DISCOVERED_PROVIDERS ||
       (provider_count == 0) != (providers == NULL)) {
@@ -209,7 +210,10 @@ cleanup:
   }
   free(escaped);
   free(json);
-  if (provider_count >= 0 && (providers != NULL || provider_count == 0)) {
+  if (provider_count >= 0 &&
+      provider_count <= DORT_MAX_DISCOVERED_PROVIDERS &&
+      ((provider_count == 0 && providers == NULL) ||
+       (provider_count > 0 && providers != NULL))) {
     release_status = api->ReleaseAvailableProviders(providers, provider_count);
     if (release_status != NULL) {
       if (status == NULL) {

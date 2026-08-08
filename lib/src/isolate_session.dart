@@ -110,11 +110,9 @@ final class OrtIsolateSession {
   OrtIsolateSession._({
     required SendPort commandPort,
     required ReceivePort responsePort,
-    required ReceivePort errorPort,
-    required ReceivePort exitPort,
+    required ReceivePort lifecyclePort,
     required StreamSubscription<Object?> responseSubscription,
-    required StreamSubscription<Object?> errorSubscription,
-    required StreamSubscription<Object?> exitSubscription,
+    required StreamSubscription<Object?> lifecycleSubscription,
     required List<String> inputNames,
     required List<String> outputNames,
     required this.diagnostics,
@@ -124,11 +122,9 @@ final class OrtIsolateSession {
     required bool Function(int token) requestCancelToken,
   }) : _commandPort = commandPort,
        _responsePort = responsePort,
-       _errorPort = errorPort,
-       _exitPort = exitPort,
+       _lifecyclePort = lifecyclePort,
        _responseSubscription = responseSubscription,
-       _errorSubscription = errorSubscription,
-       _exitSubscription = exitSubscription,
+       _lifecycleSubscription = lifecycleSubscription,
        _requestCancelToken = requestCancelToken,
        inputNames = List<String>.unmodifiable(inputNames),
        outputNames = List<String>.unmodifiable(outputNames);
@@ -176,11 +172,9 @@ final class OrtIsolateSession {
 
   final SendPort _commandPort;
   final ReceivePort _responsePort;
-  final ReceivePort _errorPort;
-  final ReceivePort _exitPort;
+  final ReceivePort _lifecyclePort;
   final StreamSubscription<Object?> _responseSubscription;
-  final StreamSubscription<Object?> _errorSubscription;
-  final StreamSubscription<Object?> _exitSubscription;
+  final StreamSubscription<Object?> _lifecycleSubscription;
   final bool Function(int token) _requestCancelToken;
   final ListQueue<_PendingIsolateRun> _queue = ListQueue<_PendingIsolateRun>();
   final List<String> inputNames;
@@ -728,11 +722,9 @@ final class OrtIsolateSession {
     if (_connectionsClosed) return;
     _connectionsClosed = true;
     unawaited(_responseSubscription.cancel());
-    unawaited(_errorSubscription.cancel());
-    unawaited(_exitSubscription.cancel());
+    unawaited(_lifecycleSubscription.cancel());
     _responsePort.close();
-    _errorPort.close();
-    _exitPort.close();
+    _lifecyclePort.close();
   }
 }
 
@@ -1040,8 +1032,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   Future<void>? spawnGateForTesting,
 }) async {
   final ReceivePort responsePort = ReceivePort();
-  final ReceivePort errorPort = ReceivePort();
-  final ReceivePort exitPort = ReceivePort();
+  final ReceivePort lifecyclePort = ReceivePort();
   final Completer<OrtIsolateSession> ready = Completer<OrtIsolateSession>();
   Isolate? isolate;
   OrtIsolateSession? session;
@@ -1050,10 +1041,10 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   Timer? startupTimer;
   var callerAbandoned = false;
   var bootstrapCloseCommandSent = false;
+  var bootstrapRetireCommandSent = false;
   var bootstrapConnectionsClosed = false;
   late final StreamSubscription<Object?> responseSubscription;
-  late final StreamSubscription<Object?> errorSubscription;
-  late final StreamSubscription<Object?> exitSubscription;
+  late final StreamSubscription<Object?> lifecycleSubscription;
 
   void emitControllerEvent(String event) {
     try {
@@ -1068,11 +1059,9 @@ Future<OrtIsolateSession> _spawnOrtWorker({
     bootstrapConnectionsClosed = true;
     startupTimer?.cancel();
     unawaited(responseSubscription.cancel());
-    unawaited(errorSubscription.cancel());
-    unawaited(exitSubscription.cancel());
+    unawaited(lifecycleSubscription.cancel());
     responsePort.close();
-    errorPort.close();
-    exitPort.close();
+    lifecyclePort.close();
     emitControllerEvent('connectionsClosed');
   }
 
@@ -1086,13 +1075,31 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   }
 
   void sendBootstrapClose(SendPort commandPort) {
-    if (bootstrapCloseCommandSent || bootstrapConnectionsClosed) return;
+    if (bootstrapCloseCommandSent ||
+        bootstrapRetireCommandSent ||
+        bootstrapConnectionsClosed) {
+      return;
+    }
     bootstrapCloseCommandSent = true;
     commandPort.send(<String, Object?>{
       'version': _ortWorkerProtocolVersion,
       'type': 'close',
     });
     emitControllerEvent('gracefulCloseSent');
+  }
+
+  void sendBootstrapRetire(SendPort commandPort) {
+    if (bootstrapRetireCommandSent ||
+        bootstrapCloseCommandSent ||
+        bootstrapConnectionsClosed) {
+      return;
+    }
+    bootstrapRetireCommandSent = true;
+    commandPort.send(<String, Object?>{
+      'version': _ortWorkerProtocolVersion,
+      'type': 'retire',
+    });
+    emitControllerEvent('startupRetireSent');
   }
 
   responseSubscription = responsePort.listen((Object? rawMessage) {
@@ -1143,9 +1150,15 @@ Future<OrtIsolateSession> _spawnOrtWorker({
             ),
           ),
         );
-        // The worker sends startupError before its finally block disposes the
-        // native owners. Closing these controller ports does not interrupt it.
-        closeBootstrapConnections();
+        // The worker keeps the authoritative command port alive until this
+        // acknowledgement. It then disposes every native owner before exit,
+        // which is the controller's cleanup boundary.
+        sendBootstrapRetire(
+          ownershipCommandPort ??
+              (throw const FormatException(
+                'Worker startup failure has no authoritative ownership port.',
+              )),
+        );
         return;
       }
       if (type != 'ready') {
@@ -1209,11 +1222,9 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       session = OrtIsolateSession._(
         commandPort: authoritativeCommandPort,
         responsePort: responsePort,
-        errorPort: errorPort,
-        exitPort: exitPort,
+        lifecyclePort: lifecyclePort,
         responseSubscription: responseSubscription,
-        errorSubscription: errorSubscription,
-        exitSubscription: exitSubscription,
+        lifecycleSubscription: lifecycleSubscription,
         inputNames: inputNames,
         outputNames: outputNames,
         diagnostics: diagnostics,
@@ -1243,23 +1254,24 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       }
     }
   });
-  errorSubscription = errorPort.listen((Object? rawError) {
+  lifecycleSubscription = lifecyclePort.listen((Object? event) {
     final OrtIsolateSession? current = session;
-    if (current != null) {
-      current._handleWorkerError(rawError);
-    } else {
-      abandonCaller(
-        OrtWorkerStartupException(
-          message:
-              'Worker isolate crashed during startup: '
-              '${_boundedWorkerCrash(rawError)}',
-        ),
-      );
-      closeBootstrapConnections();
+    if (event != null) {
+      if (current != null) {
+        current._handleWorkerError(event);
+      } else {
+        abandonCaller(
+          OrtWorkerStartupException(
+            message:
+                'Worker isolate crashed during startup: '
+                '${_boundedWorkerCrash(event)}',
+          ),
+        );
+        // Fatal isolate errors are followed by an exit event on this same
+        // ordered port. Retain the controller ports until that cleanup boundary.
+      }
+      return;
     }
-  });
-  exitSubscription = exitPort.listen((Object? _) {
-    final OrtIsolateSession? current = session;
     if (current != null) {
       current._handleWorkerExit();
     } else {
@@ -1304,8 +1316,11 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       entrypoint,
       initialMessage,
       paused: true,
-      onError: errorPort.sendPort,
-      onExit: exitPort.sendPort,
+      // Dart's isolate error and exit notifications are independently ordered
+      // only when they target one mailbox. The non-null error must be observed
+      // before the null exit so exact crash diagnostics remain authoritative.
+      onError: lifecyclePort.sendPort,
+      onExit: lifecyclePort.sendPort,
       errorsAreFatal: true,
       debugName: 'fonix-ort-worker',
     );
@@ -3315,6 +3330,25 @@ _OpenedOrtWorker _openOrtWorkerResources(Map<Object?, Object?> startup) {
   }
 }
 
+Future<String> _awaitOrtWorkerStartupRetirement(ReceivePort commandPort) async {
+  await for (final Object? rawCommand in commandPort) {
+    final Map<Object?, Object?> command = _workerMap(rawCommand);
+    _requireWorkerVersion(command);
+    final String type = _workerString(command, 'type');
+    _requireWorkerCommandKeys(command, type);
+    if (type != 'close' && type != 'retire') {
+      throw const FormatException(
+        'Startup-failed worker received a non-retirement command.',
+      );
+    }
+    commandPort.close();
+    return type;
+  }
+  throw const FormatException(
+    'Startup-failed worker lost its retirement command port.',
+  );
+}
+
 void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
   SendPort? responsePort;
   ReceivePort? commandPort;
@@ -3451,6 +3485,13 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
       'type': 'startupError',
       'message': _safeWorkerFailureText(error),
     });
+    final ReceivePort? failedCommandPort = commandPort;
+    if (responsePort != null && failedCommandPort != null) {
+      // Keep this isolate alive until the controller has observed the exact
+      // startup failure. The finally block below remains the sole owner of
+      // native cleanup, and onExit is published only after it completes.
+      await _awaitOrtWorkerStartupRetirement(failedCommandPort);
+    }
   } finally {
     commandPort?.close();
     session?.dispose();
@@ -3732,10 +3773,12 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     'echo',
     'delay',
     'crash',
+    'crashWithError',
     'stale',
     'futureReply',
     'startupError',
     'startupExit',
+    'startupCrash',
     'startupGateReady',
     'startupGateError',
     'startupGateExit',
@@ -3858,13 +3901,17 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     commands.close();
     return;
   }
+  if (scenario == 'startupCrash') {
+    commands.close();
+    throw StateError('Synthetic uncaught startup isolate failure.');
+  }
   if (scenario == 'startupError') {
     responsePort.send(<String, Object?>{
       'version': _ortWorkerProtocolVersion,
       'type': 'startupError',
       'message': 'Synthetic bounded startup failure.',
     });
-    commands.close();
+    await _awaitOrtWorkerStartupRetirement(commands);
     return;
   }
   if (const <String>{
@@ -3894,7 +3941,11 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'message': 'Synthetic delayed bounded startup failure.',
       });
       startupLifecyclePort.send('startupError');
-      commands.close();
+      final String acknowledgement = await _awaitOrtWorkerStartupRetirement(
+        commands,
+      );
+      startupLifecyclePort.send('startupRetired:$acknowledgement');
+      startupLifecyclePort.send('disposed');
       return;
     }
   }
@@ -3986,6 +4037,9 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       });
     }
 
+    if (scenario == 'crashWithError') {
+      throw StateError('Synthetic uncaught run isolate failure.');
+    }
     if (scenario == 'crash') {
       Isolate.current.kill(priority: Isolate.immediate);
       return;

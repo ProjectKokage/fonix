@@ -3387,6 +3387,7 @@ static dort_status_t* dort_initialize_model_metadata(dort_session_t* session) {
   int64_t key_count_signed = 0;
   int64_t version = 0;
   size_t key_count = 0u;
+  size_t key_cleanup_count = 0u;
   size_t index = 0u;
   memset(&builder, 0, sizeof(builder));
 
@@ -3406,19 +3407,22 @@ static dort_status_t* dort_initialize_model_metadata(dort_session_t* session) {
                      "session_model_metadata");
   }
   ort_status = api->SessionGetModelMetadata(session->session, &metadata);
-  if (ort_status != NULL || metadata == NULL) {
-    return ort_status == NULL
-               ? dort_status_create(
-                     DORT_ERROR_DOMAIN_ORT_API,
-                     DORT_ERROR_MODEL_INVALID,
-                     0,
-                     "session_model_metadata",
-                     "ONNX Runtime returned null model metadata.")
-               : dort_status_from_ort(
-                     session->runtime,
-                     ort_status,
-                     DORT_ERROR_MODEL_INVALID,
-                     "session_model_metadata");
+  if (ort_status != NULL) {
+    status = dort_status_from_ort(
+        session->runtime,
+        ort_status,
+        DORT_ERROR_MODEL_INVALID,
+        "session_model_metadata");
+    goto cleanup;
+  }
+  if (metadata == NULL) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_ORT_API,
+        DORT_ERROR_MODEL_INVALID,
+        0,
+        "session_model_metadata",
+        "ONNX Runtime returned null model metadata.");
+    goto cleanup;
   }
   if (!dort_json_append(&builder, "{\"schemaVersion\":1")) {
     status = dort_status_create(
@@ -3501,6 +3505,12 @@ static dort_status_t* dort_initialize_model_metadata(dort_session_t* session) {
 
   ort_status = api->ModelMetadataGetCustomMetadataMapKeys(
       metadata, allocator, &keys, &key_count_signed);
+  if (key_count_signed > 0 &&
+      (uint64_t)key_count_signed <= (uint64_t)SIZE_MAX &&
+      (uint64_t)key_count_signed <= DORT_MAX_CUSTOM_METADATA_ENTRIES &&
+      keys != NULL) {
+    key_cleanup_count = (size_t)key_count_signed;
+  }
   if (ort_status != NULL) {
     status = dort_status_from_ort(
         session->runtime,
@@ -3631,8 +3641,10 @@ static dort_status_t* dort_initialize_model_metadata(dort_session_t* session) {
 
 cleanup:
   dort_allocator_free_ignored(api, allocator, value);
-  dort_free_model_metadata_keys(api, allocator, keys, key_count);
-  api->ReleaseModelMetadata(metadata);
+  dort_free_model_metadata_keys(api, allocator, keys, key_cleanup_count);
+  if (metadata != NULL) {
+    api->ReleaseModelMetadata(metadata);
+  }
   free(builder.data);
   return status;
 }

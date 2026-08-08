@@ -80,6 +80,7 @@ endfunction()
 add_fake_ort(fake_ort_good 1 "fake/allowed")
 add_fake_ort(fake_ort_unsupported 2 "fake/unsupported")
 add_fake_ort(fake_ort_bad_discovery 3 "fake/bad_discovery")
+add_fake_ort(fake_ort_partial_discovery 4 "fake/partial_discovery")
 
 add_library(fake_ort_missing_symbol SHARED fake_missing_symbol.c)
 set_target_properties(
@@ -187,6 +188,8 @@ add_test(
     "$<TARGET_FILE:fake_ort_unsupported>"
     "$<TARGET_FILE:fake_ort_bad_discovery>"
     "$<TARGET_FILE_DIR:fake_ort_bad_discovery>"
+    "$<TARGET_FILE:fake_ort_partial_discovery>"
+    "$<TARGET_FILE_DIR:fake_ort_partial_discovery>"
 )
 
 add_executable(fonix_phase2_guard_tests phase2_guard_tests.c)
@@ -237,6 +240,7 @@ target_compile_definitions(
   FONIX_RUNTIME_PROFILE_EXTERNAL=1
   FONIX_RUNTIME_PROFILE="external"
   FONIX_SHIM_BUILD_ID="native-tests"
+  DORT_CANCEL_TOKEN_UPPER_BOUND=32u
 )
 target_link_libraries(fonix_cancel_during_run_tests PRIVATE Threads::Threads)
 fonix_strict_target(fonix_cancel_during_run_tests)

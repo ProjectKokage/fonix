@@ -4,6 +4,18 @@
 #include <stdio.h>
 #include <string.h>
 
+enum {
+  FAKE_SESSION_NULL_METADATA = 0,
+  FAKE_SESSION_OUTPUT_COUNT_ERROR = 1,
+  FAKE_SESSION_OVERSIZED_INPUT_COUNT = 2,
+  FAKE_SESSION_OVERSIZED_OUTPUT_COUNT = 3,
+  FAKE_SESSION_METADATA_ERROR_WITH_OWNER = 4,
+  FAKE_SESSION_VERIFY_METADATA_OWNER = 5,
+  FAKE_SESSION_METADATA_KEYS_ERROR_WITH_OWNERS = 6,
+  FAKE_SESSION_VERIFY_METADATA_KEY_OWNERS = 7,
+  FAKE_SESSION_OVERSIZED_METADATA_KEY_COUNT = 8,
+};
+
 #define CHECK(condition, message)                                               \
   do {                                                                          \
     if (!(condition)) {                                                         \
@@ -114,7 +126,70 @@ int main(int argc, char** argv) {
       status == NULL && options != NULL,
       "could not create fake session options");
 
-  model_data[0] = 1u;
+  model_data[0] = FAKE_SESSION_METADATA_ERROR_WITH_OWNER;
+  session = (dort_session_t*)(uintptr_t)1u;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(session == NULL, "model-metadata owner error returned a session");
+  CHECK(status != NULL, "model-metadata owner error returned success");
+  CHECK(
+      dort_status_code(status) == DORT_ERROR_MODEL_INVALID,
+      "model-metadata owner error returned the wrong error code");
+  dort_status_release(status);
+  status = NULL;
+
+  model_data[0] = FAKE_SESSION_VERIFY_METADATA_OWNER;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(
+      status == NULL && session != NULL,
+      "model metadata was not released after an error with an owner");
+  dort_session_release(session);
+  session = NULL;
+
+  model_data[0] = FAKE_SESSION_METADATA_KEYS_ERROR_WITH_OWNERS;
+  session = (dort_session_t*)(uintptr_t)1u;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(session == NULL, "metadata-key owner error returned a session");
+  CHECK(status != NULL, "metadata-key owner error returned success");
+  CHECK(
+      dort_status_code(status) == DORT_ERROR_MODEL_INVALID,
+      "metadata-key owner error returned the wrong error code");
+  dort_status_release(status);
+  status = NULL;
+
+  model_data[0] = FAKE_SESSION_VERIFY_METADATA_KEY_OWNERS;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(
+      status == NULL && session != NULL,
+      "metadata keys were not released after an error with partial owners");
+  dort_session_release(session);
+  session = NULL;
+
+  model_data[0] = FAKE_SESSION_OVERSIZED_METADATA_KEY_COUNT;
+  session = (dort_session_t*)(uintptr_t)1u;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(session == NULL, "oversized metadata-key count returned a session");
+  CHECK(status != NULL, "oversized metadata-key count returned success");
+  CHECK(
+      dort_status_code(status) == DORT_ERROR_LIMIT_EXCEEDED,
+      "oversized metadata-key count returned the wrong error code");
+  dort_status_release(status);
+  status = NULL;
+
+  model_data[0] = FAKE_SESSION_VERIFY_METADATA_KEY_OWNERS;
+  status = dort_session_create_from_bytes(
+      runtime, options, model_data, sizeof(model_data), &session);
+  CHECK(
+      status == NULL && session != NULL,
+      "oversized metadata-key cleanup retained its outer owner");
+  dort_session_release(session);
+  session = NULL;
+
+  model_data[0] = FAKE_SESSION_OUTPUT_COUNT_ERROR;
   session = (dort_session_t*)(uintptr_t)1u;
   status = dort_session_create_from_bytes(
       runtime, options, model_data, sizeof(model_data), &session);
@@ -126,7 +201,7 @@ int main(int argc, char** argv) {
   dort_status_release(status);
   status = NULL;
 
-  model_data[0] = 2u;
+  model_data[0] = FAKE_SESSION_OVERSIZED_INPUT_COUNT;
   session = (dort_session_t*)(uintptr_t)1u;
   status = dort_session_create_from_bytes(
       runtime, options, model_data, sizeof(model_data), &session);
@@ -138,7 +213,7 @@ int main(int argc, char** argv) {
   dort_status_release(status);
   status = NULL;
 
-  model_data[0] = 3u;
+  model_data[0] = FAKE_SESSION_OVERSIZED_OUTPUT_COUNT;
   session = (dort_session_t*)(uintptr_t)1u;
   status = dort_session_create_from_bytes(
       runtime, options, model_data, sizeof(model_data), &session);
@@ -150,7 +225,7 @@ int main(int argc, char** argv) {
   dort_status_release(status);
   status = NULL;
 
-  model_data[0] = 0u;
+  model_data[0] = FAKE_SESSION_NULL_METADATA;
   status = dort_session_create_from_bytes(
       runtime, options, model_data, sizeof(model_data), &session);
   CHECK(session == NULL, "invalid null model metadata returned a session");

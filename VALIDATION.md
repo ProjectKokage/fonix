@@ -107,6 +107,22 @@ before removing the retained private directory. The Linux TSan workflow was
 not executed from this macOS host; the same 15-test TSan suite passed locally
 with AppleClang and the exact pinned ORT.
 
+The follow-up portable-lifecycle checkpoint orders worker errors and exit on a
+single lifecycle channel, waits for worker-authored startup retirement, and
+holds active input reservations until observed exit after an uncaught failure.
+The native cancellation registry executes ORT termination set/unset calls
+outside its process-wide lock while serializing same-token settlement,
+preserves retry ownership after either native failure, and permanently
+exhausts rather than wraps its monotonic token space. Strict JSON now enforces
+the exact configured container depth for empty leaves and passes 4,096
+deterministic generated mutations. Provider discovery and model/custom
+metadata fault injection prove that bounded partial ORT owners are released on
+error without allowing corrupt oversized counts to authorize entry iteration.
+The integrated exact-ORT native suite passed 15/15 in each of normal,
+Address/UndefinedBehavior, and ThreadSanitizer modes on this host. Apple
+LeakSanitizer remains unavailable, and the prebuilt ORT binary itself is not
+sanitizer-instrumented.
+
 ## Implemented boundary
 
 The checked source contains the complete app-owned wrapper layer described by
@@ -183,10 +199,10 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 253 passed, 17 explicitly provisioned skips on exact Dart 3.11.5 |
+| Ordinary offline Dart suite | 291 passed, 9 explicitly provisioned skips on exact Dart 3.11.5 with strict fake and exact ORT fixtures provisioned |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
-| Native C ABI baseline | 16/16 focused tests and the 13/13 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `1845abe296e6ab1f655c4b966c2aa418c4a0e734b5728befd8fcb10e9c29f689` and canonical file SHA-256 `85aa01d63fb858523ef55a24fce08e6dd5a1e6e2be5aedc7bb342c089ad69bb8` |
-| Worker lifecycle with strict fake and exact ORT | 26/26 passed |
+| Native C ABI baseline | 16/16 focused tests and the 13/13 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `d3b63b0c27b70ee0e0aff88e0808f069894354b66ff5f2960472f9170b423772` and canonical file SHA-256 `fa43629f0667dcbb2ce762db7095798ec8387cbd72832855cd88fbeb7f01f982` |
+| Worker lifecycle and strict JSON with strict fake and exact ORT | 54/54 focused tests passed, including ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |

@@ -522,9 +522,20 @@ output names in the worker request limit, and retires a worker
 through a later valid cleanup-only ready port after malformed startup
 ownership. Focused regressions cover each ownership and resource boundary;
 the shared-value regression is mandatory in a separate Linux x64 TSan CI lane
-and also passed locally with AppleClang TSan. Fuzz expansion, broader seeded
-lifecycle stress, and the remaining cancellation registry lock-contention work
-continue within this phase.
+and also passed locally with AppleClang TSan.
+
+The follow-up portable-lifecycle checkpoint moves native termination set/unset
+calls outside the process-wide cancellation-registry lock while serializing
+same-token settlement, preserves retry ownership after either native failure,
+and permanently exhausts rather than wraps the monotonic token space. Worker
+startup errors now require a retirement acknowledgement, uncaught errors and
+exit share one ordered lifecycle port, and active input reservations remain
+held until observed exit. The strict JSON pre-decoder enforces its exact
+container-depth bound even for empty leaves and has a deterministic mutation
+corpus. Provider discovery and model/custom-metadata fault tests now require
+bounded partial owners to be released on error and prove an oversized returned
+count cannot authorize entry iteration. Broader seeded lifecycle stress and
+further allocation fault injection continue within this phase.
 
 ## Suggested issue breakdown
 

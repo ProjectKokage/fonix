@@ -4,15 +4,23 @@
 #include <stdlib.h>
 
 #if FONIX_FAKE_ORT_BEHAVIOR != 1 && FONIX_FAKE_ORT_BEHAVIOR != 2 && \
-    FONIX_FAKE_ORT_BEHAVIOR != 3
-#error "FONIX_FAKE_ORT_BEHAVIOR must be 1 (good), 2 (unsupported API), or 3 (bad discovery)"
+    FONIX_FAKE_ORT_BEHAVIOR != 3 && FONIX_FAKE_ORT_BEHAVIOR != 4
+#error "FONIX_FAKE_ORT_BEHAVIOR must be 1 (good), 2 (unsupported API), 3 (bad discovery), or 4 (partial discovery error)"
 #endif
 
-#if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3
+#if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3 || \
+    FONIX_FAKE_ORT_BEHAVIOR == 4
 #define FONIX_FAKE_API fake_good_api
 #define FONIX_FAKE_API_BASE fake_good_api_base
 #define FONIX_FAKE_GET_API fake_good_get_api
 #define FONIX_FAKE_GET_VERSION fake_good_get_version
+#if FONIX_FAKE_ORT_BEHAVIOR == 4
+static int fake_provider_owner_outstanding = 0;
+static int fake_partial_provider_fault_emitted = 0;
+#endif
+#if FONIX_FAKE_ORT_BEHAVIOR == 3
+static char* fake_oversized_provider_array[17] = {NULL};
+#endif
 static OrtStatus* ORT_API_CALL fake_create_env(
     OrtLoggingLevel log_severity_level,
     const char* log_id,
@@ -115,13 +123,24 @@ static OrtStatus* ORT_API_CALL fake_get_available_providers(
     char*** out_ptr,
     int* provider_length) NO_EXCEPTION {
   char** providers = NULL;
-  int count = FONIX_FAKE_ORT_BEHAVIOR == 3 ? 17 : 2;
+  int count = 2;
   int index = 0;
   if (out_ptr == NULL || provider_length == NULL) {
     return (OrtStatus*)(uintptr_t)1u;
   }
   *out_ptr = NULL;
   *provider_length = 0;
+#if FONIX_FAKE_ORT_BEHAVIOR == 3
+  *out_ptr = fake_oversized_provider_array;
+  *provider_length = 17;
+  return NULL;
+#endif
+#if FONIX_FAKE_ORT_BEHAVIOR == 4
+  if (fake_partial_provider_fault_emitted != 0 &&
+      fake_provider_owner_outstanding != 0) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+#endif
   providers = (char**)calloc((size_t)count, sizeof(*providers));
   if (providers == NULL) {
     return (OrtStatus*)(uintptr_t)1u;
@@ -141,6 +160,13 @@ static OrtStatus* ORT_API_CALL fake_get_available_providers(
   }
   *out_ptr = providers;
   *provider_length = count;
+#if FONIX_FAKE_ORT_BEHAVIOR == 4
+  fake_provider_owner_outstanding = 1;
+  if (fake_partial_provider_fault_emitted == 0) {
+    fake_partial_provider_fault_emitted = 1;
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+#endif
   return NULL;
 }
 
@@ -152,6 +178,9 @@ static OrtStatus* ORT_API_CALL fake_release_available_providers(
     free(ptr[index]);
   }
   free(ptr);
+#if FONIX_FAKE_ORT_BEHAVIOR == 4
+  fake_provider_owner_outstanding = 0;
+#endif
   return NULL;
 }
 
@@ -177,7 +206,8 @@ static const OrtApi FONIX_FAKE_API = {
 #endif
 
 static const OrtApi* ORT_API_CALL FONIX_FAKE_GET_API(uint32_t version) NO_EXCEPTION {
-#if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3
+#if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3 || \
+    FONIX_FAKE_ORT_BEHAVIOR == 4
   return version == 27u ? &FONIX_FAKE_API : NULL;
 #else
   (void)version;
@@ -186,7 +216,8 @@ static const OrtApi* ORT_API_CALL FONIX_FAKE_GET_API(uint32_t version) NO_EXCEPT
 }
 
 static const char* ORT_API_CALL FONIX_FAKE_GET_VERSION(void) NO_EXCEPTION {
-#if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3
+#if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3 || \
+    FONIX_FAKE_ORT_BEHAVIOR == 4
   return "1.27.99-fonix-test";
 #else
   return "1.26.99-fonix-test";

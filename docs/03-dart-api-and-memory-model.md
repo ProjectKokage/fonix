@@ -178,10 +178,12 @@ bootstrap ports and kills the late isolate while it is still paused, so an
 abandoned caller cannot start native initialization. A validated `closed`
 receipt is emitted only after native owners are disposed;
 the controller then sends `retire`, so worker exit can never race ahead of the
-required cleanup receipt. Worker-authored fatal protocol/cleanup replies also
-wait for a controller `retire` acknowledgement before exiting; the controller
-then uses the observed exit as the cleanup boundary, so a separately delivered
-`onExit` event cannot replace the exact terminal error. The protocol also
+required cleanup receipt. Worker-authored startup errors and fatal
+protocol/cleanup replies also wait for a controller `retire` acknowledgement
+before exiting; the controller retains its bootstrap resources until the
+observed exit proves cleanup. Uncaught-isolate error and exit notifications use
+one ordered lifecycle port, so the exact bounded error is authoritative over
+the following exit instead of being replaced by a generic crash. The protocol also
 preserves typed CoreML cache configuration and copies the full redacted
 session/run diagnostics snapshot; it never sends the cache path or another
 private path back to the caller.
@@ -450,7 +452,8 @@ The worker:
 - reports worker crashes separately from ORT errors;
 - fails active public work immediately on a terminal protocol error while
   retaining controller ownership until native cleanup settles; and
-- requires a cleanup receipt before normal isolate retirement.
+- requires a cleanup receipt before normal isolate retirement, with uncaught
+  errors and exit delivered through one ordered lifecycle channel.
 
 The shipped protocol accepts only exact, versioned message fields and closed
 `OrtIsolateValue` variants. Numeric payloads are copied into
@@ -480,13 +483,13 @@ size. Dispatch drops the controller's input references, but its reservation is
 retained until the worker disposes every ordinary per-run native owner before
 publishing authoritative settlement. A malformed or fatal reply retains the
 active reservation until the worker's cleanup receipt or observed exit. Queued
-cancellation releases both immediately. Graceful close rejects queued work, requests cancellation of the
-active run, waits for its native call to return, and disposes session then
-runtime. It intentionally has no timeout that silently kills a provider while
-native state may still be live. A malformed run reply follows the same ordered
-retirement path: the public run fails immediately, but `close()` settles only
-after the worker reports cleanup or exits. Exit without the required receipt is
-a worker crash, not a successful close.
+cancellation releases both immediately. Graceful close rejects queued work,
+requests cancellation of the active run, waits for its native call to return,
+and disposes session then runtime. It intentionally has no timeout that silently
+kills a provider while native state may still be live. A malformed run reply
+follows the same ordered retirement path: the public run fails immediately, but
+`close()` settles only after the worker reports cleanup or exits. Exit without
+the required receipt is a worker crash, not a successful close.
 
 An explicitly sized `OrtSessionPool` may own multiple workers for throughput.
 It selects the least-loaded live worker with round-robin tie breaking, skips a

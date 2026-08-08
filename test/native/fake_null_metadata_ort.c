@@ -9,11 +9,58 @@ enum {
   FAKE_SESSION_OUTPUT_COUNT_ERROR = 1,
   FAKE_SESSION_OVERSIZED_INPUT_COUNT = 2,
   FAKE_SESSION_OVERSIZED_OUTPUT_COUNT = 3,
+  FAKE_SESSION_METADATA_ERROR_WITH_OWNER = 4,
+  FAKE_SESSION_VERIFY_METADATA_OWNER = 5,
+  FAKE_SESSION_METADATA_KEYS_ERROR_WITH_OWNERS = 6,
+  FAKE_SESSION_VERIFY_METADATA_KEY_OWNERS = 7,
+  FAKE_SESSION_OVERSIZED_METADATA_KEY_COUNT = 8,
 };
+
+#define FAKE_MAX_TRACKED_KEY_ALLOCATIONS 4u
 
 typedef struct fake_session {
   uint8_t scenario;
 } fake_session_t;
+
+typedef struct fake_metadata {
+  uint8_t scenario;
+} fake_metadata_t;
+
+static size_t fake_metadata_owner_count = 0u;
+static void* fake_tracked_key_allocations[FAKE_MAX_TRACKED_KEY_ALLOCATIONS];
+static size_t fake_key_owner_count = 0u;
+
+static void* fake_allocate_tracked_key(size_t size) {
+  void* allocation = NULL;
+  size_t index = 0u;
+  allocation = calloc(1u, size);
+  if (allocation == NULL) {
+    return NULL;
+  }
+  for (index = 0u; index < FAKE_MAX_TRACKED_KEY_ALLOCATIONS; ++index) {
+    if (fake_tracked_key_allocations[index] == NULL) {
+      fake_tracked_key_allocations[index] = allocation;
+      ++fake_key_owner_count;
+      return allocation;
+    }
+  }
+  free(allocation);
+  return NULL;
+}
+
+static void fake_forget_tracked_key(void* allocation) {
+  size_t index = 0u;
+  if (allocation == NULL) {
+    return;
+  }
+  for (index = 0u; index < FAKE_MAX_TRACKED_KEY_ALLOCATIONS; ++index) {
+    if (fake_tracked_key_allocations[index] == allocation) {
+      fake_tracked_key_allocations[index] = NULL;
+      --fake_key_owner_count;
+      return;
+    }
+  }
+}
 
 static OrtStatus* ORT_API_CALL fake_create_env(
     OrtLoggingLevel severity,
@@ -254,6 +301,7 @@ static OrtStatus* ORT_API_CALL fake_allocator_free(
     OrtAllocator* allocator,
     void* allocation) NO_EXCEPTION {
   (void)allocator;
+  fake_forget_tracked_key(allocation);
   free(allocation);
   return NULL;
 }
@@ -507,8 +555,25 @@ static OrtStatus* ORT_API_CALL fake_optional_element(
 static OrtStatus* ORT_API_CALL fake_session_metadata(
     const OrtSession* session,
     OrtModelMetadata** out) NO_EXCEPTION {
-  (void)session;
-  *out = (OrtModelMetadata*)malloc(1u);
+  const fake_session_t* fake = (const fake_session_t*)session;
+  fake_metadata_t* metadata = NULL;
+  *out = NULL;
+  if ((fake->scenario == FAKE_SESSION_VERIFY_METADATA_OWNER &&
+       fake_metadata_owner_count != 0u) ||
+      (fake->scenario == FAKE_SESSION_VERIFY_METADATA_KEY_OWNERS &&
+       fake_key_owner_count != 0u)) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  metadata = (fake_metadata_t*)malloc(sizeof(*metadata));
+  if (metadata == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  metadata->scenario = fake->scenario;
+  ++fake_metadata_owner_count;
+  *out = (OrtModelMetadata*)metadata;
+  if (fake->scenario == FAKE_SESSION_METADATA_ERROR_WITH_OWNER) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
   return NULL;
 }
 
@@ -516,9 +581,16 @@ static OrtStatus* ORT_API_CALL fake_null_metadata_string(
     const OrtModelMetadata* metadata,
     OrtAllocator* allocator,
     char** out) NO_EXCEPTION {
-  (void)metadata;
+  const fake_metadata_t* fake = (const fake_metadata_t*)metadata;
   (void)allocator;
-  *out = NULL;
+  if (fake->scenario == FAKE_SESSION_NULL_METADATA) {
+    *out = NULL;
+    return NULL;
+  }
+  *out = (char*)calloc(1u, 1u);
+  if (*out == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
   return NULL;
 }
 
@@ -535,10 +607,38 @@ static OrtStatus* ORT_API_CALL fake_metadata_keys(
     OrtAllocator* allocator,
     char*** keys,
     int64_t* count) NO_EXCEPTION {
-  (void)metadata;
+  const fake_metadata_t* fake = (const fake_metadata_t*)metadata;
+  char** owned_keys = NULL;
   (void)allocator;
   *keys = NULL;
   *count = 0;
+  if (fake->scenario == FAKE_SESSION_METADATA_KEYS_ERROR_WITH_OWNERS) {
+    owned_keys = (char**)fake_allocate_tracked_key(2u * sizeof(*owned_keys));
+    if (owned_keys == NULL) {
+      return (OrtStatus*)(uintptr_t)1u;
+    }
+    owned_keys[0] = (char*)fake_allocate_tracked_key(2u);
+    owned_keys[1] = (char*)fake_allocate_tracked_key(2u);
+    if (owned_keys[0] == NULL || owned_keys[1] == NULL) {
+      fake_allocator_free(allocator, owned_keys[0]);
+      fake_allocator_free(allocator, owned_keys[1]);
+      fake_allocator_free(allocator, owned_keys);
+      return (OrtStatus*)(uintptr_t)1u;
+    }
+    memcpy(owned_keys[0], "a", 2u);
+    memcpy(owned_keys[1], "b", 2u);
+    *keys = owned_keys;
+    *count = 2;
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  if (fake->scenario == FAKE_SESSION_OVERSIZED_METADATA_KEY_COUNT) {
+    owned_keys = (char**)fake_allocate_tracked_key(sizeof(*owned_keys));
+    if (owned_keys == NULL) {
+      return (OrtStatus*)(uintptr_t)1u;
+    }
+    *keys = owned_keys;
+    *count = INT64_MAX;
+  }
   return NULL;
 }
 
@@ -556,6 +656,9 @@ static OrtStatus* ORT_API_CALL fake_metadata_lookup(
 
 static void ORT_API_CALL fake_release_metadata(
     OrtModelMetadata* metadata) NO_EXCEPTION {
+  if (metadata != NULL && fake_metadata_owner_count > 0u) {
+    --fake_metadata_owner_count;
+  }
   free(metadata);
 }
 

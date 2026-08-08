@@ -65,6 +65,7 @@ final class _StrictJsonScanner {
   }
 
   void _object(int depth) {
+    _requireContainerDepth(depth);
     _index += 1;
     _skipWhitespace();
     if (_consume(0x7d)) return;
@@ -93,6 +94,7 @@ final class _StrictJsonScanner {
   }
 
   void _array(int depth) {
+    _requireContainerDepth(depth);
     _index += 1;
     _skipWhitespace();
     if (_consume(0x5d)) return;
@@ -221,6 +223,12 @@ final class _StrictJsonScanner {
       return true;
     }
     return false;
+  }
+
+  void _requireContainerDepth(int depth) {
+    if (depth > maximumDepth) {
+      _fail('contains invalid or excessively nested JSON.');
+    }
   }
 
   Never _fail(String message) => throw FormatException('$label $message');

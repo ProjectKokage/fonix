@@ -70,8 +70,13 @@ Cover:
 - string conversion and partial failure cleanup;
 - runtime registry concurrency;
 - output array cleanup on partial run failure;
+- provider discovery and model metadata errors that return partial owners,
+  including valid bounded arrays that must be released and oversized counts
+  that must never authorize entry iteration;
 - bounded cancellation-registry lifecycle, stale-token, saturation, and
-  finish/request races;
+  finish/request races, including blocked native set/unset calls that cannot
+  block unrelated tokens, set/unset failure retry, and non-wrapping token-space
+  exhaustion;
 - a blocking shim `Run` cancelled from another thread, including proof that
   termination is unset only after `Run` returns;
 - concurrent runs in separate sessions sharing one published input value,
@@ -82,11 +87,14 @@ Cover:
 - exported symbol allowlist;
 - process mode without link-time ORT dependency.
 
-Use fault injection for allocation and loader failures. Compile separate
-Address/UndefinedBehavior and ThreadSanitizer variants where
+Use fault injection for allocation, loader, and ORT error-plus-output failures.
+Compile separate Address/UndefinedBehavior and ThreadSanitizer variants where
 toolchains/providers permit. The required Linux x64 TSan lane always runs the
 fake-backed shared-value test; real-ORT concurrency remains an additional
-integration gate when that exact runtime is provisioned.
+integration gate when that exact runtime is provisioned. Strict native JSON
+pre-decoders also run an exact empty-container depth regression and a
+deterministic generated/mutated corpus whose accepted inputs must remain valid
+for Dart's platform decoder.
 
 ## 8.5 FFI integration tests
 
@@ -109,8 +117,11 @@ unknown protocol fields, verify queue cancellation/backpressure, distinguish
 startup/crash/protocol/ORT failures, drain close races, preserve recursive
 Optional None types, prove the startup timeout covers a delayed isolate-spawn
 future without resuming a late paused isolate, preserve that timeout across a
-late spawn failure, use a valid ready port received after malformed ownership
-only for acknowledged cleanup, reject exit without the required cleanup receipt,
+late spawn failure, preserve an exact worker-authored startup error through its
+retirement acknowledgement, order uncaught error before exit on one lifecycle
+port, retain active input bytes until that exit, use a valid ready port received
+after malformed ownership only for acknowledged cleanup, reject exit without
+the required cleanup receipt,
 charge retained slots for empty string tensors in both per-message and
 aggregate input bounds, include requested output names in the request-message
 bound without inflating aggregate input reservations, retain a
