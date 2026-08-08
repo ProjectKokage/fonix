@@ -379,17 +379,24 @@ five CPU compositions: macOS arm64 bundled, iOS arm64 linked device, Linux
 x86_64 bundled, and Android arm64 application-owned bundled plus sherpa-owned
 process mode. The reference app now has a bounded, measurement-only
 macOS/Linux CPU target protocol over a reproducible static-weight MatMul.
-Protocol v3 preserves the prior synchronous serial field meanings and appends
-an exact public `OrtSessionPool` phase with two protocol-v4 workers,
-concurrency two, bounded input reservations, concurrent stabilization, three
-two-lane full-isolate-roundtrip throughput windows, two strict CPU assignment
-receipts outside timing, seven total-process RSS phases, zero accounting, and
-idempotent close. Its host collector records five challenge-bound fresh
-processes, preserves the raw target fragments and host observations, and
-derives a collection-schema-3 record; the separate offline validator
-independently reopens that raw bundle and emits only a schema-2
-`offline-consistency-only` validation record. Existing protocol-v2 evidence
-remains unchanged and cannot stand in for the pool fields. On macOS, the
+Formal CPU benchmark V1 contains both the synchronous serial phase and an exact
+public `OrtSessionPool` phase with two protocol-v4 workers, concurrency two,
+bounded input reservations, concurrent stabilization, three two-lane
+full-isolate-roundtrip throughput windows, two strict CPU assignment receipts
+outside timing, seven pool RSS phases, zero accounting, and idempotent close.
+The protocol descriptor, target fragment, five-launch collection, offline
+validation record, and collector are all V1. The four active templates are the
+V1 descriptor plus the V1 target, collection, and validation schemas. Replay
+registers only those three schemas; their closed reference chain runs from
+validation to collection to target. The
+earlier schema-1 serial fragment was an unreleased prototype rather than a
+formal protocol. The subsequently misnumbered intermediate checkpoints remain
+only in Git history and create no active artifact or compatibility obligation.
+
+The host collector records five challenge-bound fresh processes, preserves the
+raw target fragments and host observations, and derives the V1 collection; the
+separate V1 offline validator independently reopens that exact seven-file raw
+bundle and emits only an `offline-consistency-only` record. On macOS, the
 collector reads the public `NSProcessInfo` thermal enum and current dynamic Low
 Power boolean. Separately, bounded `pmset` output supplies the source-stable
 active power source and matching opaque configured profile. The power label
@@ -401,13 +408,12 @@ complete and stable enough to match as input to a later review; it is not a
 thermal-health judgment or baseline approval. Apple `nominal` can also mean
 the thermal state was undetermined, stable elevated states still require
 review, and the configured `pmset` profile does not assert every dynamic power
-condition. Linux thermal observation remains unavailable. This source
-checkpoint contains no controlled five-launch bundle from the new observer;
-any later raw collection and replay are external evidence. This
-capability does not create a controlled baseline, reviewed threshold, provider
-qualification, support promotion, release approval, or non-macOS target
-evidence. No final application has yet completed and replayed the required
-five-launch protocol-v3 bundle. Android
+condition. Linux thermal observation remains unavailable. This first formal V1
+source checkpoint has not yet produced a final-application five-launch bundle
+or independent replay. Earlier prototype bundles must not be relabeled as V1
+evidence. The implemented path creates no controlled baseline, reviewed
+threshold, provider qualification, support promotion, release approval, or
+non-macOS target evidence. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their

@@ -1,38 +1,12 @@
 {
   "schemaVersion": 1,
-  "protocolId": "fonix-cpu-benchmark-target-v3",
-  "protocolVersion": 3,
-  "serialCompatibility": {
-    "protocolId": "fonix-cpu-benchmark-target-v2",
-    "protocolVersion": 2,
-    "descriptor": {
-      "path": "templates/ci/cpu_benchmark_protocol_v2.json",
-      "sizeBytes": 4304,
-      "sha256": "93a33f420c1b38d1061eb00c713fb5d13135dfed7c283673c26c185fbd3727ac"
-    },
-    "targetFragmentSchema": {
-      "id": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v2.json",
-      "path": "templates/ci/cpu_benchmark_target_fragment_v2.schema.json",
-      "sizeBytes": 16843,
-      "sha256": "58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d"
-    },
-    "preservedFields": [
-      "model",
-      "runtime",
-      "session",
-      "timing",
-      "stabilization",
-      "measurements",
-      "providerAssignment",
-      "resources",
-      "lifecycle"
-    ]
-  },
+  "protocolId": "fonix-cpu-benchmark-target-v1",
+  "protocolVersion": 1,
   "targetFragmentSchema": {
-    "id": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v3.json",
-    "path": "templates/ci/cpu_benchmark_target_fragment_v3.schema.json",
-    "sizeBytes": 12447,
-    "sha256": "b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b"
+    "id": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json",
+    "path": "templates/ci/cpu_benchmark_target_fragment_v1.schema.json",
+    "sizeBytes": 32212,
+    "sha256": "8e79e4d637e2c917d654648cf549d3ade782770bbc5a4a0140297812fffa26d8"
   },
   "activation": {
     "platforms": [

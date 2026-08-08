@@ -167,11 +167,11 @@ void main() {
         : packageConfigFile.parent.uri.resolveUri(configuredRoot);
     final Directory packageRoot = Directory.fromUri(packageRootUri);
     final File descriptorFile = File(
-      '${packageRoot.path}/templates/ci/cpu_benchmark_protocol_v3.json',
+      '${packageRoot.path}/templates/ci/cpu_benchmark_protocol_v1.json',
     );
     final File schemaFile = File(
       '${packageRoot.path}/templates/ci/'
-      'cpu_benchmark_target_fragment_v3.schema.json',
+      'cpu_benchmark_target_fragment_v1.schema.json',
     );
     final File generatorFile = File(
       '${packageRoot.path}/example/assets/models/'
@@ -213,8 +213,8 @@ void main() {
     expect(descriptor['targetFragmentSchema'], <String, Object?>{
       'id':
           'https://fonix.invalid/schemas/'
-          'cpu-benchmark-target-fragment-v3.json',
-      'path': 'templates/ci/cpu_benchmark_target_fragment_v3.schema.json',
+          'cpu-benchmark-target-fragment-v1.json',
+      'path': 'templates/ci/cpu_benchmark_target_fragment_v1.schema.json',
       'sizeBytes': schemaBytes.length,
       'sha256': cpuBenchmarkTargetFragmentSchemaSha256,
     });
@@ -414,7 +414,7 @@ void main() {
         'poolEvidence',
         'claimBoundary',
       ]);
-      expect(value['schemaVersion'], 3);
+      expect(value['schemaVersion'], 1);
       expect(value['purpose'], 'measurement-only-target-fragment');
       expect(value['protocol'], <String, Object?>{
         'id': cpuBenchmarkProtocolId,

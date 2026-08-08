@@ -546,7 +546,7 @@ Those decisions require real target runs, review of stable baselines, and
 separately approved thresholds. Focused tamper tests are discovered
 automatically by the existing `tool/ci/tests/test_*.py` unittest command.
 
-### Public-API CPU protocol v3, collector, and replay validator
+### Public-API CPU benchmark V1, collector, and replay validator
 
 Implementation checkpoint (2026-08-09): the committed Flutter reference app
 contains a macOS/Linux-only, exact `FONIX_CPU_BENCHMARK=1` activation over a
@@ -555,20 +555,20 @@ generated static-weight float32 MatMul. The model computes
 output, metadata, generator, shapes, operation count, and exact-byte output
 policy are independently reproducible and SHA-256 bound.
 
-Protocol v3 preserves the entire protocol-v2 serial measurement contract and
-its field meanings. That phase uses the synchronous public API with pool size
-and concurrency one, sequential execution, graph optimization `all`, explicit
-intra/inter-op thread counts of one, CPU arena and memory patterns enabled, and
-deterministic compute. It pre-creates one reusable input tensor, measures
-runtime load, session creation, input materialization, first inference, and
-native-to-Dart output copy separately, requires three consecutive batch-median
-changes within 10 percent under a 100-run bound, records 100 warm samples, and
-completes three fixed one-second throughput windows. Every throughput cycle
-includes inference, output copy, exact-bit validation, and result disposal.
-Total-process current/peak RSS is sampled at the same eight phases; strict full
-CPU assignment remains one separate profiled session after serial timing.
+Formal V1 contains both the serial and bounded-pool measurement contracts. The
+serial phase uses the synchronous public API with pool size and concurrency
+one, sequential execution, graph optimization `all`, explicit intra/inter-op
+thread counts of one, CPU arena and memory patterns enabled, and deterministic
+compute. It pre-creates one reusable input tensor, measures runtime load,
+session creation, input materialization, first inference, and native-to-Dart
+output copy separately, requires three consecutive batch-median changes within
+10 percent under a 100-run bound, records 100 warm samples, and completes three
+fixed one-second throughput windows. Every throughput cycle includes inference,
+output copy, exact-bit validation, and result disposal. Total-process
+current/peak RSS is sampled at eight phases; strict full CPU assignment uses a
+separate profiled session after serial timing.
 
-The new phase measures the public `OrtSessionPool` surface with exactly two
+The pool phase measures the public `OrtSessionPool` surface with exactly two
 protocol-v4 workers and concurrency two. It first copies the 8 MiB fixture into
 an immutable isolate tensor. Each worker accepts at most one run, has a 32 MiB
 message bound and a 16 MiB aggregate input bound, and admits one exact
@@ -592,10 +592,10 @@ The timed pool must have zero outstanding runs and input bytes before and after
 an idempotent double close. After all pool timing, a different strict two-worker
 pool admits two simultaneous profiled runs so each worker returns one full-CPU
 assignment receipt. It also drains, closes idempotently, and removes every
-private profile artifact. The target publishes only after both the preserved
-serial phase and this bounded pool phase settle. Its one path-free line begins
+private profile artifact. The target publishes only after both the serial
+phase and bounded pool phase settle. Its one path-free line begins
 with `FONIX_CPU_BENCHMARK_FRAGMENT=`, has exact purpose
-`measurement-only-target-fragment`, uses target-fragment schema 3, and repeats
+`measurement-only-target-fragment`, uses target-fragment V1, and repeats
 the challenge and positive target-process ID. A cold-runtime sample remains
 meaningful only when a host collector launches a fresh final-application
 process.
@@ -607,9 +607,9 @@ device, OS, driver/firmware, power, thermal, total-process RSS, and process CPU
 observations, then publishes only after every process and identity check
 settles. Its exact output inventory is five raw `fragment-NN.json` files,
 `host-observations.json`, and `cpu-benchmark-collection.json`. The host sidecar
-is raw schema-1 measurement input; the derived serial-and-pool collection uses
-schema 3 and identifies the closed collector contract as
-`fonix-cpu-benchmark-collector-v2`.
+is raw schema-1 measurement input; the derived serial-and-pool collection is V1
+and identifies the closed collector contract as
+`fonix-cpu-benchmark-collector-v1`.
 
 The pinned Flutter 3.47 macOS Release bootstrap has one closed stderr
 allowance, followed by one LF:
@@ -663,20 +663,25 @@ Linux Xvfb display may be supplied with `--display` to the collector. Both
 output locations must not exist. The offline validator reopens the exact
 seven-file inventory, validates the closed schemas and identities, and
 independently rederives the complete collection from the raw fragments and
-host sidecar. Its output is validation-record schema 2 with
+host sidecar. Its output is validation-record V1 with
 `claimStatus: measurement-only` and
 `validationScope: offline-consistency-only`. It is distinct from collection
-schema 3 and from the older generic receipt and
+V1 and from the older generic receipt and
 `validate_benchmark_receipt.py` flow above.
 
-Collection and replay bind the immutable protocol-v2 descriptor as
-`protocolDescriptorV2` and its target-fragment schema as
-`targetFragmentSchemaV2` in repository evidence alongside the current v3
-descriptor and target schema. The replay registry also includes the v2 collection
-dependencies, the current v3 target and collection schemas, and validation
-schema 2. Every file identity is pinned and rechecked around replay; an earlier
-protocol-v2 raw bundle remains governed by its original schemas and is not
-rewritten or accepted as evidence for the new pool phase.
+The active contract contains exactly four V1 templates: the protocol descriptor,
+target-fragment schema, collection schema, and validation schema. Protocol,
+fragment, collection, validation, and collector identities all use V1. Replay
+registers exactly three schemas and follows one closed reference chain:
+validation to collection to the self-contained target schema. Every file
+identity is pinned and rechecked around replay. There is no legacy schema
+registry, alias, or compatibility branch.
+
+Before this formal contract, the repository contained an unreleased schema-1
+serial fragment prototype. Two later checkpoints were mistakenly assigned
+higher version numbers while the package was still unpublished. Those bytes
+remain only in Git history and are not active protocols, accepted artifact
+formats, evidence, or compatibility obligations.
 
 After either command reserves its final output, it never unlinks or recursively
 cleans that output on a publication or durability failure. An incomplete
@@ -692,7 +697,7 @@ observations, is eligible to enter a later baseline or threshold review.
 observed power-mode change or thermal drift. Both remain useful raw
 measurements, but neither is eligible for comparison. The complete raw bundle
 must be retained and independently reopened for every later evaluation; the
-schema-2 validation record is not a substitute for those samples.
+V1 validation record is not a substitute for those samples.
 
 The macOS observer reads the public `NSProcessInfo` thermal-state enum and
 dynamic low-power-mode boolean. It also invokes the absolute `/usr/bin/pmset`
@@ -722,32 +727,26 @@ or threshold review. It does not approve a baseline. Missing APIs or
 malformed, ambiguous, or source-drifting `pmset` output remain
 `incomplete`; observed changes remain `non-comparable`. Linux continues to
 expose its bounded CPU-governor label but reports thermal state as unavailable.
-This source checkpoint contains no
-controlled five-launch bundle from the new observer; any later raw collection
-and offline replay are external evidence.
 
-Focused protocol-v3 tests currently pass 101/101 across derivation/core,
-collector, and independent replay (30, 41, and 30 respectively). The benchmark
-file also passes 18/18 through an external copy, including regressions that
-require pool peak RSS to remain a process-lifetime maximum after the serial
-phase, require both strict worker assignments to equal the serial CPU receipt,
-authenticate the second admission, and settle occupancy while draining. The
-opt-in exact-ORT two-worker pool test also passes 1/1 on macOS arm64 with the
-exact ORT 1.27.1 dylib, proving two simultaneous reservations, one full-CPU
-receipt per worker, zero accounting, and idempotent close. None of these
-source/runtime tests replaces the final-app collection below.
+Focused formal-V1 Python coverage passes 104/104 cases: 31 derivation/core, 41
+collector, and 32 independent replay-validator tests. These cases cover the
+three-schema reference graph, rejection of non-V1 identities, raw preservation,
+process-lifetime peak RSS, two-worker assignment parity, authentic second
+admission, occupancy-drain settlement, environment derivation, and hostile
+publication/replay inputs. The complete Python suite passes 827/827, the
+current Flutter SDK root suite passes 225 tests with 54 explicit
+environment-gated skips, and a clean external-copy reference app passes
+analysis and 90/90 tests, including all 18 formal-V1 benchmark cases. The exact
+ORT 1.27.1 two-worker integration passes 1/1.
 
-One local macOS arm64 Release application run completed the earlier serial-v2
-path against the lock-selected ORT 1.27.1 CPU artifact on 2026-08-08,
-including exact output, 25-run stabilization, 100 warm samples, three
-one-second windows, one-node full CPU assignment, temporary-profile removal,
-and double disposal. That historical fragment and its protocol-v2 collection
-remain unchanged. No final macOS or Linux application has yet completed and
-replayed the five fresh protocol-v3 launches containing pool evidence. The
-current source therefore proves only the bounded v3 implementation, schema,
-derivation, and replay contracts; it is not an archived baseline, threshold,
-provider qualification, performance claim, distribution artifact, or evidence
-for another tuple.
+No final macOS or Linux application has yet completed the formal V1 sequence of
+five fresh challenge/PID-bound launches and independent replay. Measurements
+created under the earlier unreleased prototypes are not V1 evidence and must
+not be relabeled. The current
+checkpoint therefore proves the formal source contract and focused Python
+validation only. It is not a baseline, threshold, performance claim, provider
+qualification, platform support claim, release approval, distribution
+artifact, or cross-target evidence.
 
 ## 8.12 CI matrix
 

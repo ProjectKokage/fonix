@@ -7,10 +7,13 @@
 ## Result
 
 The declared development API and locally controllable package boundary pass
-the completed validation recorded below. The current shared reference passes
-90/90 application tests and analysis in a clean external copy, including the
-18/18 protocol-v3 benchmark slice. The separately frozen,
-manifest-bound iOS gate source epoch passed its historical 72/72 application
+the completed validation recorded below. The formal CPU benchmark V1 focused
+Python suites pass 104/104 cases (31 derivation/core, 41 collector, and 32
+independent replay-validator). The complete Python CI suite passes 827/827,
+the current Flutter SDK root suite passes 225 tests with 54 explicit
+environment-gated skips, and a clean external-copy reference app passes
+analysis and 90/90 tests. The separately frozen, manifest-bound iOS gate source
+epoch passed its historical 72/72 application
 tests, including 25/25 reference-smoke tests and 5/5 iOS project-contract
 tests, and its linked simulator application passed two consecutive Debug
 builds. The complete iOS gate result is `PASS (2026-08-07)` for that exact
@@ -205,22 +208,27 @@ non-empty JSON event array from the deliberately poisoned output, and left its
 private artifact root empty. This is exact-host native evidence, not a Windows,
 Linux, Android, or iOS target-host claim.
 
-The CPU measurement checkpoint adds a reproducible 4.29-GFLOP float32 MatMul
-fixture and an exact opt-in macOS/Linux final-application path over the public
-synchronous API. A fresh macOS arm64 Release build passed the current path with
-asset rehashing, bounded stabilization, 100 warm samples, three one-second
-throughput windows, exact finite float32 bit checks after every run, strict
-one-node CPU assignment outside timing, eight total-process RSS samples,
-double disposal, and temporary-profile deletion.
+The formal CPU benchmark V1 source checkpoint adds a reproducible 4.29-GFLOP
+float32 MatMul fixture and an exact opt-in macOS/Linux final-application path.
+Its synchronous serial phase performs asset rehashing, bounded stabilization,
+100 warm samples, three one-second throughput windows, exact finite float32 bit
+checks, strict one-node CPU assignment outside timing, eight total-process RSS
+samples, double disposal, and temporary-profile deletion. Its fixed public
+`OrtSessionPool` phase uses two protocol-v4 workers and concurrency two, bounded
+per-worker input reservations, concurrent stabilization, three two-lane
+full-isolate-roundtrip windows, two strict CPU assignments outside timing,
+seven total-process RSS phases, zero accounting, and idempotent close.
 
-The follow-up protocol-v2 collector launches exactly five fresh challenge- and
-PID-bound processes, retains every raw target fragment plus one raw host
-sidecar, observes one canonical application tree unchanged around the launches,
-and derives a collection-schema-2 record. A separate offline validator reopens
-that exact seven-file bundle and independently rederives the collection before
-emitting a schema-1 `offline-consistency-only` validation record. An earlier
-macOS arm64 Release collection and replay passed with `incomplete`
-comparability under the unavailable macOS power/thermal observer.
+The V1 collector launches exactly five fresh challenge/PID-bound processes,
+retains every raw target fragment plus one raw host sidecar, observes one
+canonical application tree unchanged around the launches, and derives a V1
+serial-and-pool collection. The V1 offline validator reopens that exact
+seven-file bundle and independently rederives the collection before emitting a
+V1 `offline-consistency-only`, `measurement-only` record. Protocol descriptor,
+target fragment, collection, validation, and collector identities are all V1.
+The four active templates are the descriptor plus the target, collection, and
+validation schemas. Replay registers exactly those three schemas; their closed
+reference chain runs from validation to collection to target.
 
 The current macOS observer reads the public `NSProcessInfo` thermal enum and
 current dynamic Low Power boolean. Separately, bounded `pmset` output supplies
@@ -237,24 +245,11 @@ not establish every dynamic power assertion. `baseline-comparable` means only
 that the recorded inputs are complete and stable enough to match in a later
 review; it is not thermal-health or baseline approval. Linux thermal observation
 remains unavailable. This source checkpoint contains no controlled five-launch
-bundle from the new observer; any later raw collection and offline replay are
-external evidence.
-
-The protocol-v3 source follow-up preserves the complete serial-v2 field
-meanings and adds a distinct bounded public `OrtSessionPool` phase. It fixes
-worker protocol 4, pool size and concurrency two, one 8 MiB-fixture request
-reservation per worker, concurrent batch-median stabilization, three
-one-second two-lane full-isolate-roundtrip windows, two strict CPU assignment
-receipts outside timing, seven ordered total-process RSS phases, zero
-run/input-byte accounting, and idempotent close. Collection schema 3 derives
-both serial and pool aggregates; independent offline validation emits schema
-2. Repository evidence binds the immutable v2 descriptor as
-`protocolDescriptorV2` and its target schema as `targetFragmentSchemaV2`
-alongside the v3 descriptor/schema, and replay pins five
-schema dependencies: the v2 and v3 target-fragment schemas, the v2 and v3
-collection schemas, and validation schema 2. Existing v2 descriptors, fragments,
-collections, validations, and bundles are unchanged and cannot be promoted
-into pool evidence.
+V1 bundle from the new observer; a later raw collection and offline replay must
+be recorded against the formal contract. The earlier schema-1 serial fragment
+was an unreleased prototype, not a formal protocol. The wrongly numbered
+intermediate checkpoints are Git history only and create no active artifact,
+compatibility alias, accepted evidence format, or migration obligation.
 
 Partial pool startup remains deliberately narrower than a pool-wide join over
 every attempted child. When a later worker fails, pool startup awaits close
@@ -265,21 +260,20 @@ received the authoritative timeout and does not await that later cleanup
 receipt. This distinction prevents the documentation from claiming stronger
 pool-level settlement than the implementation owns.
 
-No final macOS or Linux application has yet completed and independently
-replayed five fresh protocol-v3 launches. The existing macOS measurement and
-collection described above are protocol-v2 serial history only. The new source
-path therefore supplies no pool throughput/RSS baseline, regression threshold,
-performance claim, provider qualification, support promotion, or release
-evidence.
-
-Focused protocol-v3 collection coverage passes 101/101 Python tests: 30
-derivation/core, 41 collector, and 30 independent replay-validator cases. The
-external-copy Dart benchmark file passes 18/18 after adding process-lifetime
-peak-RSS, two-worker assignment-parity, authentic second-admission, and
-occupancy-drain settlement regressions. The Dart subset is included in the
-current 90/90 external-copy application run, and the Python subset is included
-in the current 824/824 closed-manifest CI-script run. Neither result is
-final-app protocol-v3 collection evidence.
+Focused formal-V1 collection coverage passes 104/104 Python tests: 31
+derivation/core, 41 collector, and 32 independent replay-validator cases. The
+suite covers the exact three-schema graph, rejection of non-V1 identities,
+process-lifetime peak RSS, two-worker assignment parity, authentic second
+admission, occupancy-drain settlement, and hostile collection/replay inputs.
+The current Flutter SDK root suite passes 225 tests with 54 explicit
+environment-gated skips; clean external-copy analysis and all 90 app tests
+pass, including 18 formal-V1 benchmark tests; and the exact ORT 1.27.1
+two-worker integration passes 1/1. No final macOS or Linux application has yet
+completed and independently replayed five fresh formal-V1 launches. Earlier
+prototype measurements and bundles cannot be relabeled. The source path
+therefore supplies no throughput/RSS baseline,
+regression threshold, performance claim, provider qualification, support
+promotion, or release evidence.
 
 The raw fragments are not independently authenticated, supplied native members
 are packaged inputs rather than exact loaded-byte proof, repository evidence is
@@ -375,11 +369,11 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 824/824 passed after regenerating and verifying the current closed source manifest |
+| Python CI-script tests | 827/827 repository-wide tests passed; the formal CPU benchmark V1 focused subset passed 104/104 (31 derivation/core, 41 collector, 32 replay) |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `77afac75f64af4df4156e7c60b9fd291d32fc51f41bcdc3cff949de070ed5c58` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Source-release archive validator | 25/25 focused tests passed; exact Git-tree and manifest closure, ZIP and gzip/tar structure, revision rebinding, verified-source loading, retained-descriptor ownership, malformed input, tamper, bounds, and deterministic publication are covered without extraction |
 | Scoped candidate approval validator | 37/37 focused tests passed; exact 48 composition and 7 shared evidence records, closed-default-deny semantic classification, the registered macOS CPU-assignment receipt and derived source closure, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 824-test Python suite |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 827-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed, including exact loaded-glibc identity and malformed/unavailable identity rejection; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -408,10 +402,9 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 72/72 app tests and analysis, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Current shared public-API reference source | 90/90 app tests and analysis passed in a clean external copy, including 18 protocol-v3 CPU benchmark cases |
-| Historical CPU collection-v2 and offline-replay tooling | 110/110 focused tests passed: 19 bounded-process, 22 derivation/core, 41 collector, and 28 independent-validator tests, including the macOS API/`pmset` observer contract, platform-specific host grammar, closed platform stderr, spaced packaged basenames, tamper, replay, alias, mutation, collision, retained-inode, parent relocation, partial-publication, and durability failures |
-| CPU protocol-v3 pool path | 101/101 focused Python tests passed: 30 derivation/core, 41 collector, and 30 independent replay-validator cases. The external-copy Dart benchmark passed 18/18, including process-lifetime peak-RSS, two-worker assignment-parity, authentic second-admission, and occupancy-drain settlement regressions; the exact ORT 1.27.1 two-worker test passed 1/1 on macOS arm64. No final-application five-launch v3 bundle or replay has been produced |
-| Current macOS arm64 CPU measurement path | An earlier fresh Release application passed five challenge/PID-bound processes, exact seven-file raw publication, collection-schema-2 derivation, and independent schema-1 offline replay with `incomplete` comparability; this source checkpoint contains no controlled bundle from the current observer, any later collection/replay is external evidence, and no baseline is claimed |
+| Current shared public-API reference source | Clean external-copy analysis and 90/90 app tests passed, including 18/18 formal-V1 CPU benchmark tests; the current Flutter SDK root suite passed 225 tests with 54 explicit environment-gated skips |
+| Formal CPU benchmark V1 | 104/104 focused Python tests passed: 31 derivation/core, 41 collector, and 32 independent replay-validator cases. Protocol, target fragment, collection, validation, and collector are all V1; exactly four V1 templates and a three-schema replay registry remain active |
+| Current macOS arm64 CPU measurement path | No formal V1 final-application five-launch bundle or independent replay has been produced. Earlier prototype measurements are historical only, cannot be relabeled as V1 evidence, and establish no baseline |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
 | Closed source checksum manifest | The current API/ABI checkpoint reproduces exactly after regeneration. Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |
@@ -919,8 +912,8 @@ The following are deliberately not claimed:
   qualification;
 - deferred Android QNN aligned-build/device/HTP/cache/product receipts;
 - Linux target-host loading/inference and final Flutter packaging;
-- a final macOS or Linux five-launch protocol-v3 CPU bundle containing the
-  two-worker pool phase and its independent schema-2 replay;
+- a final macOS or Linux five-launch formal-V1 CPU bundle containing the serial
+  and two-worker pool phases and its independent V1 replay;
 - deferred Windows target-host loading/inference, final Flutter packaging,
   installer, and clean-machine runs;
 - physical-device or representative-hardware qualification and sustained

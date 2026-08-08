@@ -259,8 +259,7 @@ Every release must include:
 - migration notes;
 - benchmark/qualification summary with links to the complete raw CI artifacts;
   for CPU collections this means the exact seven-file raw bundle, because
-  neither the historical schema-1 nor the current schema-2 offline validation
-  record can substitute for the samples;
+  the formal V1 offline validation record cannot substitute for the samples;
 - known limitations;
 - debug symbol retention/location policy.
 

@@ -266,15 +266,16 @@ Strict native tests cover the 1024-entry registry, races, and cancellation of a
 blocking `Run`; Dart tests use real isolates and include an opt-in cross-isolate
 real-shim registry proof plus real ORT CPU inference.
 
-The 2026-08-09 protocol-v3 checkpoint adds the first bounded public-pool
-measurement contract. It fixes `OrtSessionPool` size and concurrency at two,
-worker protocol at version 4, one 8 MiB-fixture request reservation per worker,
-concurrent stabilization, three two-lane one-second full-isolate-roundtrip
-windows, two strict worker assignment receipts outside timing, seven ordered
-total-process RSS phases, zero request/byte accounting, and idempotent close.
-The serial protocol-v2 field meanings remain intact inside v3, and earlier v2
-artifacts are not rewritten. Collection schema 3 and offline-validation schema
-2 independently preserve and replay the raw five-launch bundle.
+The 2026-08-09 formal CPU benchmark V1 checkpoint combines the synchronous
+serial measurement and the bounded public-pool measurement in one first
+protocol. It fixes `OrtSessionPool` size and concurrency at two, worker protocol
+at version 4, one 8 MiB-fixture request reservation per worker, concurrent
+stabilization, three two-lane one-second full-isolate-roundtrip windows, two
+strict worker assignment receipts outside timing, seven ordered total-process
+RSS phases, zero request/byte accounting, and idempotent close. Protocol,
+target fragment, collection, validation, and collector identities are all V1.
+The four active templates are the V1 descriptor and three V1 schemas; offline
+replay uses only the validation-to-collection-to-target schema chain.
 
 Pool startup cleanup has one important ownership boundary. If a later worker
 fails, `OrtSessionPool.spawn` awaits close for every earlier worker whose spawn
@@ -284,17 +285,19 @@ does not await that later cleanup receipt after the worker spawn has already
 returned its authoritative timeout. Do not describe partial pool startup as a
 single pool-wide join over that unreturned child.
 
-The external-copy benchmark tests pass 18/18, including process-lifetime peak
-RSS, two-worker assignment parity, authentic second admission, and
-occupancy-drain settlement. The focused derivation, collector, and replay
-suites pass 101/101 cases (30, 41, and 30 respectively). An additional
-opt-in exact-ORT pool test passes 1/1 on macOS arm64 with the exact ORT 1.27.1
-dylib, covering two simultaneous reservations, one full-CPU assignment per
-worker, zero accounting, and idempotent close. These focused tests do not
-substitute for the pending final-application five-launch
-protocol-v3 collection and replay. Until that evidence exists, Phase 5 has an
-implemented measurement path but no target/model-specific pool throughput or
-RSS baseline and no performance claim.
+Focused formal-V1 Python coverage passes 104/104 cases: 31 derivation/core, 41
+collector, and 32 independent replay-validator tests. It includes
+process-lifetime peak-RSS, two-worker assignment-parity, authentic
+second-admission, occupancy-drain, schema-graph, non-V1 rejection, and replay
+regressions. The complete Python suite passes 827/827, the current Flutter SDK
+root suite passes 225 tests with 54 explicit environment-gated skips, and a
+clean external-copy reference app passes analysis and 90/90 tests, including
+18/18 benchmark cases. The exact ORT 1.27.1 two-worker test passes 1/1. The
+first V1 source checkpoint still needs one exact final application to complete
+five fresh launches and independent replay. Earlier prototype bundles cannot
+be relabeled as V1. Phase 5 therefore has an implemented measurement path but
+no formal target measurement, reviewed baseline, threshold, performance claim,
+provider qualification, platform support, or release claim.
 
 ## Phase 6: mobile EPs
 
@@ -634,65 +637,52 @@ advance readiness. Actual target-host, physical-device, final-package,
 licensing, signing, and approval evidence must still be collected through the
 owning external gates; semantic validation cannot manufacture provenance.
 
-The 2026-08-08 serial CPU measurement checkpoint added a reproducible 4.29-GFLOP
-static-weight MatMul with exact input/reference bytes and a bounded
-macOS/Linux final-application target path. The path separates runtime, session,
-input, inference, and output-copy timing; requires observed stabilization;
-records 100 warm samples and three one-second throughput windows; captures
-phase-labelled total RSS; profiles strict CPU assignment outside timing; and
-settles every owner before publishing a path-free measurement-only fragment.
-One local macOS arm64 Release run passed the complete target path.
+The formal CPU benchmark V1 source checkpoint owns one reproducible 4.29-GFLOP
+static-weight MatMul with exact input/reference bytes and one bounded
+macOS/Linux final-application target path. Its serial phase separates runtime,
+session, input, inference, and output-copy timing; requires observed
+stabilization; records 100 warm samples and three one-second throughput
+windows; captures phase-labelled total RSS; profiles strict CPU assignment
+outside timing; and settles every owner. Its pool phase adds input preparation,
+two-worker startup, concurrent stabilization, three one-second two-lane
+full-isolate-roundtrip windows, strict per-worker CPU assignment outside
+timing, seven total-process RSS phases, zero accounting, and idempotent close.
 
-The follow-up collection-v2 checkpoint implemented a closed protocol-v2 target
-fragment, exactly five challenge/PID-bound fresh launches, one raw
-host-observation sidecar, unchanged canonical-application-tree observation,
-unique target-reported runtime-basename binding, native build-contract binding,
-deterministic collection-schema-2 derivation, and an independent offline replay
-validator. The validator reopens the exact seven-file raw bundle
-and emits only a schema-1 `offline-consistency-only`, `measurement-only`
-record. Comparability is closed to `baseline-comparable`, `incomplete`, or
+The V1 collector launches exactly five challenge/PID-bound fresh processes,
+retains their target fragments plus one raw host-observation sidecar, observes
+one canonical application tree unchanged around the launches, binds the unique
+target-reported runtime basename and native build contract, and derives one V1
+serial-and-pool collection. The V1 validator reopens the exact seven-file raw
+bundle and independently rederives that collection before emitting its
+`offline-consistency-only`, `measurement-only` record. It registers exactly the
+V1 validation, collection, and target schemas. The protocol descriptor is the
+fourth active template, not a schema-registry member.
+
+Comparability is closed to `baseline-comparable`, `incomplete`, or
 `non-comparable`; only the first may enter a later baseline/threshold review.
 The source binding is not compiled provenance, no distribution archive is
 claimed, supplied native members are not independent loaded-byte proof, and the
-validation record cannot replace the raw samples. The macOS host observer now
-combines the public `NSProcessInfo` thermal enum and current dynamic Low Power
-boolean with a bounded, source-stable, opaque `pmset` configured-profile
-fingerprint. It publishes only the closed source and a domain-separated profile
-digest; no `pmset` key is interpreted or compared with the API boolean.
-API-reported Low Power `off` can also mean unknown or unsupported. Stable
-complete observations can therefore be marked `baseline-comparable`, meaning
-matchable input for later review rather than thermal-health or baseline
-approval. Apple `nominal` can include an undetermined state, stable elevated
-states still require review, the configured profile is not every dynamic power
-assertion, and Linux thermal observation remains unavailable. This source
-checkpoint contains no controlled five-launch bundle from the new observer;
-any later raw collection and offline
-replay are external evidence.
+validation record cannot replace the raw samples. The macOS observer combines
+the public `NSProcessInfo` thermal enum and current dynamic Low Power boolean
+with a bounded, source-stable, opaque `pmset` configured-profile fingerprint.
+It publishes only the closed source and a domain-separated profile digest; no
+`pmset` key is interpreted or compared with the API boolean. API-reported Low
+Power `off` can also mean unknown or unsupported. Apple `nominal` can include
+an undetermined state, stable elevated states still require review, the
+configured profile is not every dynamic power assertion, and Linux thermal
+observation remains unavailable.
 
-The 2026-08-09 protocol-v3 follow-up leaves that serial protocol and every
-existing v2 artifact unchanged while appending a fixed two-worker public
-session-pool measurement to each new fragment. The new phase covers input
-preparation, two-worker startup, concurrent stabilization, three one-second
-two-lane full-isolate-roundtrip windows, strict per-worker CPU assignment
-outside timing, seven total-process RSS phases, zero accounting, and
-idempotent close. The collector derives both serial and pool aggregates in
-collection schema 3; live collection and independent replay bind the immutable
-v2 descriptor as `protocolDescriptorV2` and v2 target schema as
-`targetFragmentSchemaV2` alongside the v3 descriptor/schema. Replay emits
-offline-validation schema 2 and pins five schema dependencies: v2 and v3 target-fragment schemas,
-v2 and v3 collection schemas, and validation schema 2.
+The earlier schema-1 serial fragment was an unreleased prototype, not a formal
+protocol. The two wrongly numbered intermediate checkpoints remain only in Git
+history and impose no active compatibility, migration, or evidence obligation.
+This first V1 source checkpoint has not yet completed a final-application
+five-launch collection and replay. No earlier serial or pool bundle may be
+relabeled as V1 evidence.
 
-This is a source and evidence-contract checkpoint. A real final macOS or Linux
-application still needs five fresh challenge/PID-bound v3 launches and an
-independently replayed seven-file bundle. The historical serial-v2 macOS result
-cannot be relabeled as pool evidence. No baseline, threshold, provider
-qualification, platform support, or release claim follows from the v3
-implementation alone.
-
-Controlled target baselines, reviewed thresholds, the Linux target-host run,
-and measurements for every other selected row remain open. Neither the
-historical single macOS launch nor implementation of the collection tools
-makes a performance, qualification, support, or release claim. The phase
+Controlled target baselines, reviewed thresholds, the macOS and Linux formal
+V1 final-app runs, and measurements for every other selected row remain open.
+The implemented source path makes no performance guarantee, qualification,
+support, or release claim. The phase
 inventory below remains the long-term program: Phase 9 target qualification
 and the Windows target-host portions of Phases 4, 8, and 10 remain deferred.
 

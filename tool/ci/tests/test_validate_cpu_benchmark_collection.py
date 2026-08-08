@@ -144,7 +144,7 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
     def test_validates_exact_bundle_and_publishes_path_free_record(self) -> None:
         result = self._validate()
 
-        self.assertEqual(result["schemaVersion"], 2)
+        self.assertEqual(result["schemaVersion"], 1)
         self.assertEqual(result["result"], "validated")
         self.assertEqual(result["claimStatus"], "measurement-only")
         self.assertEqual(result["validationScope"], "offline-consistency-only")
@@ -154,27 +154,13 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
         self.assertEqual(
             set(result["schemas"]),
             {
-                "targetFragmentV2",
                 "targetFragment",
-                "collectionV2",
                 "collection",
                 "validation",
             },
         )
-        self.assertEqual(
-            result["source"]["protocolDescriptorV2"],
-            {
-                "sizeBytes": 4_304,
-                "sha256": core.PROTOCOL_DESCRIPTOR_V2_SHA256,
-            },
-        )
-        self.assertEqual(
-            result["source"]["targetFragmentSchemaV2"],
-            {
-                "sizeBytes": 16_843,
-                "sha256": core.TARGET_FRAGMENT_SCHEMA_V2_SHA256,
-            },
-        )
+        self.assertNotIn("protocolDescriptorV2", result["source"])
+        self.assertNotIn("targetFragmentSchemaV2", result["source"])
         self.assertEqual(result["recordedTarget"]["platform"], "macos")
         self.assertEqual(
             result["recordedTarget"]["authenticationStatus"],
@@ -188,8 +174,8 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
 
         registry, _identities = validator._load_schemas(REPOSITORY, core)
         for dependency in (
-            "protocolDescriptorV2",
-            "targetFragmentSchemaV2",
+            "protocolDescriptor",
+            "targetFragmentSchema",
         ):
             with self.subTest(dependency=dependency):
                 missing_dependency = copy.deepcopy(result)
@@ -837,9 +823,51 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
             "collection",
         )
 
+    def test_schemas_reject_legacy_record_versions_and_collector_ids(self) -> None:
+        registry, _identities = validator._load_schemas(REPOSITORY, core)
+        for legacy_version in (2, 3):
+            with self.subTest(record="collection", version=legacy_version):
+                changed = copy.deepcopy(self.collection)
+                changed["schemaVersion"] = legacy_version
+                with self.assertRaises(validator.CpuBenchmarkValidationError):
+                    validator._validate_schema_instance(
+                        changed,
+                        registry[validator.COLLECTION_SCHEMA_ID],
+                        registry[validator.COLLECTION_SCHEMA_ID],
+                        registry,
+                        "collection",
+                    )
+            with self.subTest(record="collector", version=legacy_version):
+                changed = copy.deepcopy(self.collection)
+                changed["collector"]["id"] = (
+                    f"fonix-cpu-benchmark-collector-v{legacy_version}"
+                )
+                with self.assertRaises(validator.CpuBenchmarkValidationError):
+                    validator._validate_schema_instance(
+                        changed,
+                        registry[validator.COLLECTION_SCHEMA_ID],
+                        registry[validator.COLLECTION_SCHEMA_ID],
+                        registry,
+                        "collection",
+                    )
+
+        validation = self._validate()
+        for legacy_version in (2, 3):
+            with self.subTest(record="validation", version=legacy_version):
+                changed = copy.deepcopy(validation)
+                changed["schemaVersion"] = legacy_version
+                with self.assertRaises(validator.CpuBenchmarkValidationError):
+                    validator._validate_schema_instance(
+                        changed,
+                        registry[validator.VALIDATION_SCHEMA_ID],
+                        registry[validator.VALIDATION_SCHEMA_ID],
+                        registry,
+                        "validation",
+                    )
+
     def test_schema_bytes_are_pinned_by_the_validator(self) -> None:
         changed = copy.deepcopy(validator._EXPECTED_SCHEMA_IDENTITIES)
-        changed[validator.TARGET_SCHEMA_ID]["sha256"] = "0" * 64
+        changed[validator.TARGET_SCHEMA_ID]["sha256"] = "f" * 64
 
         with (
             mock.patch.object(
@@ -855,9 +883,7 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
         self,
     ) -> None:
         relatives = (
-            validator.TARGET_SCHEMA_V2_RELATIVE,
             validator.TARGET_SCHEMA_RELATIVE,
-            validator.COLLECTION_SCHEMA_V2_RELATIVE,
             validator.COLLECTION_SCHEMA_RELATIVE,
             validator.VALIDATION_SCHEMA_RELATIVE,
             "tool/ci/collect_cpu_benchmark.py",
@@ -892,12 +918,10 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
                         collector=self.fake_collector,
                     )
 
-    def test_supplied_v2_protocol_descriptor_must_match_core_pin(self) -> None:
-        candidate = self.root / "candidate-v2-protocol-tamper"
+    def test_supplied_v1_protocol_descriptor_must_match_core_pin(self) -> None:
+        candidate = self.root / "candidate-v1-protocol-tamper"
         relatives = {
-            validator.TARGET_SCHEMA_V2_RELATIVE,
             validator.TARGET_SCHEMA_RELATIVE,
-            validator.COLLECTION_SCHEMA_V2_RELATIVE,
             validator.COLLECTION_SCHEMA_RELATIVE,
             validator.VALIDATION_SCHEMA_RELATIVE,
             "tool/ci/collect_cpu_benchmark.py",
@@ -914,7 +938,7 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
             destination = candidate.joinpath(*relative.split("/"))
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY.joinpath(*relative.split("/")), destination)
-        descriptor = candidate / "templates/ci/cpu_benchmark_protocol_v2.json"
+        descriptor = candidate / "templates/ci/cpu_benchmark_protocol_v1.json"
         descriptor.write_bytes(descriptor.read_bytes() + b"\n")
         (candidate / "MANIFEST.sha256").write_bytes(
             source_checksum_manifest.build_manifest(candidate)
@@ -994,17 +1018,9 @@ class SchemaEngineTests(unittest.TestCase):
         }
         registry = {
             validator.COLLECTION_SCHEMA_ID: schema,
-            validator.COLLECTION_SCHEMA_V2_ID: {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "$id": validator.COLLECTION_SCHEMA_V2_ID,
-            },
             validator.VALIDATION_SCHEMA_ID: {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "$id": validator.VALIDATION_SCHEMA_ID,
-            },
-            validator.TARGET_SCHEMA_V2_ID: {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "$id": validator.TARGET_SCHEMA_V2_ID,
             },
             validator.TARGET_SCHEMA_ID: {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1022,6 +1038,35 @@ class SchemaEngineTests(unittest.TestCase):
             validator.CpuBenchmarkValidationError, "unresolved external"
         ):
             validator._validate_schema_documents(registry)
+
+    def test_rejects_legacy_schema_identifiers(self) -> None:
+        registry = {
+            identifier: {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": identifier,
+            }
+            for identifier in (
+                validator.TARGET_SCHEMA_ID,
+                validator.COLLECTION_SCHEMA_ID,
+                validator.VALIDATION_SCHEMA_ID,
+            )
+        }
+        for legacy_identifier in (
+            "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v2.json",
+            "https://fonix.invalid/schemas/cpu-benchmark-collection-v3.json",
+            "https://fonix.invalid/schemas/cpu-benchmark-validation-v2.json",
+        ):
+            with self.subTest(identifier=legacy_identifier):
+                changed = copy.deepcopy(registry)
+                changed[legacy_identifier] = {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$id": legacy_identifier,
+                }
+                with self.assertRaisesRegex(
+                    validator.CpuBenchmarkValidationError,
+                    "schema registry field set changed",
+                ):
+                    validator._validate_schema_documents(changed)
 
     def test_strict_integer_and_prefix_item_validation(self) -> None:
         schema = {

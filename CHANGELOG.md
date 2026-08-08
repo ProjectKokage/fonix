@@ -16,15 +16,20 @@
   positive-int64 worker request IDs permanently exhaust instead of wrapping;
   exhausted workers no longer hide retriable capacity on another live pool
   worker.
-- Added public-API CPU benchmark protocol v3. It preserves the serial-v2 field
-  meanings and appends a fixed two-worker, concurrency-two `OrtSessionPool`
-  phase with bounded per-worker input reservations, concurrent stabilization,
-  three full-isolate-roundtrip throughput windows, strict assignment outside
-  timing, seven total-process RSS phases, zero accounting, and idempotent
-  close. The five-launch collector now derives collection schema 3 and the
-  independent replay emits validation schema 2 while binding the immutable v2
-  descriptor, its target schema, and five replay-schema dependencies; existing v2 artifacts remain
-  unchanged, and no v3 baseline or support claim is made.
+- Added formal public-API CPU benchmark V1. It contains both the synchronous
+  serial phase and a fixed two-worker, concurrency-two `OrtSessionPool` phase
+  with bounded per-worker input reservations, concurrent stabilization, three
+  full-isolate-roundtrip throughput windows, strict assignment outside timing,
+  seven pool RSS phases, zero accounting, and idempotent close. Protocol,
+  target fragment, five-launch collection, offline validation, and collector
+  identities are all V1. The four active templates are the descriptor plus the
+  target, collection, and validation schemas. Replay registers only those
+  three schemas; their closed reference chain runs from validation to
+  collection to target. The earlier schema-1
+  fragment was an unreleased prototype, and the wrongly numbered intermediate
+  checkpoints remain only in Git history rather than active compatibility
+  obligations. Final-app V1 collection/replay evidence, any baseline, and any
+  support claim remain pending.
 - Enforced the exact strict-JSON nesting bound for empty containers and added a
   deterministic generated/mutated protocol corpus.
 - Released bounded ORT-owned provider and model-metadata outputs even when ORT

@@ -6,18 +6,18 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:fonix/fonix.dart';
 
-const int cpuBenchmarkFragmentSchemaVersion = 3;
+const int cpuBenchmarkFragmentSchemaVersion = 1;
 const String cpuBenchmarkActivationKey = 'FONIX_CPU_BENCHMARK';
 const String cpuBenchmarkChallengeKey = 'FONIX_CPU_BENCHMARK_CHALLENGE';
 const String cpuBenchmarkFragmentPrefix = 'FONIX_CPU_BENCHMARK_FRAGMENT=';
 const int maximumCpuBenchmarkFragmentBytes = 128 * 1024;
 
-const String cpuBenchmarkProtocolId = 'fonix-cpu-benchmark-target-v3';
-const int cpuBenchmarkProtocolVersion = 3;
+const String cpuBenchmarkProtocolId = 'fonix-cpu-benchmark-target-v1';
+const int cpuBenchmarkProtocolVersion = 1;
 const String cpuBenchmarkProtocolDescriptorSha256 =
-    '1bd8d293f4cb205991f5a0da1d9f9bc98710bc0ba5054c7d1f9d5150ba2dd7fa';
+    '9951998ec0c23817150ec2491e3225ad746539e989ea8335d01fd22e1e96766e';
 const String cpuBenchmarkTargetFragmentSchemaSha256 =
-    'b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b';
+    '8e79e4d637e2c917d654648cf549d3ade782770bbc5a4a0140297812fffa26d8';
 
 const String _modelAsset = 'assets/models/cpu_benchmark_matmul.onnx';
 const String _inputAsset = 'assets/models/cpu_benchmark_matmul.input.f32le';

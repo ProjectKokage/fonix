@@ -21,25 +21,49 @@
     "claimBoundary"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "result": { "const": "validated" },
-    "claimStatus": { "const": "measurement-only" },
-    "purpose": { "const": "cpu-benchmark-raw-bundle-offline-validation" },
-    "validationScope": { "const": "offline-consistency-only" },
-    "rawEvidenceRequiredForEvaluation": { "const": true },
+    "schemaVersion": {
+      "const": 1
+    },
+    "result": {
+      "const": "validated"
+    },
+    "claimStatus": {
+      "const": "measurement-only"
+    },
+    "purpose": {
+      "const": "cpu-benchmark-raw-bundle-offline-validation"
+    },
+    "validationScope": {
+      "const": "offline-consistency-only"
+    },
+    "rawEvidenceRequiredForEvaluation": {
+      "const": true
+    },
     "bundle": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["format", "fileCount", "byteCount", "sha256", "files"],
+      "required": [
+        "format",
+        "fileCount",
+        "byteCount",
+        "sha256",
+        "files"
+      ],
       "properties": {
-        "format": { "const": "fonix-cpu-benchmark-raw-bundle-v1" },
-        "fileCount": { "const": 7 },
+        "format": {
+          "const": "fonix-cpu-benchmark-raw-bundle-v1"
+        },
+        "fileCount": {
+          "const": 7
+        },
         "byteCount": {
           "type": "integer",
           "minimum": 7,
           "maximum": 10092544
         },
-        "sha256": { "$ref": "#/$defs/sha256" },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
         "files": {
           "type": "array",
           "minItems": 7,
@@ -48,7 +72,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "cpu-benchmark-collection.json" },
+                "name": {
+                  "const": "cpu-benchmark-collection.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -59,7 +85,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "fragment-00.json" },
+                "name": {
+                  "const": "fragment-00.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -70,7 +98,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "fragment-01.json" },
+                "name": {
+                  "const": "fragment-01.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -81,7 +111,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "fragment-02.json" },
+                "name": {
+                  "const": "fragment-02.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -92,7 +124,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "fragment-03.json" },
+                "name": {
+                  "const": "fragment-03.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -103,7 +137,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "fragment-04.json" },
+                "name": {
+                  "const": "fragment-04.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -114,7 +150,9 @@
             {
               "$ref": "#/$defs/bundleFile",
               "properties": {
-                "name": { "const": "host-observations.json" },
+                "name": {
+                  "const": "host-observations.json"
+                },
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 1,
@@ -129,43 +167,74 @@
     "collection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sizeBytes", "sha256", "launchCount", "collectorSha256"],
+      "required": [
+        "sizeBytes",
+        "sha256",
+        "launchCount",
+        "collectorSha256"
+      ],
       "properties": {
         "sizeBytes": {
           "type": "integer",
           "minimum": 1,
           "maximum": 8388608
         },
-        "sha256": { "$ref": "#/$defs/sha256" },
-        "launchCount": { "const": 5 },
-        "collectorSha256": { "$ref": "#/$defs/sha256" }
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "launchCount": {
+          "const": 5
+        },
+        "collectorSha256": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "tools": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["collector", "collectionCore", "validator"],
+      "required": [
+        "collector",
+        "collectionCore",
+        "validator"
+      ],
       "properties": {
-        "collector": { "$ref": "#/$defs/fileIdentity" },
-        "collectionCore": { "$ref": "#/$defs/fileIdentity" },
-        "validator": { "$ref": "#/$defs/fileIdentity" }
+        "collector": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "collectionCore": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "validator": {
+          "$ref": "#/$defs/fileIdentity"
+        }
       }
     },
     "schemas": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetFragment", "collection", "validation"],
+      "required": [
+        "targetFragment",
+        "collection",
+        "validation"
+      ],
       "properties": {
-        "targetFragment": { "$ref": "#/$defs/fileIdentity" },
-        "collection": { "$ref": "#/$defs/fileIdentity" },
-        "validation": { "$ref": "#/$defs/fileIdentity" }
+        "targetFragment": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "collection": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "validation": {
+          "$ref": "#/$defs/fileIdentity"
+        }
       }
     },
     "source": {
-      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/repositoryEvidence"
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json#/$defs/repositoryEvidence"
     },
     "artifacts": {
-      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/artifacts"
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json#/$defs/artifacts"
     },
     "recordedTarget": {
       "type": "object",
@@ -189,21 +258,35 @@
         "authenticationStatus": {
           "const": "not-independently-authenticated"
         },
-        "hostObservationSha256": { "$ref": "#/$defs/sha256" },
-        "platform": { "enum": ["macos", "linux"] },
-        "architecture": { "enum": ["arm64", "x86_64"] },
-        "deviceIdentitySha256": { "$ref": "#/$defs/sha256" },
+        "hostObservationSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "platform": {
+          "enum": [
+            "macos",
+            "linux"
+          ]
+        },
+        "architecture": {
+          "enum": [
+            "arm64",
+            "x86_64"
+          ]
+        },
+        "deviceIdentitySha256": {
+          "$ref": "#/$defs/sha256"
+        },
         "osVersion": {
-          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/label"
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json#/$defs/label"
         },
         "osBuild": {
-          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/label"
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json#/$defs/label"
         },
         "driverIdentity": {
-          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/label"
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json#/$defs/label"
         },
         "firmwareIdentity": {
-          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v2.json#/$defs/label"
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json#/$defs/label"
         }
       }
     },
@@ -221,20 +304,29 @@
     "fileIdentity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sizeBytes", "sha256"],
+      "required": [
+        "sizeBytes",
+        "sha256"
+      ],
       "properties": {
         "sizeBytes": {
           "type": "integer",
           "minimum": 1,
           "maximum": 17179869184
         },
-        "sha256": { "$ref": "#/$defs/sha256" }
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "bundleFile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "sizeBytes", "sha256"],
+      "required": [
+        "name",
+        "sizeBytes",
+        "sha256"
+      ],
       "properties": {
         "name": {
           "enum": [
@@ -252,7 +344,9 @@
           "minimum": 1,
           "maximum": 8388608
         },
-        "sha256": { "$ref": "#/$defs/sha256" }
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     }
   }

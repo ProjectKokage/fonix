@@ -147,9 +147,7 @@ class _FakeCore:
             "sourceManifest": dict(identity),
             "sourceManifestValidator": dict(identity),
             "protocolDescriptor": dict(identity),
-            "protocolDescriptorV2": dict(identity),
             "targetFragmentSchema": dict(identity),
-            "targetFragmentSchemaV2": dict(identity),
             "model": dict(identity),
             "inputFixture": dict(identity),
             "referenceOutput": dict(identity),
@@ -199,12 +197,12 @@ class _FakeCore:
         if len(fragments) != collector.LAUNCH_COUNT:
             raise self.CpuBenchmarkCollectionError("wrong launch count")
         return {
-            "schemaVersion": 3,
+            "schemaVersion": 1,
             "result": "collected",
             "claimStatus": "measurement-only",
             "purpose": "cpu-benchmark-collection-only",
             "collector": {
-                "id": "fonix-cpu-benchmark-collector-v2",
+                "id": "fonix-cpu-benchmark-collector-v1",
                 "sha256": collector_sha256,
             },
             "protocol": "test",
@@ -1016,9 +1014,7 @@ cpu MHz : 800.000
                 "sourceManifest",
                 "sourceManifestValidator",
                 "protocolDescriptor",
-                "protocolDescriptorV2",
                 "targetFragmentSchema",
-                "targetFragmentSchemaV2",
                 "model",
                 "inputFixture",
                 "referenceOutput",

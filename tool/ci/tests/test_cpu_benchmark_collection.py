@@ -136,7 +136,7 @@ def _fragment(challenge: str, process_id: int, *, offset: int = 0) -> dict[str, 
         "fallbackObserved": False,
     }
     return {
-        "schemaVersion": 3,
+        "schemaVersion": 1,
         "result": "measured",
         "purpose": "measurement-only-target-fragment",
         "protocol": {
@@ -432,7 +432,7 @@ class FragmentValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fragment = _fragment("a" * 64, 123)
 
-    def test_accepts_exact_v3_fragment_and_returns_plain_copy(self) -> None:
+    def test_accepts_exact_v1_fragment_and_returns_plain_copy(self) -> None:
         result = collection.validate_fragment(
             self.fragment,
             expected_challenge="a" * 64,
@@ -442,12 +442,28 @@ class FragmentValidationTests(unittest.TestCase):
         self.assertEqual(result, self.fragment)
         self.assertIsNot(result, self.fragment)
 
+    def test_rejects_legacy_fragment_versions_and_protocol_ids(self) -> None:
+        for legacy_version in (2, 3):
+            with self.subTest(schemaVersion=legacy_version):
+                value = copy.deepcopy(self.fragment)
+                value["schemaVersion"] = legacy_version
+                with self.assertRaises(collection.CpuBenchmarkCollectionError):
+                    collection.validate_fragment(value)
+            with self.subTest(protocolVersion=legacy_version):
+                value = copy.deepcopy(self.fragment)
+                value["protocol"]["id"] = (
+                    f"fonix-cpu-benchmark-target-v{legacy_version}"
+                )
+                value["protocol"]["version"] = legacy_version
+                with self.assertRaises(collection.CpuBenchmarkCollectionError):
+                    collection.validate_fragment(value)
+
     def test_rejects_unknown_missing_pool_and_protocol_hash_drift(self) -> None:
         for mutation in (
             lambda value: value.__setitem__("unknown", True),
             lambda value: value.pop("poolEvidence"),
             lambda value: value["protocol"].__setitem__(
-                "descriptorSha256", "0" * 64
+                "descriptorSha256", "f" * 64
             ),
         ):
             value = copy.deepcopy(self.fragment)
@@ -834,20 +850,8 @@ class NativeAndRepositoryBindingTests(unittest.TestCase):
             result["protocolDescriptor"]["sha256"],
             collection.PROTOCOL_DESCRIPTOR_SHA256,
         )
-        self.assertEqual(
-            result["protocolDescriptorV2"],
-            {
-                "sizeBytes": 4_304,
-                "sha256": collection.PROTOCOL_DESCRIPTOR_V2_SHA256,
-            },
-        )
-        self.assertEqual(
-            result["targetFragmentSchemaV2"],
-            {
-                "sizeBytes": 16_843,
-                "sha256": collection.TARGET_FRAGMENT_SCHEMA_V2_SHA256,
-            },
-        )
+        self.assertNotIn("protocolDescriptorV2", result)
+        self.assertNotIn("targetFragmentSchemaV2", result)
         marker = self.root / "candidate-helper-executed"
         source_helper.write_text(
             "from pathlib import Path\n"
@@ -869,37 +873,37 @@ class NativeAndRepositoryBindingTests(unittest.TestCase):
         shutil.copyfile(
             REPOSITORY / "tool/ci/source_checksum_manifest.py", source_helper
         )
-        protocol_v2 = synthetic / "templates/ci/cpu_benchmark_protocol_v2.json"
-        protocol_v2.write_bytes(protocol_v2.read_bytes() + b"\n")
+        protocol_v1 = synthetic / "templates/ci/cpu_benchmark_protocol_v1.json"
+        protocol_v1.write_bytes(protocol_v1.read_bytes() + b"\n")
         (synthetic / "MANIFEST.sha256").write_bytes(
             source_checksum_manifest.build_manifest(synthetic)
         )
         with self.assertRaisesRegex(
             collection.CpuBenchmarkCollectionError,
-            "protocolDescriptorV2",
+            "protocolDescriptor",
         ):
             collection.repository_evidence_identity(synthetic)
 
         shutil.copyfile(
-            REPOSITORY / "templates/ci/cpu_benchmark_protocol_v2.json",
-            protocol_v2,
+            REPOSITORY / "templates/ci/cpu_benchmark_protocol_v1.json",
+            protocol_v1,
         )
-        target_schema_v2 = (
-            synthetic / "templates/ci/cpu_benchmark_target_fragment_v2.schema.json"
+        target_schema_v1 = (
+            synthetic / "templates/ci/cpu_benchmark_target_fragment_v1.schema.json"
         )
-        target_schema_v2.write_bytes(target_schema_v2.read_bytes() + b"\n")
+        target_schema_v1.write_bytes(target_schema_v1.read_bytes() + b"\n")
         (synthetic / "MANIFEST.sha256").write_bytes(
             source_checksum_manifest.build_manifest(synthetic)
         )
         with self.assertRaisesRegex(
             collection.CpuBenchmarkCollectionError,
-            "targetFragmentSchemaV2",
+            "targetFragmentSchema",
         ):
             collection.repository_evidence_identity(synthetic)
 
         shutil.copyfile(
-            REPOSITORY / "templates/ci/cpu_benchmark_target_fragment_v2.schema.json",
-            target_schema_v2,
+            REPOSITORY / "templates/ci/cpu_benchmark_target_fragment_v1.schema.json",
+            target_schema_v1,
         )
         with (synthetic / "example/assets/models/cpu_benchmark_matmul.json").open(
             "ab"
@@ -957,9 +961,9 @@ class CollectionDerivationTests(unittest.TestCase):
     def test_derives_raw_preserving_stats_rates_resources_and_zero_dependencies(self) -> None:
         fragments = [_fragment("a" * 64, 42), _fragment("b" * 64, 43, offset=1)]
         result = self._derive(fragments)
-        self.assertEqual(result["schemaVersion"], 3)
+        self.assertEqual(result["schemaVersion"], 1)
         self.assertEqual(
-            result["collector"]["id"], "fonix-cpu-benchmark-collector-v2"
+            result["collector"]["id"], "fonix-cpu-benchmark-collector-v1"
         )
         self.assertEqual(result["launchCount"], 2)
         self.assertEqual(result["artifacts"]["providerDependencies"], [])
@@ -1099,15 +1103,15 @@ class CollectionDerivationTests(unittest.TestCase):
         ):
             self._derive(fragments, artifacts=unsafe_artifacts)
 
-    def test_rejects_v2_dependency_evidence_absence_and_tamper(self) -> None:
+    def test_rejects_v1_dependency_evidence_absence_and_tamper(self) -> None:
         fragments = [_fragment("a" * 64, 1), _fragment("b" * 64, 2)]
         for dependency in (
-            "protocolDescriptorV2",
-            "targetFragmentSchemaV2",
+            "protocolDescriptor",
+            "targetFragmentSchema",
         ):
             with self.subTest(dependency=dependency, mutation="tamper"):
                 artifacts = _artifacts()
-                artifacts["repositoryEvidence"][dependency]["sha256"] = "0" * 64
+                artifacts["repositoryEvidence"][dependency]["sha256"] = "f" * 64
                 with self.assertRaisesRegex(
                     collection.CpuBenchmarkCollectionError,
                     dependency,

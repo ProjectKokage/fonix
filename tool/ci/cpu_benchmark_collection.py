@@ -35,19 +35,15 @@ MAXIMUM_DURATION = 1_000_000_000_000_000
 MAXIMUM_DERIVATION_THROUGHPUT_DURATION = 3 * MAXIMUM_LAUNCHES * MAXIMUM_DURATION
 MAXIMUM_RSS_BYTES = 0x7FFF_FFFF_FFFF_FFFF
 
-PROTOCOL_ID = "fonix-cpu-benchmark-target-v3"
-PROTOCOL_VERSION = 3
+PROTOCOL_ID = "fonix-cpu-benchmark-target-v1"
+PROTOCOL_VERSION = 1
+PROTOCOL_DESCRIPTOR_SIZE_BYTES = 8_002
 PROTOCOL_DESCRIPTOR_SHA256 = (
-    "1bd8d293f4cb205991f5a0da1d9f9bc98710bc0ba5054c7d1f9d5150ba2dd7fa"
+    "9951998ec0c23817150ec2491e3225ad746539e989ea8335d01fd22e1e96766e"
 )
-PROTOCOL_DESCRIPTOR_V2_SHA256 = (
-    "93a33f420c1b38d1061eb00c713fb5d13135dfed7c283673c26c185fbd3727ac"
-)
+TARGET_FRAGMENT_SCHEMA_SIZE_BYTES = 32_212
 TARGET_FRAGMENT_SCHEMA_SHA256 = (
-    "b38d7a8015ccc8068fb4f9854ccc692bddd14f7d678be9a9720d38cbac31359b"
-)
-TARGET_FRAGMENT_SCHEMA_V2_SHA256 = (
-    "58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d"
+    "8e79e4d637e2c917d654648cf549d3ade782770bbc5a4a0140297812fffa26d8"
 )
 SOURCE_MANIFEST_VALIDATOR_SIZE_BYTES = 17_636
 SOURCE_MANIFEST_VALIDATOR_SHA256 = (
@@ -1281,10 +1277,10 @@ def validate_fragment(
     expected_process_id: int | None = None,
     raw_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Validate and normalize one exact CPU target-fragment v3 object."""
+    """Validate and normalize one exact CPU target-fragment V1 object."""
 
     fragment = _object(value, "fragment", _FRAGMENT_KEYS)
-    _exact(fragment["schemaVersion"], 3, "fragment.schemaVersion")
+    _exact(fragment["schemaVersion"], 1, "fragment.schemaVersion")
     _exact(fragment["result"], "measured", "fragment.result")
     _exact(
         fragment["purpose"],
@@ -1839,24 +1835,14 @@ _REPOSITORY_EVIDENCE_FILES = {
         SOURCE_MANIFEST_VALIDATOR_SHA256,
     ),
     "protocolDescriptor": (
-        "templates/ci/cpu_benchmark_protocol_v3.json",
-        8_817,
+        "templates/ci/cpu_benchmark_protocol_v1.json",
+        PROTOCOL_DESCRIPTOR_SIZE_BYTES,
         PROTOCOL_DESCRIPTOR_SHA256,
     ),
-    "protocolDescriptorV2": (
-        "templates/ci/cpu_benchmark_protocol_v2.json",
-        4_304,
-        PROTOCOL_DESCRIPTOR_V2_SHA256,
-    ),
     "targetFragmentSchema": (
-        "templates/ci/cpu_benchmark_target_fragment_v3.schema.json",
-        12_447,
+        "templates/ci/cpu_benchmark_target_fragment_v1.schema.json",
+        TARGET_FRAGMENT_SCHEMA_SIZE_BYTES,
         TARGET_FRAGMENT_SCHEMA_SHA256,
-    ),
-    "targetFragmentSchemaV2": (
-        "templates/ci/cpu_benchmark_target_fragment_v2.schema.json",
-        16_843,
-        TARGET_FRAGMENT_SCHEMA_V2_SHA256,
     ),
     "model": (
         "example/assets/models/cpu_benchmark_matmul.onnx",
@@ -3673,12 +3659,12 @@ def derive_collection(
         for index, fragment in enumerate(normalized)
     ]
     return {
-        "schemaVersion": 3,
+        "schemaVersion": 1,
         "result": "measured",
         "claimStatus": "measurement-only",
         "purpose": "cpu-benchmark-cross-launch-collection",
         "collector": {
-            "id": "fonix-cpu-benchmark-collector-v2",
+            "id": "fonix-cpu-benchmark-collector-v1",
             "sha256": collector_digest,
         },
         "protocol": _plain_json_copy(normalized[0]["protocol"]),

@@ -1,0 +1,1773 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fonix.invalid/schemas/cpu-benchmark-collection-v1.json",
+  "title": "Fonix CPU benchmark raw-preserving serial and bounded-pool collection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "result",
+    "claimStatus",
+    "purpose",
+    "collector",
+    "protocol",
+    "launchCount",
+    "rawHostObservation",
+    "environment",
+    "artifacts",
+    "identityTuple",
+    "rawFragments",
+    "aggregates",
+    "claimBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "result": {
+      "const": "measured"
+    },
+    "claimStatus": {
+      "const": "measurement-only"
+    },
+    "purpose": {
+      "const": "cpu-benchmark-cross-launch-collection"
+    },
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "const": "fonix-cpu-benchmark-collector-v1"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "protocol": {
+      "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/protocol"
+    },
+    "launchCount": {
+      "const": 5
+    },
+    "rawHostObservation": {
+      "$ref": "#/$defs/rawHostObservation"
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "artifacts": {
+      "$ref": "#/$defs/artifacts"
+    },
+    "identityTuple": {
+      "$ref": "#/$defs/identityTuple"
+    },
+    "rawFragments": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/rawFragment"
+      }
+    },
+    "aggregates": {
+      "$ref": "#/$defs/aggregates"
+    },
+    "claimBoundary": {
+      "const": "A strict raw-preserving aggregation of fresh-process CPU target fragments for one challenge/PID-bound target tuple and one canonical application tree observed unchanged around the launches. The target-reported runtime basename is bound to one unique packaged member and the shim reports its embedded build contract; supplied native members remain packaged inputs, not independent proof that their exact bytes were loaded. The separately recorded source tree is not a compiled-source provenance proof, and no distribution archive is claimed. Measurement-only and not a baseline, threshold, provider qualification, platform support claim, release approval, or cross-target evidence."
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,255}$"
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+() ,:=+-]{0,255}$"
+    },
+    "semver": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 256,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sizeBytes",
+        "sha256"
+      ],
+      "properties": {
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 17179869184
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "namedFileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sizeBytes",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/label"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 17179869184
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "applicationTree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "fileCount",
+        "directoryCount",
+        "symbolicLinkCount",
+        "byteCount",
+        "sha256"
+      ],
+      "properties": {
+        "format": {
+          "const": "canonical-application-tree-v1"
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "directoryCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "symbolicLinkCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "byteCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 17179869184
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "buildManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "nativeIdentity",
+        "shimAbiVersion",
+        "requiredOrtApiVersion",
+        "runtimeProfile",
+        "androidRuntimeOwner",
+        "allowedRuntimeSources",
+        "buildId",
+        "artifact"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 3
+        },
+        "nativeIdentity": {
+          "const": "fonix_shim"
+        },
+        "shimAbiVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "requiredOrtApiVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "runtimeProfile": {
+          "const": "bundled"
+        },
+        "androidRuntimeOwner": {
+          "type": "null"
+        },
+        "allowedRuntimeSources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "const": "bundled"
+          }
+        },
+        "buildId": {
+          "$ref": "#/$defs/token"
+        },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "lockSha256",
+            "sourceSha256",
+            "targetOs",
+            "targetArchitecture",
+            "targetVariant",
+            "minimumOs",
+            "flavor",
+            "runtimeMode",
+            "thirdPartyNoticesSha256",
+            "providers"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/token"
+            },
+            "lockSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "sourceSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "targetOs": {
+              "enum": [
+                "macos",
+                "linux"
+              ]
+            },
+            "targetArchitecture": {
+              "enum": [
+                "arm64",
+                "x86_64"
+              ]
+            },
+            "targetVariant": {
+              "$ref": "#/$defs/token"
+            },
+            "minimumOs": {
+              "$ref": "#/$defs/label"
+            },
+            "flavor": {
+              "$ref": "#/$defs/token"
+            },
+            "runtimeMode": {
+              "const": "bundled"
+            },
+            "thirdPartyNoticesSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "providers": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/$defs/providerInventoryEntry"
+              }
+            }
+          }
+        }
+      }
+    },
+    "repositoryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceManifest",
+        "sourceManifestValidator",
+        "protocolDescriptor",
+        "targetFragmentSchema",
+        "model",
+        "inputFixture",
+        "referenceOutput",
+        "metadata",
+        "generator"
+      ],
+      "properties": {
+        "sourceManifest": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "sourceManifestValidator": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "protocolDescriptor": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "targetFragmentSchema": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "model": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "inputFixture": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "referenceOutput": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "metadata": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "generator": {
+          "$ref": "#/$defs/fileIdentity"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationTree",
+        "executable",
+        "shimLibrary",
+        "runtimeLibrary",
+        "providerDependencies",
+        "nativeLock",
+        "packageVersion",
+        "runtimeVersion",
+        "resolverManifest",
+        "embeddedBuildManifestSha256",
+        "embeddedBuildManifestCanonicalSha256",
+        "embeddedBuildManifest",
+        "nativePayloadFiles",
+        "nativePayloadRelationship",
+        "repositoryEvidence"
+      ],
+      "properties": {
+        "applicationTree": {
+          "$ref": "#/$defs/applicationTree"
+        },
+        "executable": {
+          "$ref": "#/$defs/namedFileIdentity"
+        },
+        "shimLibrary": {
+          "$ref": "#/$defs/namedFileIdentity"
+        },
+        "runtimeLibrary": {
+          "$ref": "#/$defs/namedFileIdentity"
+        },
+        "providerDependencies": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/namedFileIdentity"
+          }
+        },
+        "nativeLock": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "packageVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "runtimeVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "resolverManifest": {
+          "$ref": "#/$defs/namedFileIdentity"
+        },
+        "embeddedBuildManifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "embeddedBuildManifestCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "embeddedBuildManifest": {
+          "$ref": "#/$defs/buildManifest"
+        },
+        "nativePayloadFiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/namedFileIdentity"
+          }
+        },
+        "nativePayloadRelationship": {
+          "const": "lock-resolver-source-bytes;packaged-equivalence-requires-platform-audit"
+        },
+        "repositoryEvidence": {
+          "$ref": "#/$defs/repositoryEvidence"
+        }
+      }
+    },
+    "launchObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "launchChallenge",
+        "processId",
+        "powerModeStart",
+        "powerModeEnd",
+        "thermalStateStart",
+        "thermalStateEnd"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "launchChallenge": {
+          "$ref": "#/$defs/sha256"
+        },
+        "processId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "powerModeStart": {
+          "$ref": "#/$defs/label"
+        },
+        "powerModeEnd": {
+          "$ref": "#/$defs/label"
+        },
+        "thermalStateStart": {
+          "$ref": "#/$defs/label"
+        },
+        "thermalStateEnd": {
+          "$ref": "#/$defs/label"
+        }
+      }
+    },
+    "cpuLaunch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processId",
+        "index",
+        "launchChallenge",
+        "userMicroseconds",
+        "systemMicroseconds",
+        "wallMicroseconds"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "launchChallenge": {
+          "$ref": "#/$defs/sha256"
+        },
+        "processId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "userMicroseconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000000
+        },
+        "systemMicroseconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000000
+        },
+        "wallMicroseconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        }
+      }
+    },
+    "cpuUtilization": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "not-exposed"
+            },
+            "reason": {
+              "const": "target-api-not-integrated"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "launches"
+          ],
+          "properties": {
+            "status": {
+              "const": "measured"
+            },
+            "launches": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "$ref": "#/$defs/cpuLaunch"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "powerComparability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "stability",
+        "stableValue"
+      ],
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "stability": {
+          "enum": [
+            "stable",
+            "changed",
+            "indeterminate"
+          ]
+        },
+        "stableValue": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/label"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "thermalComparability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "drift",
+        "stableValue"
+      ],
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "drift": {
+          "enum": [
+            "none-observed",
+            "observed",
+            "indeterminate"
+          ]
+        },
+        "stableValue": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/label"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "comparability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "powerMode",
+        "thermalState",
+        "reasons"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "baseline-comparable",
+            "incomplete",
+            "non-comparable"
+          ]
+        },
+        "powerMode": {
+          "$ref": "#/$defs/powerComparability"
+        },
+        "thermalState": {
+          "$ref": "#/$defs/thermalComparability"
+        },
+        "reasons": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "power-mode-unavailable",
+              "power-mode-partially-unavailable",
+              "power-mode-changed",
+              "thermal-state-unavailable",
+              "thermal-state-partially-unavailable",
+              "thermal-drift-observed"
+            ]
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "architecture",
+        "deviceIdentitySha256",
+        "osVersion",
+        "osBuild",
+        "driverIdentity",
+        "firmwareIdentity",
+        "launchObservations",
+        "cpuUtilization",
+        "comparability"
+      ],
+      "properties": {
+        "platform": {
+          "enum": [
+            "macos",
+            "linux"
+          ]
+        },
+        "architecture": {
+          "enum": [
+            "arm64",
+            "x86_64"
+          ]
+        },
+        "deviceIdentitySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "osVersion": {
+          "$ref": "#/$defs/label"
+        },
+        "osBuild": {
+          "$ref": "#/$defs/label"
+        },
+        "driverIdentity": {
+          "$ref": "#/$defs/label"
+        },
+        "firmwareIdentity": {
+          "$ref": "#/$defs/label"
+        },
+        "launchObservations": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/launchObservation"
+          }
+        },
+        "cpuUtilization": {
+          "$ref": "#/$defs/cpuUtilization"
+        },
+        "comparability": {
+          "$ref": "#/$defs/comparability"
+        }
+      }
+    },
+    "hostObservationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "result",
+        "claimStatus",
+        "purpose",
+        "launchCount",
+        "environment",
+        "claimBoundary"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "result": {
+          "const": "measured"
+        },
+        "claimStatus": {
+          "const": "measurement-only"
+        },
+        "purpose": {
+          "const": "cpu-benchmark-host-observations"
+        },
+        "launchCount": {
+          "const": 5
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "claimBoundary": {
+          "const": "Raw challenge-bound host observations captured around five fresh target processes. Collector-observed measurement input only; not a baseline, threshold, support claim, release approval, or independent hardware attestation."
+        }
+      }
+    },
+    "rawHostObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "record"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "record": {
+          "$ref": "#/$defs/hostObservationRecord"
+        }
+      }
+    },
+    "identityTuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "model",
+        "runtime",
+        "session",
+        "timing",
+        "providerAssignment",
+        "resourceContract",
+        "lifecycle",
+        "poolEvidenceContract"
+      ],
+      "properties": {
+        "protocol": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/protocol"
+        },
+        "model": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/model"
+        },
+        "runtime": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/runtime"
+        },
+        "session": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/session"
+        },
+        "timing": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/timing"
+        },
+        "providerAssignment": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/providerAssignment"
+        },
+        "resourceContract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rssScope",
+            "nativeRss",
+            "cpuUtilization",
+            "thermalStart",
+            "thermalEnd",
+            "powerMode"
+          ],
+          "properties": {
+            "rssScope": {
+              "const": "total-process"
+            },
+            "nativeRss": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/resources/properties/nativeRss"
+            },
+            "cpuUtilization": {
+              "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/resources/properties/cpuUtilization"
+            },
+            "thermalStart": {
+              "const": "host-evidence-required"
+            },
+            "thermalEnd": {
+              "const": "host-evidence-required"
+            },
+            "powerMode": {
+              "const": "host-evidence-required"
+            }
+          }
+        },
+        "lifecycle": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/properties/lifecycle"
+        },
+        "poolEvidenceContract": {
+          "$ref": "#/$defs/poolEvidenceContract"
+        }
+      }
+    },
+    "rawFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "sha256",
+        "launchChallenge",
+        "processId",
+        "fragment"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "launchChallenge": {
+          "$ref": "#/$defs/sha256"
+        },
+        "processId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "fragment": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json"
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "p50",
+        "p95",
+        "p99",
+        "max"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "p50": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "p95": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "p99": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "launchSeries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples",
+        "statistics"
+      ],
+      "properties": {
+        "samples": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        },
+        "statistics": {
+          "$ref": "#/$defs/statistics"
+        }
+      }
+    },
+    "warmSeries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples",
+        "statistics"
+      ],
+      "properties": {
+        "samples": {
+          "type": "array",
+          "minItems": 500,
+          "maxItems": 500,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        },
+        "statistics": {
+          "$ref": "#/$defs/statistics"
+        }
+      }
+    },
+    "boundedSeries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples",
+        "statistics"
+      ],
+      "properties": {
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          }
+        },
+        "statistics": {
+          "$ref": "#/$defs/statistics"
+        }
+      }
+    },
+    "rssLaunchSeries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples",
+        "statistics"
+      ],
+      "properties": {
+        "samples": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          }
+        },
+        "statistics": {
+          "$ref": "#/$defs/statistics"
+        }
+      }
+    },
+    "stabilizationLaunch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "actualRuns",
+        "inferenceMicroseconds",
+        "batchMedianMicroseconds"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "actualRuns": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 100,
+          "multipleOf": 5
+        },
+        "inferenceMicroseconds": {
+          "type": "array",
+          "minItems": 20,
+          "maxItems": 100,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        },
+        "batchMedianMicroseconds": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        }
+      }
+    },
+    "throughputWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launchIndex",
+        "windowIndex",
+        "completedRuns",
+        "durationMicroseconds",
+        "runsPerSecondMilli"
+      ],
+      "properties": {
+        "launchIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "windowIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "completedRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "durationMicroseconds": {
+          "type": "integer",
+          "minimum": 1000000,
+          "maximum": 1000000000000000
+        },
+        "runsPerSecondMilli": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        }
+      }
+    },
+    "rssPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "currentBytes",
+        "peakBytes"
+      ],
+      "properties": {
+        "phase": {
+          "$ref": "#/$defs/token"
+        },
+        "currentBytes": {
+          "$ref": "#/$defs/rssLaunchSeries"
+        },
+        "peakBytes": {
+          "$ref": "#/$defs/rssLaunchSeries"
+        }
+      }
+    },
+    "aggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurements",
+        "stabilization",
+        "throughput",
+        "resources",
+        "poolEvidence"
+      ],
+      "properties": {
+        "measurements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "coldRuntimeLoadMicroseconds",
+            "sessionCreateMicroseconds",
+            "dataPreparationMicroseconds",
+            "firstRunMicroseconds",
+            "firstOutputMaterializationMicroseconds",
+            "warmRunMicroseconds",
+            "warmOutputMaterializationMicroseconds"
+          ],
+          "properties": {
+            "coldRuntimeLoadMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "sessionCreateMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "dataPreparationMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "firstRunMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "firstOutputMaterializationMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "warmRunMicroseconds": {
+              "$ref": "#/$defs/warmSeries"
+            },
+            "warmOutputMaterializationMicroseconds": {
+              "$ref": "#/$defs/warmSeries"
+            }
+          }
+        },
+        "stabilization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "launches",
+            "inferenceMicroseconds",
+            "batchMedianMicroseconds"
+          ],
+          "properties": {
+            "launches": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "$ref": "#/$defs/stabilizationLaunch"
+              }
+            },
+            "inferenceMicroseconds": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 100,
+                  "maxItems": 500
+                }
+              }
+            },
+            "batchMedianMicroseconds": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 20,
+                  "maxItems": 100
+                }
+              }
+            }
+          }
+        },
+        "throughput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "windows",
+            "statisticsRunsPerSecondMilli",
+            "totalCompletedRuns",
+            "totalDurationMicroseconds",
+            "aggregateRunsPerSecondMilli"
+          ],
+          "properties": {
+            "windows": {
+              "type": "array",
+              "minItems": 15,
+              "maxItems": 15,
+              "items": {
+                "$ref": "#/$defs/throughputWindow"
+              }
+            },
+            "statisticsRunsPerSecondMilli": {
+              "$ref": "#/$defs/statistics"
+            },
+            "totalCompletedRuns": {
+              "type": "integer",
+              "minimum": 15,
+              "maximum": 15000000
+            },
+            "totalDurationMicroseconds": {
+              "type": "integer",
+              "minimum": 15000000,
+              "maximum": 15000000000000000
+            },
+            "aggregateRunsPerSecondMilli": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000000000
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rssCurrentBytes",
+            "rssPeakBytes",
+            "byPhase"
+          ],
+          "properties": {
+            "rssCurrentBytes": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 40,
+                  "maxItems": 40
+                }
+              }
+            },
+            "rssPeakBytes": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 40,
+                  "maxItems": 40
+                }
+              }
+            },
+            "byPhase": {
+              "type": "array",
+              "minItems": 8,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/rssPhase"
+              }
+            }
+          }
+        },
+        "poolEvidence": {
+          "$ref": "#/$defs/poolAggregates"
+        }
+      }
+    },
+    "poolEvidenceContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executionSurface",
+        "configuration",
+        "timing",
+        "stabilizationPolicy",
+        "providerAssignments",
+        "resourceContract",
+        "lifecycle"
+      ],
+      "properties": {
+        "executionSurface": {
+          "const": "public-ort-session-pool"
+        },
+        "configuration": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/$defs/poolConfiguration"
+        },
+        "timing": {
+          "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/$defs/poolTiming"
+        },
+        "stabilizationPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "batchSize",
+            "thresholdBasisPoints",
+            "requiredConsecutiveTransitions",
+            "maximumRounds",
+            "result"
+          ],
+          "properties": {
+            "method": {
+              "const": "bounded-batch-median-relative-change"
+            },
+            "batchSize": {
+              "const": 5
+            },
+            "thresholdBasisPoints": {
+              "const": 1000
+            },
+            "requiredConsecutiveTransitions": {
+              "const": 3
+            },
+            "maximumRounds": {
+              "const": 100
+            },
+            "result": {
+              "const": "stabilized"
+            }
+          }
+        },
+        "providerAssignments": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "https://fonix.invalid/schemas/cpu-benchmark-target-fragment-v1.json#/$defs/providerAssignment"
+          }
+        },
+        "resourceContract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rssScope",
+            "nativeRss",
+            "cpuUtilization"
+          ],
+          "properties": {
+            "rssScope": {
+              "const": "total-process"
+            },
+            "nativeRss": {
+              "const": {
+                "status": "not-exposed-by-target-api"
+              }
+            },
+            "cpuUtilization": {
+              "const": {
+                "status": "not-exposed-by-target-api"
+              }
+            }
+          }
+        },
+        "lifecycle": {
+          "const": {
+            "initialConcurrentOccupancy": "passed",
+            "zeroOutstandingBeforeClose": "passed",
+            "idempotentClose": "passed",
+            "zeroOutstandingAfterClose": "passed",
+            "strictAssignmentConcurrentOccupancy": "passed",
+            "strictAssignmentPoolClosed": "passed",
+            "temporaryAssignmentArtifacts": "deleted"
+          }
+        }
+      }
+    },
+    "poolFirstRound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launchIndex",
+        "completedRunsByLane",
+        "totalCompletedRuns",
+        "durationMicroseconds",
+        "maximumObservedInFlightRuns"
+      ],
+      "properties": {
+        "launchIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "completedRunsByLane": {
+          "const": [
+            1,
+            1
+          ]
+        },
+        "totalCompletedRuns": {
+          "const": 2
+        },
+        "durationMicroseconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        },
+        "maximumObservedInFlightRuns": {
+          "const": 2
+        }
+      }
+    },
+    "poolStabilizationLaunch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "actualRounds",
+        "roundDurationMicroseconds",
+        "batchMedianMicroseconds"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "actualRounds": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 100,
+          "multipleOf": 5
+        },
+        "roundDurationMicroseconds": {
+          "type": "array",
+          "minItems": 20,
+          "maxItems": 100,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        },
+        "batchMedianMicroseconds": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000000000
+          }
+        }
+      }
+    },
+    "poolThroughputWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launchIndex",
+        "windowIndex",
+        "completedRunsByLane",
+        "totalCompletedRuns",
+        "durationMicroseconds",
+        "maximumObservedInFlightRuns",
+        "runsPerSecondMilli"
+      ],
+      "properties": {
+        "launchIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "windowIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "completedRunsByLane": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          }
+        },
+        "totalCompletedRuns": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 2000000
+        },
+        "durationMicroseconds": {
+          "type": "integer",
+          "minimum": 1000000,
+          "maximum": 1000000000000000
+        },
+        "maximumObservedInFlightRuns": {
+          "const": 2
+        },
+        "runsPerSecondMilli": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000000
+        }
+      }
+    },
+    "poolRssPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "currentBytes",
+        "peakBytes"
+      ],
+      "properties": {
+        "phase": {
+          "$ref": "#/$defs/token"
+        },
+        "currentBytes": {
+          "$ref": "#/$defs/rssLaunchSeries"
+        },
+        "peakBytes": {
+          "$ref": "#/$defs/rssLaunchSeries"
+        }
+      }
+    },
+    "poolAggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurements",
+        "stabilization",
+        "throughput",
+        "resources"
+      ],
+      "properties": {
+        "measurements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inputPreparationMicroseconds",
+            "poolStartupMicroseconds",
+            "firstConcurrentRound"
+          ],
+          "properties": {
+            "inputPreparationMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "poolStartupMicroseconds": {
+              "$ref": "#/$defs/launchSeries"
+            },
+            "firstConcurrentRound": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "rounds",
+                "durationMicroseconds",
+                "totalCompletedRunsByLane",
+                "totalCompletedRuns"
+              ],
+              "properties": {
+                "rounds": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
+                  "items": {
+                    "$ref": "#/$defs/poolFirstRound"
+                  }
+                },
+                "durationMicroseconds": {
+                  "$ref": "#/$defs/launchSeries"
+                },
+                "totalCompletedRunsByLane": {
+                  "const": [
+                    5,
+                    5
+                  ]
+                },
+                "totalCompletedRuns": {
+                  "const": 10
+                }
+              }
+            }
+          }
+        },
+        "stabilization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "launches",
+            "roundDurationMicroseconds",
+            "batchMedianMicroseconds"
+          ],
+          "properties": {
+            "launches": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "$ref": "#/$defs/poolStabilizationLaunch"
+              }
+            },
+            "roundDurationMicroseconds": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 100,
+                  "maxItems": 500
+                }
+              }
+            },
+            "batchMedianMicroseconds": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 20,
+                  "maxItems": 100
+                }
+              }
+            }
+          }
+        },
+        "throughput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "windows",
+            "statisticsRunsPerSecondMilli",
+            "totalCompletedRunsByLane",
+            "totalCompletedRuns",
+            "totalDurationMicroseconds",
+            "aggregateRunsPerSecondMilli"
+          ],
+          "properties": {
+            "windows": {
+              "type": "array",
+              "minItems": 15,
+              "maxItems": 15,
+              "items": {
+                "$ref": "#/$defs/poolThroughputWindow"
+              }
+            },
+            "statisticsRunsPerSecondMilli": {
+              "$ref": "#/$defs/statistics"
+            },
+            "totalCompletedRunsByLane": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 15,
+                "maximum": 15000000
+              }
+            },
+            "totalCompletedRuns": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 30000000
+            },
+            "totalDurationMicroseconds": {
+              "type": "integer",
+              "minimum": 15000000,
+              "maximum": 15000000000000000
+            },
+            "aggregateRunsPerSecondMilli": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000000000
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rssCurrentBytes",
+            "rssPeakBytes",
+            "byPhase"
+          ],
+          "properties": {
+            "rssCurrentBytes": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 35,
+                  "maxItems": 35
+                }
+              }
+            },
+            "rssPeakBytes": {
+              "$ref": "#/$defs/boundedSeries",
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "minItems": 35,
+                  "maxItems": 35
+                }
+              }
+            },
+            "byPhase": {
+              "type": "array",
+              "minItems": 7,
+              "maxItems": 7,
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-input-preparation"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-pool-startup"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-first-concurrent-round"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-stabilization"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-throughput"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-pool-close"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/poolRssPhase",
+                  "properties": {
+                    "phase": {
+                      "const": "after-assignment-evidence"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
