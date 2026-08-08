@@ -50,6 +50,23 @@ SOURCE_MANIFEST_VALIDATOR_SHA256 = (
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,255}$")
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+() ,:=+-]{0,255}$")
+_MACOS_POWER_MODE = re.compile(
+    r"^macos-(?:ac-power|battery-power|ups-power)-low-power-(?:on|off)-"
+    r"profile-sha256-[0-9a-f]{64}$"
+)
+_LINUX_POWER_MODE = re.compile(
+    r"^cpu-governor-[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+)
+_HOST_API_UNAVAILABLE = "not-exposed-by-host-api"
+_THERMAL_STATES = frozenset(
+    {
+        _HOST_API_UNAVAILABLE,
+        "nominal",
+        "fair",
+        "serious",
+        "critical",
+    }
+)
 _SEMVER = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
@@ -2561,6 +2578,11 @@ def _validate_environment(
         "architecture"
     ] not in {"arm64", "x86_64"}:
         raise CpuBenchmarkCollectionError("collection environment architecture changed")
+    platform_tuple = (environment["platform"], environment["architecture"])
+    if platform_tuple not in {("macos", "arm64"), ("linux", "x86_64")}:
+        raise CpuBenchmarkCollectionError(
+            "collection environment platform/architecture tuple changed"
+        )
     _digest(
         environment["deviceIdentitySha256"],
         "collection environment.deviceIdentitySha256",
@@ -2607,16 +2629,39 @@ def _validate_environment(
             expected_launches[index][1],
             f"collection environment.launchObservations[{index}].processId",
         )
-        for key in (
-            "powerModeStart",
-            "powerModeEnd",
-            "thermalStateStart",
-            "thermalStateEnd",
-        ):
-            _label(
-                observation[key],
-                f"collection environment.launchObservations[{index}].{key}",
+        for key in ("powerModeStart", "powerModeEnd"):
+            label = (
+                f"collection environment.launchObservations[{index}].{key}"
             )
+            power_mode = _label(observation[key], label)
+            if environment["platform"] == "macos":
+                valid_power_mode = (
+                    power_mode == _HOST_API_UNAVAILABLE
+                    or _MACOS_POWER_MODE.fullmatch(power_mode) is not None
+                )
+            else:
+                valid_power_mode = (
+                    power_mode == _HOST_API_UNAVAILABLE
+                    or _LINUX_POWER_MODE.fullmatch(power_mode) is not None
+                )
+            if not valid_power_mode:
+                raise CpuBenchmarkCollectionError(
+                    f"{label} is outside the closed host power-mode grammar"
+                )
+        for key in ("thermalStateStart", "thermalStateEnd"):
+            label = (
+                f"collection environment.launchObservations[{index}].{key}"
+            )
+            thermal_state = _label(observation[key], label)
+            valid_thermal_state = (
+                thermal_state in _THERMAL_STATES
+                if environment["platform"] == "macos"
+                else thermal_state == _HOST_API_UNAVAILABLE
+            )
+            if not valid_thermal_state:
+                raise CpuBenchmarkCollectionError(
+                    f"{label} is outside the closed host thermal-state grammar"
+                )
 
     def summarize(values: Sequence[str], *, thermal: bool) -> dict[str, Any]:
         unavailable = "not-exposed-by-host-api"

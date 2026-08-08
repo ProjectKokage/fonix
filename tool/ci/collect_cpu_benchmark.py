@@ -11,6 +11,7 @@ post-run identity check pass.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import errno
 import hashlib
 import json
@@ -57,6 +58,17 @@ MAX_ARTIFACT_BYTES = 16 * 1024 * 1024 * 1024
 MAX_OBSERVATION_BYTES = 1024 * 1024
 MAX_PATH_BYTES = 4096
 MAX_PROCESS_ID = (1 << 31) - 1
+MAX_PMSET_BATTERY_STDOUT_BYTES = 4 * 1024
+MAX_PMSET_CUSTOM_STDOUT_BYTES = 32 * 1024
+MAX_PMSET_STDERR_BYTES = 4 * 1024
+MAX_PMSET_PROFILE_FIELDS = 256
+MAX_PMSET_SETTING_BYTES = 1024
+MACOS_PMSET = Path("/usr/bin/pmset")
+MACOS_FOUNDATION = (
+    "/System/Library/Frameworks/Foundation.framework/Foundation"
+)
+MACOS_OBJC_RUNTIME = "/usr/lib/libobjc.A.dylib"
+HOST_API_UNAVAILABLE = "not-exposed-by-host-api"
 DISPLAY = re.compile(r"^:[0-9]{1,5}$")
 TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+() ,:=+-]{0,255}$")
@@ -96,6 +108,16 @@ class HostObservation(NamedTuple):
 class UsageSnapshot(NamedTuple):
     user_seconds: float
     system_seconds: float
+
+
+class MacOsProcessInfoState(NamedTuple):
+    thermal_state: str
+    low_power_mode: bool | None
+
+
+class MacOsPowerProfile(NamedTuple):
+    settings: tuple[str, ...]
+    low_power_mode: str | None
 
 
 class DirectoryIdentity(NamedTuple):
@@ -367,6 +389,353 @@ def _linux_cpu_identity_source() -> bytes:
     ).encode("ascii")
 
 
+def _objc_noarg_message(
+    message_function: Any,
+    receiver: int,
+    selector: int,
+    result_type: Any,
+) -> Any:
+    address = ctypes.cast(message_function, ctypes.c_void_p).value
+    if address is None or address == 0:
+        raise ValueError("Objective-C message function is unavailable")
+    function_type = ctypes.CFUNCTYPE(
+        result_type,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    )
+    return function_type(address)(receiver, selector)
+
+
+def _macos_process_info_state() -> MacOsProcessInfoState:
+    """Read the two public NSProcessInfo controls used by the collector."""
+
+    unavailable = MacOsProcessInfoState(HOST_API_UNAVAILABLE, None)
+    if sys.platform != "darwin" or platform.machine() != "arm64":
+        return unavailable
+    if (
+        ctypes.sizeof(ctypes.c_void_p) != 8
+        or ctypes.sizeof(ctypes.c_long) != 8
+        or ctypes.sizeof(ctypes.c_int8) != 1
+    ):
+        return unavailable
+
+    try:
+        mode = getattr(ctypes, "RTLD_LOCAL", 0)
+        foundation = ctypes.CDLL(MACOS_FOUNDATION, mode=mode)
+        runtime = ctypes.CDLL(MACOS_OBJC_RUNTIME, mode=mode)
+
+        objc_get_class = runtime.objc_getClass
+        objc_get_class.argtypes = [ctypes.c_char_p]
+        objc_get_class.restype = ctypes.c_void_p
+        class_get_name = runtime.class_getName
+        class_get_name.argtypes = [ctypes.c_void_p]
+        class_get_name.restype = ctypes.c_char_p
+        selector_register = runtime.sel_registerName
+        selector_register.argtypes = [ctypes.c_char_p]
+        selector_register.restype = ctypes.c_void_p
+        selector_get_name = runtime.sel_getName
+        selector_get_name.argtypes = [ctypes.c_void_p]
+        selector_get_name.restype = ctypes.c_char_p
+        class_get_class_method = runtime.class_getClassMethod
+        class_get_class_method.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        class_get_class_method.restype = ctypes.c_void_p
+        class_get_instance_method = runtime.class_getInstanceMethod
+        class_get_instance_method.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        class_get_instance_method.restype = ctypes.c_void_p
+        message_function = runtime.objc_msgSend
+
+        process_info_class = objc_get_class(b"NSProcessInfo")
+        if (
+            process_info_class is None
+            or process_info_class == 0
+            or class_get_name(process_info_class) != b"NSProcessInfo"
+        ):
+            return unavailable
+
+        selector_names = (
+            b"processInfo",
+            b"thermalState",
+            b"isLowPowerModeEnabled",
+        )
+        selectors: dict[bytes, int] = {}
+        for name in selector_names:
+            selector = selector_register(name)
+            if (
+                selector is None
+                or selector == 0
+                or selector_get_name(selector) != name
+            ):
+                return unavailable
+            selectors[name] = selector
+        if not class_get_class_method(
+            process_info_class,
+            selectors[b"processInfo"],
+        ) or not class_get_instance_method(
+            process_info_class,
+            selectors[b"thermalState"],
+        ) or not class_get_instance_method(
+            process_info_class,
+            selectors[b"isLowPowerModeEnabled"],
+        ):
+            return unavailable
+
+        process_info = _objc_noarg_message(
+            message_function,
+            process_info_class,
+            selectors[b"processInfo"],
+            ctypes.c_void_p,
+        )
+        if process_info is None or process_info == 0:
+            return unavailable
+        thermal_value = _objc_noarg_message(
+            message_function,
+            process_info,
+            selectors[b"thermalState"],
+            ctypes.c_long,
+        )
+        low_power_value = _objc_noarg_message(
+            message_function,
+            process_info,
+            selectors[b"isLowPowerModeEnabled"],
+            ctypes.c_int8,
+        )
+        del foundation
+    except (AttributeError, OSError, TypeError, ValueError, ctypes.ArgumentError):
+        return unavailable
+
+    # These are the public NSProcessInfo enum labels, not temperature readings.
+    # Apple may report nominal when the current thermal pressure is undetermined.
+    thermal_states = {
+        0: "nominal",
+        1: "fair",
+        2: "serious",
+        3: "critical",
+    }
+    thermal_state = (
+        HOST_API_UNAVAILABLE
+        if isinstance(thermal_value, bool) or not isinstance(thermal_value, int)
+        else thermal_states.get(thermal_value, HOST_API_UNAVAILABLE)
+    )
+    if (
+        isinstance(low_power_value, bool)
+        or not isinstance(low_power_value, int)
+        or low_power_value not in {0, 1}
+    ):
+        return MacOsProcessInfoState(thermal_state, None)
+    return MacOsProcessInfoState(thermal_state, low_power_value == 1)
+
+
+def _strict_pmset_lines(value: Any, *, maximum_bytes: int) -> list[str] | None:
+    if not isinstance(value, str) or not value or not value.endswith("\n"):
+        return None
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError:
+        return None
+    if (
+        len(encoded) > maximum_bytes
+        or b"\r" in encoded
+        or b"\x00" in encoded
+        or value.endswith("\n\n")
+    ):
+        return None
+    lines = value[:-1].split("\n")
+    if not lines or any(not line or len(line.encode("ascii")) > 2048 for line in lines):
+        return None
+    return lines
+
+
+def _run_macos_pmset(
+    arguments: Sequence[str],
+    *,
+    runner: Runner,
+    maximum_stdout_bytes: int,
+) -> str | None:
+    try:
+        tool = _regular_file(
+            MACOS_PMSET,
+            "macOS power-settings tool",
+            executable=True,
+        )
+        output = runner(
+            (str(tool), *arguments),
+            operation="macOS power-settings observation",
+            cwd=Path("/"),
+            environment={
+                "PATH": "/usr/bin:/bin:/usr/sbin",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
+            timeout_seconds=10,
+            maximum_stdout_bytes=maximum_stdout_bytes,
+            maximum_stderr_bytes=MAX_PMSET_STDERR_BYTES,
+        )
+    except Exception:
+        return None
+    if not isinstance(output.stderr, str) or output.stderr != "":
+        return None
+    if _strict_pmset_lines(
+        output.stdout,
+        maximum_bytes=maximum_stdout_bytes,
+    ) is None:
+        return None
+    return output.stdout
+
+
+def _parse_macos_power_source(value: str) -> tuple[str, str] | None:
+    lines = _strict_pmset_lines(
+        value,
+        maximum_bytes=MAX_PMSET_BATTERY_STDOUT_BYTES,
+    )
+    if lines is None:
+        return None
+    match = re.fullmatch(
+        r"Now drawing from '(AC Power|Battery Power|UPS Power)'",
+        lines[0],
+    )
+    if match is None:
+        return None
+    if any(not line.startswith((" ", "\t")) for line in lines[1:]):
+        return None
+    display_name = match.group(1)
+    source_names = {
+        "AC Power": "ac-power",
+        "Battery Power": "battery-power",
+        "UPS Power": "ups-power",
+    }
+    return display_name, source_names[display_name]
+
+
+def _parse_macos_power_profiles(
+    value: str,
+) -> dict[str, MacOsPowerProfile] | None:
+    lines = _strict_pmset_lines(
+        value,
+        maximum_bytes=MAX_PMSET_CUSTOM_STDOUT_BYTES,
+    )
+    if lines is None:
+        return None
+    allowed_headers = {"AC Power", "Battery Power", "UPS Power"}
+    raw_profiles: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    field_count = 0
+    for line in lines:
+        if not line.startswith((" ", "\t")):
+            if not line.endswith(":"):
+                return None
+            header = line[:-1]
+            if header not in allowed_headers or header in raw_profiles:
+                return None
+            current = []
+            raw_profiles[header] = current
+            continue
+        if current is None or line.rstrip(" \t") != line:
+            return None
+        content = line.lstrip(" \t")
+        try:
+            setting_bytes = content.encode("ascii")
+        except UnicodeEncodeError:
+            return None
+        if (
+            not setting_bytes
+            or len(setting_bytes) > MAX_PMSET_SETTING_BYTES
+            or any(
+                (byte < 0x20 and byte != 0x09) or byte > 0x7E
+                for byte in setting_bytes
+            )
+            or content in current
+        ):
+            return None
+        field_count += 1
+        if field_count > MAX_PMSET_PROFILE_FIELDS:
+            return None
+        current.append(content)
+    if not raw_profiles or any(not settings for settings in raw_profiles.values()):
+        return None
+    profiles: dict[str, MacOsPowerProfile] = {}
+    for header, settings in raw_profiles.items():
+        low_power_lines = [
+            setting
+            for setting in settings
+            if re.match(r"^lowpowermode(?:[ \t]|$)", setting) is not None
+        ]
+        if len(low_power_lines) != 1:
+            return None
+        low_power_match = re.fullmatch(
+            r"lowpowermode[ \t]+([01])",
+            low_power_lines[0],
+        )
+        if low_power_match is None:
+            return None
+        profiles[header] = MacOsPowerProfile(
+            tuple(sorted(settings)),
+            low_power_match.group(1),
+        )
+    return profiles
+
+
+def _macos_power_mode(
+    low_power_mode: bool | None,
+    *,
+    runner: Runner | None = None,
+) -> str:
+    if type(low_power_mode) is not bool:
+        return HOST_API_UNAVAILABLE
+    if runner is None:
+        runner = bounded_process.run_bounded
+    battery_output_before = _run_macos_pmset(
+        ("-g", "batt"),
+        runner=runner,
+        maximum_stdout_bytes=MAX_PMSET_BATTERY_STDOUT_BYTES,
+    )
+    profile_output = _run_macos_pmset(
+        ("-g", "custom"),
+        runner=runner,
+        maximum_stdout_bytes=MAX_PMSET_CUSTOM_STDOUT_BYTES,
+    )
+    battery_output_after = _run_macos_pmset(
+        ("-g", "batt"),
+        runner=runner,
+        maximum_stdout_bytes=MAX_PMSET_BATTERY_STDOUT_BYTES,
+    )
+    if (
+        battery_output_before is None
+        or profile_output is None
+        or battery_output_after is None
+    ):
+        return HOST_API_UNAVAILABLE
+    source = _parse_macos_power_source(battery_output_before)
+    source_after = _parse_macos_power_source(battery_output_after)
+    profiles = _parse_macos_power_profiles(profile_output)
+    if source is None or source_after != source or profiles is None:
+        return HOST_API_UNAVAILABLE
+    source_name, source_id = source
+    active_profile = profiles.get(source_name)
+    if active_profile is None:
+        return HOST_API_UNAVAILABLE
+    low_power_value = active_profile.low_power_mode
+    expected_low_power = "1" if low_power_mode else "0"
+    if low_power_value not in {"0", "1"} or low_power_value != expected_low_power:
+        return HOST_API_UNAVAILABLE
+    canonical_profile = json.dumps(
+        {
+            "settings": active_profile.settings,
+            "source": source_id,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    digest = hashlib.sha256(
+        b"fonix-macos-power-profile-v1\x00" + canonical_profile
+    ).hexdigest()
+    low_power_label = "on" if low_power_mode else "off"
+    return (
+        f"macos-{source_id}-low-power-{low_power_label}-"
+        f"profile-sha256-{digest}"
+    )
+
+
 def _macos_platform_identifier_sha256() -> str:
     """Hash one stable platform UUID obtained from the trusted ioreg tool."""
 
@@ -442,12 +811,15 @@ def _observe_host_environment(platform_id: str, architecture: str) -> HostObserv
 
     if platform_id == "macos":
         os_version_raw = platform.mac_ver()[0] or platform.release()
-        power_mode = "not-exposed-by-host-api"
+        process_info = _macos_process_info_state()
+        power_mode = _macos_power_mode(process_info.low_power_mode)
+        thermal_state = process_info.thermal_state
         cpu_source = platform.processor().encode("utf-8", errors="replace")
         firmware_source = None
     else:
         os_version_raw = platform.release()
         power_mode = _linux_power_mode()
+        thermal_state = HOST_API_UNAVAILABLE
         cpu_source = _linux_cpu_identity_source()
         firmware_parts = [
             value
@@ -470,12 +842,12 @@ def _observe_host_environment(platform_id: str, architecture: str) -> HostObserv
         ),
         driver_identity="sha256-" + hashlib.sha256(cpu_source).hexdigest(),
         firmware_identity=(
-            "not-exposed-by-host-api"
+            HOST_API_UNAVAILABLE
             if firmware_source is None
             else "sha256-" + hashlib.sha256(firmware_source).hexdigest()
         ),
         power_mode=power_mode,
-        thermal_state="not-exposed-by-host-api",
+        thermal_state=thermal_state,
     )
 
 

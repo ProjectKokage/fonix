@@ -664,10 +664,30 @@ measurements, but neither is eligible for comparison. The complete raw bundle
 must be retained and independently reopened for every later evaluation; the
 schema-1 validation record is not a substitute for those samples.
 
-The current production observers intentionally report thermal state as
-unavailable on both supported hosts and power mode as unavailable on macOS, so
-they currently produce `incomplete`, not `baseline-comparable`, collections.
-Controlled power/thermal capture and an approved baseline remain later work.
+The macOS observer reads the public `NSProcessInfo` thermal-state enum and
+low-power-mode boolean. It also invokes the absolute `/usr/bin/pmset` through
+the bounded-process boundary, selects the active source from `-g batt`, parses
+the bounded configured-profile set from `-g custom`, selects only the profile
+matching that active source, and requires its closed `lowpowermode` value to
+agree with `NSProcessInfo`. The raw
+profile can contain paths and other host details, so evidence receives only a
+domain-separated SHA-256 digest together with closed source and low-power
+labels. The configured `pmset` profile is not an assertion that every dynamic
+power condition currently matches that configuration.
+
+The four API-reported Apple thermal values are `nominal`, `fair`, `serious`,
+and `critical`. Apple's `nominal` case can also mean the current thermal state
+could not be determined, so it is not a positive thermal-health attestation.
+Likewise, a stable elevated value may be matchable across the five launches
+but still requires explicit review. `baseline-comparable` means only that all
+ten surrounding observations were available and stable enough to serve as
+matchable input to a later baseline or threshold review. It does not approve a
+baseline. Missing APIs, malformed or contradictory `pmset` output, or a
+low-power mismatch remain `incomplete`; observed changes remain
+`non-comparable`. Linux continues to expose its bounded CPU-governor label but
+reports thermal state as unavailable. This source checkpoint contains no
+controlled five-launch bundle from the new observer; any later raw collection
+and offline replay are external evidence.
 
 One local macOS arm64 Release application run completed this path against the
 lock-selected ORT 1.27.1 CPU artifact on 2026-08-08, including exact output,

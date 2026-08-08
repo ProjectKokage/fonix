@@ -244,6 +244,46 @@ class CpuBenchmarkBundleValidatorTests(unittest.TestCase):
         with self.assertRaises(validator.CpuBenchmarkValidationError):
             self._validate()
 
+    def test_rejects_consistently_rebound_arbitrary_host_control_labels(self) -> None:
+        changed_host = json.loads(self.host_observation_payload)
+        observations = changed_host["environment"]["launchObservations"]
+        for observation in observations:
+            observation["powerModeStart"] = "performance"
+            observation["powerModeEnd"] = "performance"
+        changed_host["environment"]["comparability"] = {
+            "status": "baseline-comparable",
+            "powerMode": {
+                "availability": "available",
+                "stability": "stable",
+                "stableValue": "performance",
+            },
+            "thermalState": {
+                "availability": "available",
+                "drift": "none-observed",
+                "stableValue": "nominal",
+            },
+            "reasons": [],
+        }
+        changed_payload = _encoded(changed_host)
+        changed_collection = copy.deepcopy(self.collection)
+        changed_collection["rawHostObservation"] = {
+            "sha256": hashlib.sha256(changed_payload).hexdigest(),
+            "record": changed_host,
+        }
+        changed_collection["environment"] = changed_host["environment"]
+        (self.bundle / validator.HOST_OBSERVATIONS_FILENAME).write_bytes(
+            changed_payload
+        )
+        (self.bundle / validator.COLLECTION_FILENAME).write_bytes(
+            _encoded(changed_collection)
+        )
+
+        with self.assertRaisesRegex(
+            validator.CpuBenchmarkValidationError,
+            "cannot rederive a valid CPU benchmark collection",
+        ):
+            self._validate()
+
     def test_rejects_artifact_change_during_validation(self) -> None:
         original = self.fake_collector._artifact_snapshot
 

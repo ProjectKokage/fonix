@@ -607,9 +607,17 @@ record. Comparability is closed to `baseline-comparable`, `incomplete`, or
 `non-comparable`; only the first may enter a later baseline/threshold review.
 The source binding is not compiled provenance, no distribution archive is
 claimed, supplied native members are not independent loaded-byte proof, and the
-validation record cannot replace the raw samples. Current production host
-observers cannot yet emit `baseline-comparable`; controlled power/thermal
-capture remains open.
+validation record cannot replace the raw samples. The macOS host observer now
+combines the public `NSProcessInfo` thermal enum and low-power boolean with a
+bounded `pmset` active-source/configured-profile cross-check, publishing only a
+domain-separated profile digest. Stable complete observations can therefore be
+marked `baseline-comparable`, meaning matchable input for later review rather
+than thermal-health or baseline approval. Apple `nominal` can include an
+undetermined state, stable elevated states still require review, the configured
+profile is not every dynamic power assertion, and Linux thermal observation
+remains unavailable. This source checkpoint contains no controlled
+five-launch bundle from the new observer; any later raw collection and offline
+replay are external evidence.
 
 Controlled target baselines, reviewed thresholds, the Linux target-host run,
 and measurements for every other selected row remain open. Neither the

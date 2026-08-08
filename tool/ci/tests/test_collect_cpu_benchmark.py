@@ -409,6 +409,18 @@ cpu MHz : 800.000
             ),
             mock.patch.object(collector.platform, "version", return_value="24A1"),
             mock.patch.object(collector.platform, "processor", return_value="arm"),
+            mock.patch.object(
+                collector,
+                "_macos_process_info_state",
+                return_value=collector.MacOsProcessInfoState("nominal", False),
+            ),
+            mock.patch.object(
+                collector,
+                "_macos_power_mode",
+                return_value=(
+                    "macos-ac-power-low-power-off-profile-sha256-" + "a" * 64
+                ),
+            ),
         ):
             first = collector._observe_host_environment("macos", "arm64")
             second = collector._observe_host_environment("macos", "arm64")
@@ -416,6 +428,11 @@ cpu MHz : 800.000
         self.assertEqual(first.device_identity_sha256, second.device_identity_sha256)
         self.assertRegex(first.device_identity_sha256, r"^[0-9a-f]{64}$")
         self.assertNotIn(raw_uuid, json.dumps(first._asdict()))
+        self.assertEqual(first.thermal_state, "nominal")
+        self.assertEqual(
+            first.power_mode,
+            "macos-ac-power-low-power-off-profile-sha256-" + "a" * 64,
+        )
         self.assertEqual(run.call_count, 2)
         command = run.call_args_list[0].args[0]
         self.assertEqual(
@@ -453,6 +470,456 @@ cpu MHz : 800.000
                 self.assertRaises(collector.CpuBenchmarkCollectorError),
             ):
                 collector._macos_platform_identifier_sha256()
+
+    def test_macos_process_info_uses_fixed_typed_objective_c_contract(self) -> None:
+        runtime = SimpleNamespace(
+            objc_getClass=mock.Mock(return_value=101),
+            class_getName=mock.Mock(return_value=b"NSProcessInfo"),
+            sel_registerName=mock.Mock(
+                side_effect={
+                    b"processInfo": 201,
+                    b"thermalState": 202,
+                    b"isLowPowerModeEnabled": 203,
+                }.__getitem__
+            ),
+            sel_getName=mock.Mock(
+                side_effect={
+                    201: b"processInfo",
+                    202: b"thermalState",
+                    203: b"isLowPowerModeEnabled",
+                }.__getitem__
+            ),
+            class_getClassMethod=mock.Mock(return_value=301),
+            class_getInstanceMethod=mock.Mock(return_value=302),
+            objc_msgSend=object(),
+        )
+        foundation = object()
+
+        def message(
+            _function: object,
+            receiver: int,
+            selector: int,
+            result_type: object,
+        ) -> object:
+            if (receiver, selector, result_type) == (
+                101,
+                201,
+                collector.ctypes.c_void_p,
+            ):
+                return 401
+            if (receiver, selector, result_type) == (
+                401,
+                202,
+                collector.ctypes.c_long,
+            ):
+                return 2
+            if (receiver, selector, result_type) == (
+                401,
+                203,
+                collector.ctypes.c_int8,
+            ):
+                return 1
+            self.fail("unexpected Objective-C message")
+
+        with (
+            mock.patch.object(collector.sys, "platform", "darwin"),
+            mock.patch.object(collector.platform, "machine", return_value="arm64"),
+            mock.patch.object(
+                collector.ctypes,
+                "CDLL",
+                side_effect=(foundation, runtime),
+            ) as load,
+            mock.patch.object(
+                collector,
+                "_objc_noarg_message",
+                side_effect=message,
+            ) as send,
+        ):
+            state = collector._macos_process_info_state()
+
+        self.assertEqual(
+            state,
+            collector.MacOsProcessInfoState("serious", True),
+        )
+        self.assertEqual(
+            load.call_args_list,
+            [
+                mock.call(
+                    collector.MACOS_FOUNDATION,
+                    mode=getattr(collector.ctypes, "RTLD_LOCAL", 0),
+                ),
+                mock.call(
+                    collector.MACOS_OBJC_RUNTIME,
+                    mode=getattr(collector.ctypes, "RTLD_LOCAL", 0),
+                ),
+            ],
+        )
+        runtime.objc_getClass.assert_called_once_with(b"NSProcessInfo")
+        self.assertEqual(
+            [call.args[0] for call in runtime.sel_registerName.call_args_list],
+            [b"processInfo", b"thermalState", b"isLowPowerModeEnabled"],
+        )
+        self.assertEqual(runtime.objc_getClass.argtypes, [collector.ctypes.c_char_p])
+        self.assertIs(runtime.objc_getClass.restype, collector.ctypes.c_void_p)
+        self.assertEqual(send.call_count, 3)
+
+    def test_macos_process_info_rejects_identity_drift_and_unknown_state(self) -> None:
+        def runtime(*, class_name: bytes = b"NSProcessInfo") -> SimpleNamespace:
+            return SimpleNamespace(
+                objc_getClass=mock.Mock(return_value=101),
+                class_getName=mock.Mock(return_value=class_name),
+                sel_registerName=mock.Mock(
+                    side_effect={
+                        b"processInfo": 201,
+                        b"thermalState": 202,
+                        b"isLowPowerModeEnabled": 203,
+                    }.__getitem__
+                ),
+                sel_getName=mock.Mock(
+                    side_effect={
+                        201: b"processInfo",
+                        202: b"thermalState",
+                        203: b"isLowPowerModeEnabled",
+                    }.__getitem__
+                ),
+                class_getClassMethod=mock.Mock(return_value=301),
+                class_getInstanceMethod=mock.Mock(return_value=302),
+                objc_msgSend=object(),
+            )
+
+        hostile_runtime = runtime(class_name=b"HostileProcessInfo")
+        with (
+            mock.patch.object(collector.sys, "platform", "darwin"),
+            mock.patch.object(collector.platform, "machine", return_value="arm64"),
+            mock.patch.object(
+                collector.ctypes,
+                "CDLL",
+                side_effect=(object(), hostile_runtime),
+            ),
+            mock.patch.object(collector, "_objc_noarg_message") as send,
+        ):
+            unavailable = collector._macos_process_info_state()
+        self.assertEqual(
+            unavailable,
+            collector.MacOsProcessInfoState(
+                collector.HOST_API_UNAVAILABLE,
+                None,
+            ),
+        )
+        send.assert_not_called()
+
+        valid_runtime = runtime()
+        with (
+            mock.patch.object(collector.sys, "platform", "darwin"),
+            mock.patch.object(collector.platform, "machine", return_value="arm64"),
+            mock.patch.object(
+                collector.ctypes,
+                "CDLL",
+                side_effect=(object(), valid_runtime),
+            ),
+            mock.patch.object(
+                collector,
+                "_objc_noarg_message",
+                side_effect=(401, 99, 0),
+            ),
+        ):
+            unknown = collector._macos_process_info_state()
+        self.assertEqual(
+            unknown,
+            collector.MacOsProcessInfoState(
+                collector.HOST_API_UNAVAILABLE,
+                False,
+            ),
+        )
+
+        invalid_bool_runtime = runtime()
+        with (
+            mock.patch.object(collector.sys, "platform", "darwin"),
+            mock.patch.object(collector.platform, "machine", return_value="arm64"),
+            mock.patch.object(
+                collector.ctypes,
+                "CDLL",
+                side_effect=(object(), invalid_bool_runtime),
+            ),
+            mock.patch.object(
+                collector,
+                "_objc_noarg_message",
+                side_effect=(401, 0, 2),
+            ),
+        ):
+            invalid_bool = collector._macos_process_info_state()
+        self.assertEqual(
+            invalid_bool,
+            collector.MacOsProcessInfoState(
+                "nominal",
+                None,
+            ),
+        )
+
+    @unittest.skipUnless(
+        sys.platform == "darwin" and collector.platform.machine() == "arm64",
+        "requires the Darwin arm64 Objective-C runtime",
+    )
+    def test_live_macos_process_info_binding_returns_closed_api_values(self) -> None:
+        state = collector._macos_process_info_state()
+
+        self.assertIn(
+            state.thermal_state,
+            {
+                "nominal",
+                "fair",
+                "serious",
+                "critical",
+                collector.HOST_API_UNAVAILABLE,
+            },
+        )
+        self.assertIs(type(state.low_power_mode), bool)
+
+    def test_macos_pmset_observer_is_bounded_and_hashes_active_profile_only(
+        self,
+    ) -> None:
+        calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+        def observe(inactive_sleep: int, active_separator: str = " ") -> str:
+            def runner(command: object, **options: object) -> object:
+                typed_command = tuple(command)  # type: ignore[arg-type]
+                calls.append((typed_command, dict(options)))
+                if typed_command[-1] == "batt":
+                    stdout = (
+                        "Now drawing from 'AC Power'\n"
+                        " -InternalBattery-0 (id=1)\t100%; charged\n"
+                    )
+                else:
+                    stdout = (
+                        "Battery Power:\n"
+                        " lowpowermode 1\n"
+                        f" sleep {inactive_sleep}\n"
+                        " hibernatefile /private/hidden/inactive\n"
+                        "AC Power:\n"
+                        " Sleep On Power Button 1\n"
+                        " lowpowermode         0\n"
+                        f" hibernatefile{active_separator}/private/hidden/active\n"
+                    )
+                return SimpleNamespace(stdout=stdout, stderr="")
+
+            with mock.patch.object(
+                collector,
+                "_regular_file",
+                return_value=collector.MACOS_PMSET,
+            ):
+                return collector._macos_power_mode(False, runner=runner)
+
+        first = observe(5)
+        second = observe(99)
+        changed_active_spacing = observe(99, "  ")
+
+        self.assertEqual(first, second)
+        self.assertNotEqual(second, changed_active_spacing)
+        self.assertRegex(
+            first,
+            r"^macos-ac-power-low-power-off-profile-sha256-[0-9a-f]{64}$",
+        )
+        self.assertNotIn("private", first)
+        self.assertEqual(
+            [call[0] for call in calls[:3]],
+            [
+                ("/usr/bin/pmset", "-g", "batt"),
+                ("/usr/bin/pmset", "-g", "custom"),
+                ("/usr/bin/pmset", "-g", "batt"),
+            ],
+        )
+        self.assertEqual(calls[0][1]["cwd"], Path("/"))
+        self.assertEqual(
+            calls[0][1]["environment"],
+            {
+                "PATH": "/usr/bin:/bin:/usr/sbin",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
+        )
+        self.assertEqual(calls[0][1]["timeout_seconds"], 10)
+        self.assertEqual(
+            calls[0][1]["maximum_stdout_bytes"],
+            collector.MAX_PMSET_BATTERY_STDOUT_BYTES,
+        )
+        self.assertEqual(
+            calls[1][1]["maximum_stdout_bytes"],
+            collector.MAX_PMSET_CUSTOM_STDOUT_BYTES,
+        )
+        self.assertEqual(
+            calls[0][1]["maximum_stderr_bytes"],
+            collector.MAX_PMSET_STDERR_BYTES,
+        )
+
+    def test_macos_pmset_accepts_only_closed_power_sources(self) -> None:
+        sources = {
+            "AC Power": "ac-power",
+            "Battery Power": "battery-power",
+            "UPS Power": "ups-power",
+        }
+        for source, slug in sources.items():
+            with self.subTest(source=source):
+                outputs = iter(
+                    (
+                        SimpleNamespace(
+                            stdout=f"Now drawing from '{source}'\n",
+                            stderr="",
+                        ),
+                        SimpleNamespace(
+                            stdout=f"{source}:\n lowpowermode 0\n",
+                            stderr="",
+                        ),
+                        SimpleNamespace(
+                            stdout=f"Now drawing from '{source}'\n",
+                            stderr="",
+                        ),
+                    )
+                )
+                with mock.patch.object(
+                    collector,
+                    "_regular_file",
+                    return_value=collector.MACOS_PMSET,
+                ):
+                    value = collector._macos_power_mode(
+                        False,
+                        runner=lambda *_args, **_kwargs: next(outputs),
+                    )
+                self.assertRegex(
+                    value,
+                    rf"^macos-{slug}-low-power-off-profile-sha256-[0-9a-f]{{64}}$",
+                )
+
+    def test_macos_pmset_malformed_or_inconsistent_data_is_unavailable(self) -> None:
+        valid_battery = "Now drawing from 'AC Power'\n"
+        valid_profile = "AC Power:\n lowpowermode         0\n sleep 1\n"
+        too_many_fields = "AC Power:\n" + "".join(
+            f" field{index} 1\n"
+            for index in range(collector.MAX_PMSET_PROFILE_FIELDS + 1)
+        )
+        cases = {
+            "carriage-return": (
+                valid_battery.replace("\n", "\r\n"),
+                valid_profile,
+                False,
+                "",
+            ),
+            "non-ascii": (
+                valid_battery,
+                valid_profile.replace("sleep", "sléep"),
+                False,
+                "",
+            ),
+            "unknown-source": (
+                "Now drawing from 'Solar Power'\n",
+                valid_profile,
+                False,
+                "",
+            ),
+            "duplicate-header": (
+                valid_battery,
+                valid_profile + "AC Power:\n sleep 2\n",
+                False,
+                "",
+            ),
+            "missing-active-profile": (
+                valid_battery,
+                "Battery Power:\n lowpowermode 0\n",
+                False,
+                "",
+            ),
+            "duplicate-key": (
+                valid_battery,
+                valid_profile + " lowpowermode 0\n",
+                False,
+                "",
+            ),
+            "invalid-low-power": (
+                valid_battery,
+                valid_profile.replace(
+                    "lowpowermode         0",
+                    "lowpowermode         2",
+                ),
+                False,
+                "",
+            ),
+            "conflicting-low-power": (
+                valid_battery,
+                valid_profile + " lowpowermode 1\n",
+                False,
+                "",
+            ),
+            "foundation-mismatch": (
+                valid_battery,
+                valid_profile,
+                True,
+                "",
+            ),
+            "too-many-fields": (
+                valid_battery,
+                too_many_fields,
+                False,
+                "",
+            ),
+            "unexpected-stderr": (
+                valid_battery,
+                valid_profile,
+                False,
+                "warning\n",
+            ),
+        }
+        for name, (battery, profile, low_power, stderr) in cases.items():
+            with self.subTest(name=name):
+                outputs = iter(
+                    (
+                        SimpleNamespace(stdout=battery, stderr=stderr),
+                        SimpleNamespace(stdout=profile, stderr=""),
+                        SimpleNamespace(stdout=battery, stderr=""),
+                    )
+                )
+                with mock.patch.object(
+                    collector,
+                    "_regular_file",
+                    return_value=collector.MACOS_PMSET,
+                ):
+                    value = collector._macos_power_mode(
+                        low_power,
+                        runner=lambda *_args, **_kwargs: next(outputs),
+                    )
+                self.assertEqual(value, collector.HOST_API_UNAVAILABLE)
+
+        changed_source_outputs = iter(
+            (
+                SimpleNamespace(stdout=valid_battery, stderr=""),
+                SimpleNamespace(
+                    stdout=(
+                        valid_profile
+                        + "Battery Power:\n lowpowermode         0\n sleep 5\n"
+                    ),
+                    stderr="",
+                ),
+                SimpleNamespace(
+                    stdout="Now drawing from 'Battery Power'\n",
+                    stderr="",
+                ),
+            )
+        )
+        with mock.patch.object(
+            collector,
+            "_regular_file",
+            return_value=collector.MACOS_PMSET,
+        ):
+            changed_source = collector._macos_power_mode(
+                False,
+                runner=lambda *_args, **_kwargs: next(changed_source_outputs),
+            )
+        self.assertEqual(changed_source, collector.HOST_API_UNAVAILABLE)
+
+        runner = mock.Mock(side_effect=AssertionError("must not run"))
+        self.assertEqual(
+            collector._macos_power_mode(None, runner=runner),
+            collector.HOST_API_UNAVAILABLE,
+        )
+        runner.assert_not_called()
 
     def test_collects_exactly_five_pid_and_challenge_bound_fresh_processes(
         self,
@@ -760,6 +1227,11 @@ cpu MHz : 800.000
 
     def test_power_and_thermal_are_observed_around_every_launch(self) -> None:
         observation_index = 0
+        power_modes = (
+            "macos-ac-power-low-power-off-profile-sha256-" + "a" * 64,
+            "macos-ac-power-low-power-off-profile-sha256-" + "b" * 64,
+        )
+        thermal_states = ("nominal", "fair")
 
         def observe(
             _platform: str, _architecture: str
@@ -773,8 +1245,8 @@ cpu MHz : 800.000
                 os_build="25A1",
                 driver_identity="cpu-runtime",
                 firmware_identity="not-exposed-by-host-api",
-                power_mode=f"power-{index}",
-                thermal_state=f"thermal-{index}",
+                power_mode=power_modes[index % len(power_modes)],
+                thermal_state=thermal_states[index % len(thermal_states)],
             )
 
         record = self._collect(environment_observer=observe)
@@ -787,13 +1259,13 @@ cpu MHz : 800.000
                 "index": 0,
                 "launchChallenge": self.challenge_values[0],
                 "processId": 1000,
-                "powerModeStart": "power-0",
-                "powerModeEnd": "power-1",
-                "thermalStateStart": "thermal-0",
-                "thermalStateEnd": "thermal-1",
+                "powerModeStart": power_modes[0],
+                "powerModeEnd": power_modes[1],
+                "thermalStateStart": thermal_states[0],
+                "thermalStateEnd": thermal_states[1],
             },
         )
-        self.assertEqual(observations[-1]["powerModeEnd"], "power-9")
+        self.assertEqual(observations[-1]["powerModeEnd"], power_modes[1])
         self.assertEqual(
             record["environment"]["comparability"],
             {
@@ -813,6 +1285,10 @@ cpu MHz : 800.000
         )
 
     def test_stable_available_controls_are_explicitly_baseline_comparable(self) -> None:
+        power_mode = (
+            "macos-ac-power-low-power-off-profile-sha256-" + "a" * 64
+        )
+
         def observe(
             _platform: str, _architecture: str
         ) -> collector.HostObservation:
@@ -822,7 +1298,7 @@ cpu MHz : 800.000
                 os_build="25A1",
                 driver_identity="cpu-runtime",
                 firmware_identity="firmware",
-                power_mode="performance",
+                power_mode=power_mode,
                 thermal_state="nominal",
             )
 
@@ -835,7 +1311,7 @@ cpu MHz : 800.000
                 "powerMode": {
                     "availability": "available",
                     "stability": "stable",
-                    "stableValue": "performance",
+                    "stableValue": power_mode,
                 },
                 "thermalState": {
                     "availability": "available",

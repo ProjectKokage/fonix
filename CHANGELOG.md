@@ -35,6 +35,14 @@
 - Added execution-provider discovery, normalized diagnostics, strict per-run
   assignment evidence, typed mobile-provider configuration, and CoreML cache
   identity isolation.
+- Added a macOS CPU-benchmark host observer that reads the public
+  `NSProcessInfo` thermal enum and low-power boolean, cross-checks low-power
+  state against bounded `pmset` active-source and configured-profile output,
+  and publishes the profile only as a domain-separated digest. A stable,
+  complete observation is only matchable input for later baseline review;
+  Apple `nominal` can also mean thermals were undetermined, a stable elevated
+  state still requires review, and Linux thermal observation remains
+  unavailable.
 - Added five-platform build-hook paths, pinned artifact resolution, Android
   single-runtime ownership enforcement, final-package auditors, aligned-build
   tooling, SBOM generation, and source checksum verification.

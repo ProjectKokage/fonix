@@ -850,6 +850,84 @@ class CollectionDerivationTests(unittest.TestCase):
         ):
             self._derive(fragments, environment=environment)
 
+    def test_host_power_and_thermal_values_use_platform_specific_grammars(
+        self,
+    ) -> None:
+        challenges = ["a" * 64, "b" * 64]
+        launches = [(challenges[0], 1), (challenges[1], 2)]
+        macos = _environment([1, 2], challenges)
+        power_mode = (
+            "macos-ac-power-low-power-off-profile-sha256-" + "8" * 64
+        )
+        for observation in macos["launchObservations"]:
+            observation["powerModeStart"] = power_mode
+            observation["powerModeEnd"] = power_mode
+        macos["comparability"] = {
+            "status": "baseline-comparable",
+            "powerMode": {
+                "availability": "available",
+                "stability": "stable",
+                "stableValue": power_mode,
+            },
+            "thermalState": {
+                "availability": "available",
+                "drift": "none-observed",
+                "stableValue": "nominal",
+            },
+            "reasons": [],
+        }
+        collection._validate_environment(macos, launches)
+
+        for key, value in (
+            ("powerModeStart", "performance"),
+            ("thermalStateStart", "cool"),
+        ):
+            with self.subTest(platform="macos", key=key):
+                invalid = copy.deepcopy(macos)
+                invalid["launchObservations"][0][key] = value
+                with self.assertRaisesRegex(
+                    collection.CpuBenchmarkCollectionError,
+                    "closed host",
+                ):
+                    collection._validate_environment(invalid, launches)
+
+        linux = _environment([1, 2], challenges)
+        linux["platform"] = "linux"
+        linux["architecture"] = "x86_64"
+        for observation in linux["launchObservations"]:
+            observation["powerModeStart"] = "cpu-governor-performance"
+            observation["powerModeEnd"] = "cpu-governor-performance"
+            observation["thermalStateStart"] = "not-exposed-by-host-api"
+            observation["thermalStateEnd"] = "not-exposed-by-host-api"
+        linux["comparability"] = {
+            "status": "incomplete",
+            "powerMode": {
+                "availability": "available",
+                "stability": "stable",
+                "stableValue": "cpu-governor-performance",
+            },
+            "thermalState": {
+                "availability": "unavailable",
+                "drift": "indeterminate",
+                "stableValue": None,
+            },
+            "reasons": ["thermal-state-unavailable"],
+        }
+        collection._validate_environment(linux, launches)
+
+        for key, value in (
+            ("powerModeStart", "performance"),
+            ("thermalStateStart", "nominal"),
+        ):
+            with self.subTest(platform="linux", key=key):
+                invalid = copy.deepcopy(linux)
+                invalid["launchObservations"][0][key] = value
+                with self.assertRaisesRegex(
+                    collection.CpuBenchmarkCollectionError,
+                    "closed host",
+                ):
+                    collection._validate_environment(invalid, launches)
+
 
 if __name__ == "__main__":
     unittest.main()

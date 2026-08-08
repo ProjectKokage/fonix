@@ -207,14 +207,30 @@ PID-bound processes, retains every raw target fragment plus one raw host
 sidecar, observes one canonical application tree unchanged around the launches,
 and derives a collection-schema-2 record. A separate offline validator reopens
 that exact seven-file bundle and independently rederives the collection before
-emitting a schema-1 `offline-consistency-only` validation record. A fresh
-macOS arm64 Release collection and replay passed on this host; its comparability
-status is `incomplete`, as required by the current production observer's
-unavailable power/thermal fields. The raw fragments are not independently
-authenticated, supplied native members are packaged inputs rather than exact
-loaded-byte proof, repository evidence is not compiled provenance, and neither
-record is a baseline, approved threshold, performance claim, provider
-qualification, platform support decision, or release approval.
+emitting a schema-1 `offline-consistency-only` validation record. An earlier
+macOS arm64 Release collection and replay passed with `incomplete`
+comparability under the unavailable macOS power/thermal observer.
+
+The current macOS observer reads the public `NSProcessInfo` thermal enum and
+low-power boolean, cross-checks low-power state against bounded `pmset`
+active-source and configured-profile output, and publishes only a
+domain-separated digest of that profile. Focused tests cover the API mapping,
+closed power sources, active-profile selection, digest stability, malformed and
+contradictory data, platform-specific grammar, derivation, and independent
+replay. Apple `nominal` can also mean the thermal state was undetermined, a
+stable elevated state still requires review, and the configured `pmset` profile
+does not establish every dynamic power assertion. `baseline-comparable` means
+only that the recorded inputs are complete and stable enough to match in a
+later review; it is not thermal-health or baseline approval. Linux thermal
+observation remains unavailable. This source checkpoint contains no controlled
+five-launch bundle from the new observer; any later raw collection and offline
+replay are external evidence.
+
+The raw fragments are not independently authenticated, supplied native members
+are packaged inputs rather than exact loaded-byte proof, repository evidence is
+not compiled provenance, and neither record is a baseline, approved threshold,
+performance claim, provider qualification, platform support decision, or
+release approval.
 
 ## Implemented boundary
 
@@ -303,11 +319,11 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 799/799 passed after regenerating the closed source manifest |
+| Python CI-script tests | 807/807 passed after regenerating the closed source manifest; the 110-test CPU collection subset also passed independently |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `77afac75f64af4df4156e7c60b9fd291d32fc51f41bcdc3cff949de070ed5c58` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Source-release archive validator | 25/25 focused tests passed; exact Git-tree and manifest closure, ZIP and gzip/tar structure, revision rebinding, verified-source loading, retained-descriptor ownership, malformed input, tamper, bounds, and deterministic publication are covered without extraction |
 | Scoped candidate approval validator | 33/33 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 799-test Python suite |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 807-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed, including exact loaded-glibc identity and malformed/unavailable identity rejection; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -337,8 +353,8 @@ paths.
 | Committed macOS public-API reference application gate | 72/72 app tests and analysis, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
 | Current shared public-API reference source | 81/81 app tests and analysis passed in a clean external copy |
-| CPU collection-v2 and offline-replay tooling | 102/102 focused tests passed: 19 bounded-process, 21 derivation/core, 35 collector, and 27 independent-validator tests, including the closed platform-stderr contract, spaced packaged basenames, tamper, replay, alias, mutation, collision, retained-inode, parent relocation, partial-publication, and durability failures |
-| Current macOS arm64 CPU measurement path | Fresh Release application passed five challenge/PID-bound processes, exact seven-file raw publication, collection-schema-2 derivation, and independent schema-1 offline replay; comparability is `incomplete`, so this remains development-host measurement evidence rather than a baseline |
+| CPU collection-v2 and offline-replay tooling | 110/110 focused tests passed: 19 bounded-process, 22 derivation/core, 41 collector, and 28 independent-validator tests, including the macOS API/`pmset` observer contract, platform-specific host grammar, closed platform stderr, spaced packaged basenames, tamper, replay, alias, mutation, collision, retained-inode, parent relocation, partial-publication, and durability failures |
+| Current macOS arm64 CPU measurement path | An earlier fresh Release application passed five challenge/PID-bound processes, exact seven-file raw publication, collection-schema-2 derivation, and independent schema-1 offline replay with `incomplete` comparability; this source checkpoint contains no controlled bundle from the current observer, any later collection/replay is external evidence, and no baseline is claimed |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
 | Closed source checksum manifest | The current API/ABI checkpoint reproduces exactly after regeneration. Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |

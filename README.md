@@ -368,8 +368,19 @@ macOS/Linux CPU target protocol over a reproducible static-weight MatMul. Its
 host collector records five challenge-bound fresh processes, preserves the raw
 target fragments and host observations, and derives a collection-v2 record;
 the separate offline validator independently reopens that raw bundle and emits
-only a schema-1 `offline-consistency-only` validation record. This capability
-does not create a controlled baseline, reviewed threshold, provider
+only a schema-1 `offline-consistency-only` validation record. On macOS, the
+collector reads the public `NSProcessInfo` thermal enum and low-power boolean,
+cross-checks low-power state against bounded `pmset` active-source and
+configured-profile output, and publishes only a domain-separated digest of
+that profile. `baseline-comparable` means that the recorded controls are
+complete and stable enough to match as input to a later review; it is not a
+thermal-health judgment or baseline approval. Apple `nominal` can also mean
+the thermal state was undetermined, stable elevated states still require
+review, and the configured `pmset` profile does not assert every dynamic power
+condition. Linux thermal observation remains unavailable. This source
+checkpoint contains no controlled five-launch bundle from the new observer;
+any later raw collection and replay are external evidence. This
+capability does not create a controlled baseline, reviewed threshold, provider
 qualification, support promotion, release approval, or non-macOS target
 evidence. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
