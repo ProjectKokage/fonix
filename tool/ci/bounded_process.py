@@ -20,7 +20,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Any, Mapping, NamedTuple, Sequence
+from typing import Any, Callable, Mapping, NamedTuple, Sequence
 
 
 MAX_OPERATION_BYTES = 256
@@ -551,6 +551,7 @@ def run_bounded(
     timeout_seconds: float,
     maximum_stdout_bytes: int,
     maximum_stderr_bytes: int,
+    on_started: Callable[[int], None] | None = None,
 ) -> CommandOutput:
     """Run one command under strict bounded POSIX ownership.
 
@@ -560,6 +561,9 @@ def run_bounded(
     receives SIGTERM, then SIGKILL when needed, and the direct child is reaped
     within fixed cleanup deadlines.  Callers must run trusted tools: deliberate
     ``setsid`` or ``setpgid`` escape is outside this process-group contract.
+    When supplied, ``on_started`` observes the direct-child PID only after the
+    process group and both capture pipes are owned; an observer failure retires
+    that group before it is reported.
     """
 
     _validate_operation(operation)
@@ -571,6 +575,11 @@ def run_bounded(
     stderr_limit = _validate_stream_limit(
         maximum_stderr_bytes, "maximum_stderr_bytes", operation
     )
+    if on_started is not None and not callable(on_started):
+        raise BoundedProcessConfigurationError(
+            operation,
+            "on_started must be callable when supplied",
+        )
     if os.name != "posix":
         raise BoundedProcessUnsupportedPlatformError(
             operation,
@@ -621,6 +630,14 @@ def run_bounded(
             _StreamCapture("stdout", process.stdout, stdout_limit),
             _StreamCapture("stderr", process.stderr, stderr_limit),
         )
+        if on_started is not None:
+            try:
+                on_started(process.pid)
+            except Exception as error:
+                raise BoundedProcessLaunchError(
+                    operation,
+                    f"direct-child start observer failed ({type(error).__name__})",
+                ) from error
     except BaseException:
         if process is not None:
             owned_group = process.pid if process_group_id is None else process_group_id

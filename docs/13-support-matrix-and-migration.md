@@ -168,6 +168,18 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
   tool hashes identify bytes; they do not authenticate the emitter. Current
   outputs are fixed to `claimStatus: offline-consistency-only` and unverified
   target provenance; changing that meaning requires a new closed protocol.
+- Public-API CPU benchmark target protocol: version 2, with target fragment
+  schema 2. Its raw host-observation sidecar uses schema 1, the raw-preserving
+  cross-launch collection uses schema 2, and the independent offline validation
+  record uses schema 1. The last is fixed to `claimStatus: measurement-only`
+  and `validationScope: offline-consistency-only`; it is not the older generic
+  benchmark receipt, a baseline, or a substitute for the exact seven-file raw
+  bundle. Only a collection marked `baseline-comparable` may enter a separate
+  baseline or threshold review. These protocols bind one canonical application
+  tree observed unchanged around the launches and one unique target-reported
+  packaged runtime basename. Supplied native members are packaged inputs, not
+  independent loaded-byte proof; repository evidence is not compiled-source
+  provenance and no distribution archive is claimed.
 - Runtime-information and public-diagnostics envelopes: their independent
   closed schema 1 payloads. Provider discovery/evidence also use their own
   schema 1 payloads, while the worker-isolate wire protocol is version 4. Its

@@ -249,7 +249,9 @@ Every release must include:
 - minimum OS/toolchain/application requirements;
 - sherpa-onnx compatibility records;
 - migration notes;
-- benchmark/qualification summary with links to raw CI artifacts;
+- benchmark/qualification summary with links to the complete raw CI artifacts;
+  for CPU collection v2 this means the exact seven-file raw bundle, because
+  its schema-1 offline validation record cannot substitute for the samples;
 - known limitations;
 - debug symbol retention/location policy.
 

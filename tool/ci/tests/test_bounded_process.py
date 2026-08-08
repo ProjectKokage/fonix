@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from typing import Callable
 import unittest
 from unittest import mock
 
@@ -24,6 +25,7 @@ class BoundedProcessPosixTests(unittest.TestCase):
         timeout_seconds: float = 5,
         maximum_stdout_bytes: int = 64 * 1024,
         maximum_stderr_bytes: int = 64 * 1024,
+        on_started: Callable[[int], None] | None = None,
     ) -> bounded_process.CommandOutput:
         return bounded_process.run_bounded(
             [sys.executable, "-I", "-S", "-B", "-c", source],
@@ -31,6 +33,7 @@ class BoundedProcessPosixTests(unittest.TestCase):
             timeout_seconds=timeout_seconds,
             maximum_stdout_bytes=maximum_stdout_bytes,
             maximum_stderr_bytes=maximum_stderr_bytes,
+            on_started=on_started,
         )
 
     def _short_cleanup(self) -> mock._patch:
@@ -151,14 +154,18 @@ class BoundedProcessPosixTests(unittest.TestCase):
         signal_group.assert_not_called()
 
     def test_incremental_utf8_decoder_accepts_a_split_code_point(self) -> None:
+        observed_process_ids: list[int] = []
         result = self._run_python(
             "import os, time\n"
             "os.write(1, b'\\xe2')\n"
             "time.sleep(0.05)\n"
-            "os.write(1, b'\\x82\\xac\\n')\n"
+            "os.write(1, b'\\x82\\xac\\n')\n",
+            on_started=observed_process_ids.append,
         )
 
         self.assertEqual(result, bounded_process.CommandOutput("€\n", ""))
+        self.assertEqual(len(observed_process_ids), 1)
+        self.assertGreater(observed_process_ids[0], 0)
 
     def test_nonzero_exit_is_typed_and_diagnostics_are_small_bounded_tails(
         self,
@@ -382,6 +389,45 @@ class BoundedProcessPosixTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.killpg(process.pid, 0)
 
+    def test_failed_start_observer_retires_the_owned_process_group(self) -> None:
+        observed_process_ids: list[int] = []
+
+        def fail_observer(process_id: int) -> None:
+            observed_process_ids.append(process_id)
+            raise RuntimeError("observer fixture")
+
+        with self._short_cleanup(), self.assertRaises(
+            bounded_process.BoundedProcessLaunchError
+        ) as raised:
+            self._run_python(
+                "import time; time.sleep(30)",
+                on_started=fail_observer,
+            )
+
+        self.assertIn("start observer failed", str(raised.exception))
+        self.assertEqual(len(observed_process_ids), 1)
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(observed_process_ids[0], 0)
+
+    def test_start_observer_control_flow_exception_propagates_after_cleanup(
+        self,
+    ) -> None:
+        observed_process_ids: list[int] = []
+
+        def interrupt_observer(process_id: int) -> None:
+            observed_process_ids.append(process_id)
+            raise KeyboardInterrupt
+
+        with self._short_cleanup(), self.assertRaises(KeyboardInterrupt):
+            self._run_python(
+                "import time; time.sleep(30)",
+                on_started=interrupt_observer,
+            )
+
+        self.assertEqual(len(observed_process_ids), 1)
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(observed_process_ids[0], 0)
+
     def test_bounds_accept_required_integration_range_and_reject_invalid_values(
         self,
     ) -> None:
@@ -402,6 +448,7 @@ class BoundedProcessPosixTests(unittest.TestCase):
                     bounded_process.MAX_STREAM_CAPTURE_BYTES + 1
                 )
             },
+            {"on_started": object()},
         )
         for replacement in invalid_cases:
             with self.subTest(replacement=replacement), self.assertRaises(

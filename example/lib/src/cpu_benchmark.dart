@@ -6,10 +6,18 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:fonix/fonix.dart';
 
-const int cpuBenchmarkFragmentSchemaVersion = 1;
+const int cpuBenchmarkFragmentSchemaVersion = 2;
 const String cpuBenchmarkActivationKey = 'FONIX_CPU_BENCHMARK';
+const String cpuBenchmarkChallengeKey = 'FONIX_CPU_BENCHMARK_CHALLENGE';
 const String cpuBenchmarkFragmentPrefix = 'FONIX_CPU_BENCHMARK_FRAGMENT=';
 const int maximumCpuBenchmarkFragmentBytes = 128 * 1024;
+
+const String cpuBenchmarkProtocolId = 'fonix-cpu-benchmark-target-v2';
+const int cpuBenchmarkProtocolVersion = 2;
+const String cpuBenchmarkProtocolDescriptorSha256 =
+    '93a33f420c1b38d1061eb00c713fb5d13135dfed7c283673c26c185fbd3727ac';
+const String cpuBenchmarkTargetFragmentSchemaSha256 =
+    '58c02fb47c71f95030792476dc96ea0614879b9cd88680d2f13443656051060d';
 
 const String _modelAsset = 'assets/models/cpu_benchmark_matmul.onnx';
 const String _inputAsset = 'assets/models/cpu_benchmark_matmul.input.f32le';
@@ -28,6 +36,10 @@ const int cpuBenchmarkModelBytes = 4194629;
 const int cpuBenchmarkInputBytes = 8388608;
 const int cpuBenchmarkOutputBytes = 8388608;
 const int cpuBenchmarkMetadataBytes = 3481;
+const String cpuBenchmarkGeneratorId = 'cpu-benchmark-matmul-v1';
+const String cpuBenchmarkGeneratorSha256 =
+    '5730c2193acc8bd9fb3fd52fb9c973d46a512e2bd56c4d815caca49fe4e16ec2';
+const int cpuBenchmarkGeneratorBytes = 20969;
 const String cpuBenchmarkModelId =
     'cpu-benchmark-matmul-sha256-$cpuBenchmarkModelSha256';
 const List<int> cpuBenchmarkInputShape = <int>[2048, 1024];
@@ -45,6 +57,7 @@ const int _throughputWindowMicroseconds = 1000000;
 const int _maximumRunsPerThroughputWindow = 1000000;
 const int _maximumDurationMicroseconds = 1000000000000000;
 const int _maximumRssBytes = 0x7fffffffffffffff;
+const int _maximumProcessId = 0x7fffffff;
 
 /// Whether this process requested the closed desktop CPU benchmark path.
 ///
@@ -55,7 +68,10 @@ bool desktopCpuBenchmarkEnabled({
   required bool isMacOS,
   required bool isLinux,
   required Map<String, String> environment,
-}) => isMacOS != isLinux && environment[cpuBenchmarkActivationKey] == '1';
+}) =>
+    isMacOS != isLinux &&
+    environment[cpuBenchmarkActivationKey] == '1' &&
+    _isExactLowercaseHex64(environment[cpuBenchmarkChallengeKey] ?? '');
 
 /// A bounded failure whose text contains no target path or model contents.
 final class CpuBenchmarkFailure implements Exception {
@@ -171,6 +187,7 @@ final class CpuBenchmarkTargetIdentity {
   CpuBenchmarkTargetIdentity({
     required this.packageVersion,
     required this.runtimeVersion,
+    required this.runtimeLibraryIdentity,
     required this.runtimeSource,
     required this.runtimeOwner,
     required this.artifactFlavor,
@@ -178,6 +195,7 @@ final class CpuBenchmarkTargetIdentity {
     required this.artifactSourceSha256,
     required this.platform,
     required this.architecture,
+    required this.shimNativeIdentity,
     required this.shimAbi,
     required this.shimBuildId,
     required this.requiredOrtApi,
@@ -192,6 +210,7 @@ final class CpuBenchmarkTargetIdentity {
        ) {
     if (!_semanticVersion.hasMatch(packageVersion) ||
         !_label.hasMatch(runtimeVersion) ||
+        !_token.hasMatch(runtimeLibraryIdentity) ||
         !const <String>{
           'linked',
           'bundled',
@@ -206,9 +225,10 @@ final class CpuBenchmarkTargetIdentity {
         }.contains(runtimeOwner) ||
         !_token.hasMatch(artifactFlavor) ||
         !_token.hasMatch(artifactId) ||
-        !_digest.hasMatch(artifactSourceSha256) ||
+        !_isExactLowercaseHex64(artifactSourceSha256) ||
         !const <String>{'macos', 'linux'}.contains(platform) ||
         !const <String>{'arm64', 'x86_64'}.contains(architecture) ||
+        !_token.hasMatch(shimNativeIdentity) ||
         shimAbi <= 0 ||
         requiredOrtApi <= 0 ||
         negotiatedOrtApi <= 0 ||
@@ -241,6 +261,7 @@ final class CpuBenchmarkTargetIdentity {
 
   final String packageVersion;
   final String runtimeVersion;
+  final String runtimeLibraryIdentity;
   final String runtimeSource;
   final String runtimeOwner;
   final String artifactFlavor;
@@ -248,6 +269,7 @@ final class CpuBenchmarkTargetIdentity {
   final String artifactSourceSha256;
   final String platform;
   final String architecture;
+  final String shimNativeIdentity;
   final int shimAbi;
   final String shimBuildId;
   final int requiredOrtApi;
@@ -258,6 +280,7 @@ final class CpuBenchmarkTargetIdentity {
   Map<String, Object?> toMap() => <String, Object?>{
     'packageVersion': packageVersion,
     'runtimeVersion': runtimeVersion,
+    'runtimeLibraryIdentity': runtimeLibraryIdentity,
     'runtimeSource': runtimeSource,
     'runtimeOwner': runtimeOwner,
     'artifactFlavor': artifactFlavor,
@@ -265,6 +288,7 @@ final class CpuBenchmarkTargetIdentity {
     'artifactSourceSha256': artifactSourceSha256,
     'platform': platform,
     'architecture': architecture,
+    'shimNativeIdentity': shimNativeIdentity,
     'shimAbi': shimAbi,
     'shimBuildId': shimBuildId,
     'requiredOrtApi': requiredOrtApi,
@@ -363,25 +387,37 @@ typedef CpuBenchmarkMonotonicReader = int Function();
 /// A bounded, path-free fragment emitted by one fresh target process.
 final class CpuBenchmarkFragment {
   CpuBenchmarkFragment._({
+    required this.launchChallenge,
+    required this.processId,
     required this.identity,
     required this.runtimeLoadMicroseconds,
     required this.sessionCreateMicroseconds,
     required this.dataPreparationMicroseconds,
     required this.firstRun,
     required this.stabilizationRuns,
+    required this.stabilizationInferenceMicroseconds,
     required this.stabilizationBatchMedians,
     required this.warmRuns,
     required this.throughputWindows,
     required this.assignment,
     required this.rssSamples,
-  });
+  }) {
+    _validateStabilizationEvidence(
+      runCount: stabilizationRuns,
+      inferenceMicroseconds: stabilizationInferenceMicroseconds,
+      batchMedians: stabilizationBatchMedians,
+    );
+  }
 
+  final String launchChallenge;
+  final int processId;
   final CpuBenchmarkTargetIdentity identity;
   final int runtimeLoadMicroseconds;
   final int sessionCreateMicroseconds;
   final int dataPreparationMicroseconds;
   final CpuBenchmarkRunSample firstRun;
   final int stabilizationRuns;
+  final List<int> stabilizationInferenceMicroseconds;
   final List<int> stabilizationBatchMedians;
   final List<CpuBenchmarkRunSample> warmRuns;
   final List<({int completedRuns, int durationMicroseconds})> throughputWindows;
@@ -392,20 +428,42 @@ final class CpuBenchmarkFragment {
     'schemaVersion': cpuBenchmarkFragmentSchemaVersion,
     'result': 'measured',
     'purpose': 'measurement-only-target-fragment',
+    'protocol': <String, Object?>{
+      'id': cpuBenchmarkProtocolId,
+      'version': cpuBenchmarkProtocolVersion,
+      'descriptorSha256': cpuBenchmarkProtocolDescriptorSha256,
+      'targetFragmentSchemaSha256': cpuBenchmarkTargetFragmentSchemaSha256,
+    },
+    'launchChallenge': launchChallenge,
+    'processId': processId,
     'freshProcessRequired': true,
     'executionSurface': 'synchronous-public-api',
     'model': <String, Object?>{
       'id': cpuBenchmarkModelId,
       'onnxSha256': cpuBenchmarkModelSha256,
+      'onnxSizeBytes': cpuBenchmarkModelBytes,
       'inputFixtureSha256': cpuBenchmarkInputSha256,
+      'inputFixtureSizeBytes': cpuBenchmarkInputBytes,
       'referenceOutputSha256': cpuBenchmarkOutputSha256,
+      'referenceOutputSizeBytes': cpuBenchmarkOutputBytes,
       'metadataSha256': cpuBenchmarkMetadataSha256,
+      'metadataSizeBytes': cpuBenchmarkMetadataBytes,
+      'generatorId': cpuBenchmarkGeneratorId,
+      'generatorSha256': cpuBenchmarkGeneratorSha256,
+      'generatorSizeBytes': cpuBenchmarkGeneratorBytes,
       'opset': 17,
       'precision': 'float32',
       'inputName': cpuBenchmarkInputName,
       'inputShape': cpuBenchmarkInputShape,
       'outputName': cpuBenchmarkOutputName,
       'outputShape': cpuBenchmarkOutputShape,
+      'referencePolicy': <String, Object?>{
+        'comparison': 'exact-ieee754-binary32-bits',
+        'absoluteTolerance': 0,
+        'relativeTolerance': 0,
+        'nanPolicy': 'forbid',
+        'infinityPolicy': 'forbid',
+      },
     },
     'runtime': identity.toMap(),
     'session': <String, Object?>{
@@ -427,6 +485,19 @@ final class CpuBenchmarkFragment {
         'native-output-to-dart-float32',
       ],
     },
+    'timing': <String, Object?>{
+      'durationUnit': 'microseconds',
+      'clockScope': 'process-local-monotonic-stopwatch',
+      'runtimeLoadScope': 'ort-runtime-open',
+      'sessionCreateScope': 'verified-model-bytes-to-session',
+      'dataPreparationScope': 'dart-float32-to-native-tensor-copy',
+      'inferenceScope': 'synchronous-session-run-only',
+      'outputMaterializationScope': 'native-output-to-dart-float32-copy-only',
+      'throughputWindowTargetMicroseconds': _throughputWindowMicroseconds,
+      'throughputWindowStopRule':
+          'complete-runs-until-monotonic-elapsed-gte-target',
+      'assignmentScope': 'separate-profiled-session-after-all-timing',
+    },
     'stabilization': <String, Object?>{
       'method': 'bounded-batch-median-relative-change',
       'batchSize': _stabilizationBatchSize,
@@ -434,6 +505,7 @@ final class CpuBenchmarkFragment {
       'requiredConsecutiveTransitions': _stabilizationRequiredTransitions,
       'maximumRuns': _maximumStabilizationRuns,
       'actualRuns': stabilizationRuns,
+      'inferenceMicroseconds': stabilizationInferenceMicroseconds,
       'batchMedianMicroseconds': stabilizationBatchMedians,
       'result': 'stabilized',
     },
@@ -505,7 +577,22 @@ Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
   CpuBenchmarkProbeFactory? createProbe,
   CpuBenchmarkRssReader? readRss,
   CpuBenchmarkMonotonicReader? readMonotonicMicroseconds,
+  String? launchChallenge,
+  int? processId,
 }) async {
+  final String resolvedLaunchChallenge =
+      launchChallenge ?? Platform.environment[cpuBenchmarkChallengeKey] ?? '';
+  final int resolvedProcessId = processId ?? pid;
+  if (!_isExactLowercaseHex64(resolvedLaunchChallenge)) {
+    throw const CpuBenchmarkFailure(
+      'The CPU benchmark launch challenge is invalid.',
+    );
+  }
+  if (resolvedProcessId <= 0 || resolvedProcessId > _maximumProcessId) {
+    throw const CpuBenchmarkFailure(
+      'The CPU benchmark process identity is invalid.',
+    );
+  }
   final CpuBenchmarkAssets loaded = await CpuBenchmarkAssets.load(
     assets: assets,
   );
@@ -616,12 +703,17 @@ Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
     settled = true;
     sampleRss('after-dispose');
     return CpuBenchmarkFragment._(
+      launchChallenge: resolvedLaunchChallenge,
+      processId: resolvedProcessId,
       identity: identity,
       runtimeLoadMicroseconds: runtimeLoadMicroseconds,
       sessionCreateMicroseconds: sessionCreateMicroseconds,
       dataPreparationMicroseconds: dataPreparationMicroseconds,
       firstRun: firstRun,
       stabilizationRuns: stabilization.runCount,
+      stabilizationInferenceMicroseconds: List<int>.unmodifiable(
+        stabilization.inferenceMicroseconds,
+      ),
       stabilizationBatchMedians: List<int>.unmodifiable(
         stabilization.batchMedians,
       ),
@@ -645,14 +737,17 @@ Future<CpuBenchmarkFragment> runDesktopCpuBenchmark({
 final class _StabilizationResult {
   const _StabilizationResult({
     required this.runCount,
+    required this.inferenceMicroseconds,
     required this.batchMedians,
   });
 
   final int runCount;
+  final List<int> inferenceMicroseconds;
   final List<int> batchMedians;
 }
 
 _StabilizationResult _stabilize(CpuBenchmarkProbe probe) {
+  final List<int> inferenceMicroseconds = <int>[];
   final List<int> medians = <int>[];
   var stableTransitions = 0;
   var runCount = 0;
@@ -662,6 +757,7 @@ _StabilizationResult _stabilize(CpuBenchmarkProbe probe) {
       final CpuBenchmarkRunSample sample = probe.runOnce();
       _validateRunSample(sample);
       batch.add(sample.inferenceMicroseconds);
+      inferenceMicroseconds.add(sample.inferenceMicroseconds);
       runCount += 1;
     }
     batch.sort();
@@ -675,12 +771,69 @@ _StabilizationResult _stabilize(CpuBenchmarkProbe probe) {
     }
     medians.add(median);
     if (stableTransitions >= _stabilizationRequiredTransitions) {
-      return _StabilizationResult(runCount: runCount, batchMedians: medians);
+      return _StabilizationResult(
+        runCount: runCount,
+        inferenceMicroseconds: inferenceMicroseconds,
+        batchMedians: medians,
+      );
     }
   }
   throw const CpuBenchmarkFailure(
     'Warm inference did not stabilize within the fixed run bound.',
   );
+}
+
+void _validateStabilizationEvidence({
+  required int runCount,
+  required List<int> inferenceMicroseconds,
+  required List<int> batchMedians,
+}) {
+  if (runCount <
+          _stabilizationBatchSize * (_stabilizationRequiredTransitions + 1) ||
+      runCount > _maximumStabilizationRuns ||
+      runCount % _stabilizationBatchSize != 0 ||
+      inferenceMicroseconds.length != runCount ||
+      batchMedians.length != runCount ~/ _stabilizationBatchSize) {
+    throw const CpuBenchmarkFailure(
+      'The CPU benchmark stabilization evidence is inconsistent.',
+    );
+  }
+
+  var stableTransitions = 0;
+  var reachedStability = false;
+  for (var batchIndex = 0; batchIndex < batchMedians.length; batchIndex += 1) {
+    final int start = batchIndex * _stabilizationBatchSize;
+    final List<int> batch =
+        inferenceMicroseconds.sublist(start, start + _stabilizationBatchSize)
+          ..forEach(_positiveDuration)
+          ..sort();
+    final int median = batch[batch.length ~/ 2];
+    if (batchMedians[batchIndex] != median) {
+      throw const CpuBenchmarkFailure(
+        'The CPU benchmark stabilization medians are not recomputable.',
+      );
+    }
+    if (batchIndex > 0 &&
+        (median - batchMedians[batchIndex - 1]).abs() * 10000 <=
+            batchMedians[batchIndex - 1] * _stabilizationThresholdBasisPoints) {
+      stableTransitions += 1;
+    } else {
+      stableTransitions = 0;
+    }
+    if (stableTransitions >= _stabilizationRequiredTransitions) {
+      if (batchIndex != batchMedians.length - 1) {
+        throw const CpuBenchmarkFailure(
+          'The CPU benchmark stabilization evidence exceeded its stop rule.',
+        );
+      }
+      reachedStability = true;
+    }
+  }
+  if (!reachedStability) {
+    throw const CpuBenchmarkFailure(
+      'The CPU benchmark stabilization evidence did not reach its stop rule.',
+    );
+  }
 }
 
 void _validateRunSample(CpuBenchmarkRunSample sample) {
@@ -706,6 +859,9 @@ final RegExp _semanticVersion = RegExp(
   r'(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$',
 );
 final RegExp _digest = RegExp(r'^[0-9a-f]{64}$');
+
+bool _isExactLowercaseHex64(String value) =>
+    value.length == 64 && _digest.hasMatch(value);
 
 final class _OrtCpuBenchmarkProbe implements CpuBenchmarkProbe {
   _OrtCpuBenchmarkProbe._({
@@ -976,6 +1132,7 @@ CpuBenchmarkTargetIdentity _targetIdentity(
   return CpuBenchmarkTargetIdentity(
     packageVersion: diagnostics.dartPackageVersion,
     runtimeVersion: diagnostics.runtimeVersion,
+    runtimeLibraryIdentity: diagnostics.runtimeIdentity,
     runtimeSource: diagnostics.runtimeMode.name,
     runtimeOwner: diagnostics.runtimeOwner.name,
     artifactFlavor: diagnostics.artifactFlavor,
@@ -983,6 +1140,7 @@ CpuBenchmarkTargetIdentity _targetIdentity(
     artifactSourceSha256: artifact.sourceSha256,
     platform: diagnostics.platform,
     architecture: diagnostics.architecture,
+    shimNativeIdentity: runtime.buildInfo.nativeIdentity,
     shimAbi: diagnostics.shimAbiVersion,
     shimBuildId: diagnostics.shimBuildId,
     requiredOrtApi: diagnostics.requiredOrtApiVersion,

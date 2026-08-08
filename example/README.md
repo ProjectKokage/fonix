@@ -58,10 +58,11 @@ map or smoke flag reaches Dart, and the environment-driven deterministic exit
 path remains desktop-only on macOS and Linux. The iOS smoke remains resident
 so the Flutter runner owns shutdown.
 
-## Desktop CPU measurement fragment
+## Desktop CPU measurement protocol and collection
 
 An external macOS or Linux Release build accepts the exact opt-in activation
-`FONIX_CPU_BENCHMARK=1`. Do not combine it with
+`FONIX_CPU_BENCHMARK=1` together with a fresh 64-character lowercase-hex
+`FONIX_CPU_BENCHMARK_CHALLENGE`. Do not combine it with
 `FONIX_REFERENCE_SMOKE=1`; the existing functional smoke retains startup
 precedence. The benchmark path loads and verifies all four committed workload
 assets before timing, then uses the synchronous public API with fixed
@@ -76,16 +77,70 @@ phases, and performs one separate strict full-CPU-assignment run outside the
 timed samples. Every output is compared bit-for-bit with the committed float32
 reference. It then double-disposes every native owner and deletes the private
 assignment-profile directory before publishing one bounded line beginning
-with `FONIX_CPU_BENCHMARK_FRAGMENT=`.
+with `FONIX_CPU_BENCHMARK_FRAGMENT=`. The schema-2 fragment repeats the exact
+challenge and its positive target-process ID so the host collector can bind the
+result to the direct child it launched.
 
-That line is deliberately a `measurement-only-target-fragment`, not a
-version-1 benchmark evidence receipt. A host-side collector must use repeated
-fresh processes, bind the final application/runtime/build artifacts, add
-controlled device, OS, power, thermal, and CPU-utilization observations, and
-pass the result through the offline benchmark validator before review. The
-fragment does not establish stable performance, a regression threshold,
-CPU/provider qualification, platform support, release readiness, or
-transferability.
+That line is deliberately a `measurement-only-target-fragment`. It is not the
+older generic benchmark evidence receipt described in the main testing guide.
+The host-side collector launches exactly five fresh processes, binds every
+fragment to its challenge and direct-child PID, records bounded device, OS,
+power, thermal, and CPU-utilization observations in a raw sidecar, and derives
+one collection schema 2 record. Run it against an already built final
+application:
+
+```sh
+python3 -B tool/ci/collect_cpu_benchmark.py \
+  --repository /absolute/path/to/fonix \
+  --application-root /absolute/path/to/final-application-tree \
+  --executable /absolute/path/to/final-executable \
+  --shim-artifact /absolute/path/to/packaged-fonix-shim \
+  --runtime-artifact /absolute/path/to/packaged-onnxruntime \
+  --resolver-manifest /absolute/path/to/packaged-resolver-manifest \
+  --output-directory /absolute/new/cpu-benchmark-collection
+```
+
+Repeat `--provider-dependency` in both commands for every packaged provider
+dependency. A Linux Xvfb run may also supply its exact `--display` to the
+collector. The output directory must not exist. Successful publication contains
+exactly five raw files named
+`fragment-00.json` through `fragment-04.json`, `host-observations.json`, and
+`cpu-benchmark-collection.json`.
+
+The executable, shim, runtime, resolver manifest, and any provider dependencies
+must be exact regular-file members of the measured application tree. The
+collection observes that tree unchanged around the launches and requires the
+target-reported runtime basename to identify one unique packaged member. The
+shim reports its embedded build contract. The supplied native members are
+packaged inputs, not independent proof that their exact bytes were loaded; that
+requires the platform loader audit. The source tree is not compiled-source
+provenance and no distribution archive is claimed. Reopen and independently
+rederive the raw bundle with:
+
+```sh
+python3 -B tool/ci/validate_cpu_benchmark_collection.py \
+  --collection-directory /absolute/cpu-benchmark-collection \
+  --repository /absolute/path/to/fonix \
+  --application-root /absolute/path/to/final-application-tree \
+  --executable /absolute/path/to/final-executable \
+  --shim-artifact /absolute/path/to/packaged-fonix-shim \
+  --runtime-artifact /absolute/path/to/packaged-onnxruntime \
+  --resolver-manifest /absolute/path/to/packaged-resolver-manifest \
+  --output /absolute/new/cpu-benchmark-validation.json
+```
+
+The validation output is a schema-1 `measurement-only`,
+`offline-consistency-only` record, not a schema-2 collection and not a
+substitute for the raw files. Retain and reopen the complete seven-file bundle
+for every later evaluation. Only a collection whose environment status is
+`baseline-comparable` may enter a separate baseline or threshold review;
+`incomplete` and `non-comparable` collections remain measurement artifacts but
+are ineligible for that comparison. Neither collection nor validation
+establishes stable performance, a regression threshold, CPU/provider
+qualification, platform support, release readiness, or transferability.
+The current production observer reports thermal state unavailable on both
+supported hosts and power mode unavailable on macOS, so controlled
+power/thermal capture remains open and current collections are `incomplete`.
 
 ## macOS gate
 

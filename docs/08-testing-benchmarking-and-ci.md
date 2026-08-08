@@ -496,7 +496,7 @@ Those decisions require real target runs, review of stable baselines, and
 separately approved thresholds. Focused tamper tests are discovered
 automatically by the existing `tool/ci/tests/test_*.py` unittest command.
 
-### Public-API CPU target fragment
+### Public-API CPU protocol v2, collector, and replay validator
 
 Implementation checkpoint (2026-08-08): the committed Flutter reference app
 contains a macOS/Linux-only, exact `FONIX_CPU_BENCHMARK=1` activation over a
@@ -505,8 +505,10 @@ generated static-weight float32 MatMul. The model computes
 output, metadata, generator, shapes, operation count, and exact-byte output
 policy are independently reproducible and SHA-256 bound.
 
-The target runner loads and verifies every asset before timing. It uses the
-synchronous public API with pool size/concurrency one, sequential execution,
+The target runner requires the exact `FONIX_CPU_BENCHMARK=1` activation and a
+fresh 64-character lowercase-hex challenge. It loads and verifies every asset
+before timing. It uses the synchronous public API with pool size/concurrency
+one, sequential execution,
 graph optimization `all`, explicit intra/inter-op thread counts of one, CPU
 arena and memory patterns enabled, and deterministic compute. It pre-creates
 one reusable input tensor, measures runtime load, session creation, input
@@ -525,9 +527,97 @@ session after all timing windows. The runner then double-disposes its input,
 timed session, evidence session, results, and runtime, removes the private
 profile root, and emits one bounded path-free line beginning with
 `FONIX_CPU_BENCHMARK_FRAGMENT=`. Its purpose is exactly
-`measurement-only-target-fragment`. A cold-runtime sample is meaningful only
-when a host collector launches a fresh final-application process; the target
-fragment does not aggregate launches or create a version-1 benchmark receipt.
+`measurement-only-target-fragment`. The fragment uses schema 2 and repeats the
+challenge and positive target-process ID. A cold-runtime sample is meaningful
+only when a host collector launches a fresh final-application process.
+
+`tool/ci/collect_cpu_benchmark.py` implements that host boundary for macOS
+arm64 and Linux x86_64. It launches exactly five fresh direct children, binds
+each fragment to a distinct challenge and the observed PID, records bounded
+device, OS, driver/firmware, power, thermal, total-process RSS, and process CPU
+observations, then publishes only after every process and identity check
+settles. Its exact output inventory is five raw `fragment-NN.json` files,
+`host-observations.json`, and `cpu-benchmark-collection.json`. The host sidecar
+is raw schema-1 measurement input; the derived collection uses schema 2.
+
+The pinned Flutter 3.47 macOS Release bootstrap has one closed stderr
+allowance, followed by one LF:
+
+```text
+[IMPORTANT:flutter/shell/platform/embedder/embedder_surface_metal_impeller.mm(53)] Using the Impeller rendering backend (MetalSDF).
+```
+
+The line is required exactly; a missing, changed, prefixed, or suffixed line
+fails collection. Linux requires empty stderr until exact target-host evidence
+adopts a different closed contract.
+
+The collector requires the executable, shim, runtime, resolver manifest, and
+every provider dependency to be exact regular-file members of one canonical
+measured application tree. It also binds the native lock, resolver and embedded
+build manifests, package/runtime/API identities, protocol/schema/tool bytes,
+and the closed repository source manifest. The tree is observed unchanged
+around the launches, and the target-reported runtime basename must select one
+unique packaged member. The shim reports its embedded build contract. These
+checks do not independently prove that the exact supplied shim, runtime, or
+provider bytes were loaded; that stronger claim requires the platform loader
+audit. The separately recorded source tree is not compiled-source provenance,
+packaged runtime equivalence to an upstream archive still requires the platform
+audit, and no distribution archive is claimed.
+
+Run collection and independent replay with the current command boundaries:
+
+```bash
+python3 -B tool/ci/collect_cpu_benchmark.py \
+  --repository /absolute/path/to/fonix \
+  --application-root /absolute/path/to/final-application-tree \
+  --executable /absolute/path/to/final-executable \
+  --shim-artifact /absolute/path/to/packaged-fonix-shim \
+  --runtime-artifact /absolute/path/to/packaged-onnxruntime \
+  --resolver-manifest /absolute/path/to/packaged-resolver-manifest \
+  --output-directory /absolute/new/cpu-benchmark-collection
+
+python3 -B tool/ci/validate_cpu_benchmark_collection.py \
+  --collection-directory /absolute/cpu-benchmark-collection \
+  --repository /absolute/path/to/fonix \
+  --application-root /absolute/path/to/final-application-tree \
+  --executable /absolute/path/to/final-executable \
+  --shim-artifact /absolute/path/to/packaged-fonix-shim \
+  --runtime-artifact /absolute/path/to/packaged-onnxruntime \
+  --resolver-manifest /absolute/path/to/packaged-resolver-manifest \
+  --output /absolute/new/cpu-benchmark-validation.json
+```
+
+Repeat `--provider-dependency` for each packaged provider dependency; an exact
+Linux Xvfb display may be supplied with `--display` to the collector. Both
+output locations must not exist. The offline validator reopens the exact
+seven-file inventory, validates the closed schemas and identities, and
+independently rederives the complete collection from the raw fragments and
+host sidecar. Its output is validation-record schema 1 with
+`claimStatus: measurement-only` and
+`validationScope: offline-consistency-only`. It is distinct from collection
+schema 2 and from the older generic receipt and
+`validate_benchmark_receipt.py` flow above.
+
+After either command reserves its final output, it never unlinks or recursively
+cleans that output on a publication or durability failure. An incomplete
+collection directory or validation file is invalid evidence and intentionally
+blocks automatic retry; retain it for diagnosis or remove it explicitly before
+a deliberate retry. This fail-safe rule avoids deleting a concurrently
+substituted same-user path.
+
+The collection derives one closed comparability status. Only
+`baseline-comparable`, meaning complete and stable recorded power and thermal
+observations, is eligible to enter a later baseline or threshold review.
+`incomplete` records missing observations, while `non-comparable` records
+observed power-mode change or thermal drift. Both remain useful raw
+measurements, but neither is eligible for comparison. The complete raw bundle
+must be retained and independently reopened for every later evaluation; the
+schema-1 validation record is not a substitute for those samples.
+
+The current production observers intentionally report thermal state as
+unavailable on both supported hosts and power mode as unavailable on macOS, so
+they currently produce `incomplete`, not `baseline-comparable`, collections.
+Controlled power/thermal capture and an approved baseline remain later work.
 
 One local macOS arm64 Release application run completed this path against the
 lock-selected ORT 1.27.1 CPU artifact on 2026-08-08, including exact output,
@@ -535,7 +625,9 @@ lock-selected ORT 1.27.1 CPU artifact on 2026-08-08, including exact output,
 full CPU assignment, temporary-profile removal, and double disposal. This is
 one development-host measurement-path check, not an archived baseline,
 threshold, provider qualification, performance claim, distribution artifact,
-or evidence for Linux, mobile, Windows, or another macOS tuple.
+or evidence for Linux, mobile, Windows, or another macOS tuple. Implementing
+the collection and validation contracts does not promote that historical
+single launch into a controlled collection.
 
 ## 8.12 CI matrix
 
@@ -706,7 +798,7 @@ target-host, provider, final-app/package, installer, and clean-machine work is
 deferred until a Windows environment exists. Their portable/static/source,
 tamper, cross-build, and loader-security gates remain required.
 
-### Future nightly/scheduled lanes in active scope
+### Future nightly/scheduled lanes outside the scoped CPU sequence
 
 - Linux arm64 where infrastructure permits.
 - Physical iOS device CoreML/XNNPACK.
@@ -719,6 +811,12 @@ tamper, cross-build, and loader-security gates remain required.
 - TensorRT RTX plugin and Vitis AI/vendor hardware lanes where published.
 - leak/sanitizer/stress suites.
 - sustained benchmarks and trend analysis.
+
+These are follow-up infrastructure candidates, not completion gates for the
+current CPU-only scoped pre-1.0 work. The active rows remain macOS arm64
+bundled CPU, Linux x86_64 bundled CPU, iOS arm64 linked-device CPU, and Android
+arm64 application-owned bundled plus sherpa-owned process CPU: four OS target
+rows and five compositions.
 
 Deferred lanes are Android QNN device qualification and Windows x64/arm64
 target-host, DirectML, final-package, installer, and clean-machine runs. Keep

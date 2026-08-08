@@ -6,6 +6,13 @@ The coding agent should implement vertical slices that produce runnable packaged
 
 The current development sequence is narrower than the phase inventory below:
 
+The active scoped pre-1.0 CPU work contains four OS target rows and five
+compositions: macOS arm64 bundled, Linux x86_64 bundled, iOS arm64 linked
+device, and Android arm64 application-owned bundled plus sherpa-owned process
+mode. Android QNN and Windows qualification are not hidden completion gates for
+that scope; the exclusions and retained portable regressions below remain
+explicit.
+
 The completed macOS arm64 CPU, Android arm64 CPU/XNNPACK functional emulator,
 and corrected Android sherpa four-tuple coexistence gates are standing
 regressions and must stay green. The sherpa validator and aggregate remain
@@ -544,10 +551,29 @@ input, inference, and output-copy timing; requires observed stabilization;
 records 100 warm samples and three one-second throughput windows; captures
 phase-labelled total RSS; profiles strict CPU assignment outside timing; and
 settles every owner before publishing a path-free measurement-only fragment.
-One local macOS arm64 Release run passed the complete path. Repeated controlled
-fresh-process collection, formal benchmark receipts, reviewed stable
-baselines/thresholds, and every other selected target remain open; this
-checkpoint makes no performance, qualification, support, or release claim.
+One local macOS arm64 Release run passed the complete target path.
+
+The follow-up collection-v2 checkpoint implements a closed protocol-v2 target
+fragment, exactly five challenge/PID-bound fresh launches, one raw
+host-observation sidecar, unchanged canonical-application-tree observation,
+unique target-reported runtime-basename binding, native build-contract binding,
+deterministic collection-schema-2 derivation, and an independent offline replay
+validator. The validator reopens the exact seven-file raw bundle
+and emits only a schema-1 `offline-consistency-only`, `measurement-only`
+record. Comparability is closed to `baseline-comparable`, `incomplete`, or
+`non-comparable`; only the first may enter a later baseline/threshold review.
+The source binding is not compiled provenance, no distribution archive is
+claimed, supplied native members are not independent loaded-byte proof, and the
+validation record cannot replace the raw samples. Current production host
+observers cannot yet emit `baseline-comparable`; controlled power/thermal
+capture remains open.
+
+Controlled target baselines, reviewed thresholds, the Linux target-host run,
+and measurements for every other selected row remain open. Neither the
+historical single macOS launch nor implementation of the collection tools
+makes a performance, qualification, support, or release claim. The phase
+inventory below remains the long-term program: Phase 9 target qualification
+and the Windows target-host portions of Phases 4, 8, and 10 remain deferred.
 
 ## Suggested issue breakdown
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fonix_reference/src/cpu_benchmark.dart';
@@ -12,6 +13,9 @@ const List<String> _assetNames = <String>[
   'assets/models/cpu_benchmark_matmul.output.f32le',
   'assets/models/cpu_benchmark_matmul.json',
 ];
+const String _challenge =
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const int _processId = 4242;
 
 void main() {
   late Map<String, Uint8List> fixtureAssets;
@@ -32,18 +36,37 @@ void main() {
         desktopCpuBenchmarkEnabled(
           isMacOS: platform.isMacOS,
           isLinux: platform.isLinux,
-          environment: const <String, String>{cpuBenchmarkActivationKey: '1'},
+          environment: const <String, String>{
+            cpuBenchmarkActivationKey: '1',
+            cpuBenchmarkChallengeKey: _challenge,
+          },
         ),
         isTrue,
       );
     }
     for (final Map<String, String> environment in <Map<String, String>>[
       const <String, String>{},
-      const <String, String>{cpuBenchmarkActivationKey: ''},
-      const <String, String>{cpuBenchmarkActivationKey: '0'},
-      const <String, String>{cpuBenchmarkActivationKey: 'true'},
-      const <String, String>{cpuBenchmarkActivationKey: ' 1'},
-      const <String, String>{cpuBenchmarkActivationKey: '1\n'},
+      const <String, String>{cpuBenchmarkChallengeKey: _challenge},
+      const <String, String>{
+        cpuBenchmarkActivationKey: '',
+        cpuBenchmarkChallengeKey: _challenge,
+      },
+      const <String, String>{
+        cpuBenchmarkActivationKey: '0',
+        cpuBenchmarkChallengeKey: _challenge,
+      },
+      const <String, String>{
+        cpuBenchmarkActivationKey: 'true',
+        cpuBenchmarkChallengeKey: _challenge,
+      },
+      const <String, String>{
+        cpuBenchmarkActivationKey: ' 1',
+        cpuBenchmarkChallengeKey: _challenge,
+      },
+      const <String, String>{
+        cpuBenchmarkActivationKey: '1\n',
+        cpuBenchmarkChallengeKey: _challenge,
+      },
     ]) {
       expect(
         desktopCpuBenchmarkEnabled(
@@ -63,9 +86,41 @@ void main() {
         desktopCpuBenchmarkEnabled(
           isMacOS: platform.isMacOS,
           isLinux: platform.isLinux,
-          environment: const <String, String>{cpuBenchmarkActivationKey: '1'},
+          environment: const <String, String>{
+            cpuBenchmarkActivationKey: '1',
+            cpuBenchmarkChallengeKey: _challenge,
+          },
         ),
         isFalse,
+      );
+    }
+  });
+
+  test('desktop benchmark activation requires one exact launch challenge', () {
+    for (final String? challenge in <String?>[
+      null,
+      '',
+      _challenge.substring(1),
+      '${_challenge}0',
+      _challenge.toUpperCase(),
+      List<String>.filled(64, 'g').join(),
+      ' $_challenge',
+      '$_challenge\n',
+      '$_challenge\r',
+      '${_challenge.substring(1)}\n',
+      '${_challenge.substring(1)}\r',
+    ]) {
+      expect(
+        desktopCpuBenchmarkEnabled(
+          isMacOS: true,
+          isLinux: false,
+          environment: <String, String>{
+            cpuBenchmarkActivationKey: '1',
+            cpuBenchmarkChallengeKey: ?challenge,
+          },
+        ),
+        isFalse,
+        reason: '$challenge',
       );
     }
   });
@@ -94,12 +149,142 @@ void main() {
     );
   });
 
+  test('protocol and model identity constants match committed bytes', () {
+    final File packageConfigFile = File(
+      '.dart_tool/package_config.json',
+    ).absolute;
+    final Map<String, Object?> packageConfig =
+        jsonDecode(packageConfigFile.readAsStringSync())!
+            as Map<String, Object?>;
+    final List<Object?> packages = packageConfig['packages']! as List<Object?>;
+    final Map<String, Object?> fonixPackage = packages
+        .cast<Map<String, Object?>>()
+        .singleWhere((Map<String, Object?> value) => value['name'] == 'fonix');
+    final Uri configuredRoot = Uri.parse(fonixPackage['rootUri']! as String);
+    final Uri packageRootUri = configuredRoot.isAbsolute
+        ? configuredRoot
+        : packageConfigFile.parent.uri.resolveUri(configuredRoot);
+    final Directory packageRoot = Directory.fromUri(packageRootUri);
+    final File descriptorFile = File(
+      '${packageRoot.path}/templates/ci/cpu_benchmark_protocol_v2.json',
+    );
+    final File schemaFile = File(
+      '${packageRoot.path}/templates/ci/'
+      'cpu_benchmark_target_fragment_v2.schema.json',
+    );
+    final File generatorFile = File(
+      '${packageRoot.path}/example/assets/models/'
+      'generate_cpu_benchmark_matmul.py',
+    );
+    final File metadataFile = File(
+      '${packageRoot.path}/example/assets/models/'
+      'cpu_benchmark_matmul.json',
+    );
+
+    final List<int> descriptorBytes = descriptorFile.readAsBytesSync();
+    final List<int> schemaBytes = schemaFile.readAsBytesSync();
+    final List<int> generatorBytes = generatorFile.readAsBytesSync();
+    final List<int> metadataBytes = metadataFile.readAsBytesSync();
+    expect(
+      sha256.convert(descriptorBytes).toString(),
+      cpuBenchmarkProtocolDescriptorSha256,
+    );
+    expect(
+      sha256.convert(schemaBytes).toString(),
+      cpuBenchmarkTargetFragmentSchemaSha256,
+    );
+    expect(generatorBytes, hasLength(cpuBenchmarkGeneratorBytes));
+    expect(
+      sha256.convert(generatorBytes).toString(),
+      cpuBenchmarkGeneratorSha256,
+    );
+    expect(metadataBytes, hasLength(cpuBenchmarkMetadataBytes));
+    expect(
+      sha256.convert(metadataBytes).toString(),
+      cpuBenchmarkMetadataSha256,
+    );
+
+    final Map<String, Object?> descriptor =
+        jsonDecode(utf8.decode(descriptorBytes))! as Map<String, Object?>;
+    expect(descriptor['schemaVersion'], 1);
+    expect(descriptor['protocolId'], cpuBenchmarkProtocolId);
+    expect(descriptor['protocolVersion'], cpuBenchmarkProtocolVersion);
+    expect(descriptor['targetFragmentSchema'], <String, Object?>{
+      'id':
+          'https://fonix.invalid/schemas/'
+          'cpu-benchmark-target-fragment-v2.json',
+      'path': 'templates/ci/cpu_benchmark_target_fragment_v2.schema.json',
+      'sizeBytes': schemaBytes.length,
+      'sha256': cpuBenchmarkTargetFragmentSchemaSha256,
+    });
+  });
+
+  test('rejects invalid launch identity before loading assets', () async {
+    for (final String challenge in <String>[
+      '',
+      _challenge.substring(1),
+      '${_challenge}0',
+      _challenge.toUpperCase(),
+      List<String>.filled(64, 'g').join(),
+      ' $_challenge',
+      '$_challenge\n',
+      '$_challenge\r',
+      '${_challenge.substring(1)}\n',
+      '${_challenge.substring(1)}\r',
+    ]) {
+      var factoryCalls = 0;
+      await expectLater(
+        runDesktopCpuBenchmark(
+          launchChallenge: challenge,
+          processId: _processId,
+          assets: _ForbiddenAssetBundle(),
+          createProbe: (CpuBenchmarkAssets _) {
+            factoryCalls += 1;
+            throw StateError('A probe must not be constructed.');
+          },
+        ),
+        throwsA(
+          isA<CpuBenchmarkFailure>().having(
+            (CpuBenchmarkFailure value) => value.summary,
+            'summary',
+            contains('challenge'),
+          ),
+        ),
+      );
+      expect(factoryCalls, 0);
+    }
+    for (final int invalidProcessId in <int>[0, -1, 0x80000000]) {
+      var factoryCalls = 0;
+      await expectLater(
+        runDesktopCpuBenchmark(
+          launchChallenge: _challenge,
+          processId: invalidProcessId,
+          assets: _ForbiddenAssetBundle(),
+          createProbe: (CpuBenchmarkAssets _) {
+            factoryCalls += 1;
+            throw StateError('A probe must not be constructed.');
+          },
+        ),
+        throwsA(
+          isA<CpuBenchmarkFailure>().having(
+            (CpuBenchmarkFailure value) => value.summary,
+            'summary',
+            contains('process identity'),
+          ),
+        ),
+      );
+      expect(factoryCalls, 0);
+    }
+  });
+
   test(
     'emits one bounded fragment after fixed stabilization and windows',
     () async {
       final _FakeClock clock = _FakeClock();
       late _FakeProbe probe;
       final CpuBenchmarkFragment fragment = await runDesktopCpuBenchmark(
+        launchChallenge: _challenge,
+        processId: _processId,
         assets: _MemoryAssetBundle(fixtureAssets),
         createProbe: (CpuBenchmarkAssets assets) {
           expect(assets.model, hasLength(cpuBenchmarkModelBytes));
@@ -116,11 +301,15 @@ void main() {
         'schemaVersion',
         'result',
         'purpose',
+        'protocol',
+        'launchChallenge',
+        'processId',
         'freshProcessRequired',
         'executionSurface',
         'model',
         'runtime',
         'session',
+        'timing',
         'stabilization',
         'measurements',
         'providerAssignment',
@@ -128,13 +317,76 @@ void main() {
         'lifecycle',
         'claimBoundary',
       ]);
+      expect(value['schemaVersion'], 2);
       expect(value['purpose'], 'measurement-only-target-fragment');
+      expect(value['protocol'], <String, Object?>{
+        'id': cpuBenchmarkProtocolId,
+        'version': cpuBenchmarkProtocolVersion,
+        'descriptorSha256': cpuBenchmarkProtocolDescriptorSha256,
+        'targetFragmentSchemaSha256': cpuBenchmarkTargetFragmentSchemaSha256,
+      });
+      expect(value['launchChallenge'], _challenge);
+      expect(value['processId'], _processId);
       expect(value['freshProcessRequired'], isTrue);
       expect(value['executionSurface'], 'synchronous-public-api');
+
+      final Map<String, Object?> model =
+          value['model']! as Map<String, Object?>;
+      expect(model['metadataSha256'], cpuBenchmarkMetadataSha256);
+      expect(model['metadataSizeBytes'], cpuBenchmarkMetadataBytes);
+      expect(model['generatorId'], cpuBenchmarkGeneratorId);
+      expect(model['generatorSha256'], cpuBenchmarkGeneratorSha256);
+      expect(model['generatorSizeBytes'], cpuBenchmarkGeneratorBytes);
+      expect(model['referencePolicy'], <String, Object?>{
+        'comparison': 'exact-ieee754-binary32-bits',
+        'absoluteTolerance': 0,
+        'relativeTolerance': 0,
+        'nanPolicy': 'forbid',
+        'infinityPolicy': 'forbid',
+      });
+      final Map<String, Object?> runtime =
+          value['runtime']! as Map<String, Object?>;
+      expect(runtime['runtimeLibraryIdentity'], 'onnxruntime.1');
+      expect(runtime['shimNativeIdentity'], 'fonix_shim');
+      expect(value['timing'], <String, Object?>{
+        'durationUnit': 'microseconds',
+        'clockScope': 'process-local-monotonic-stopwatch',
+        'runtimeLoadScope': 'ort-runtime-open',
+        'sessionCreateScope': 'verified-model-bytes-to-session',
+        'dataPreparationScope': 'dart-float32-to-native-tensor-copy',
+        'inferenceScope': 'synchronous-session-run-only',
+        'outputMaterializationScope': 'native-output-to-dart-float32-copy-only',
+        'throughputWindowTargetMicroseconds': 1000000,
+        'throughputWindowStopRule':
+            'complete-runs-until-monotonic-elapsed-gte-target',
+        'assignmentScope': 'separate-profiled-session-after-all-timing',
+      });
 
       final Map<String, Object?> stabilization =
           value['stabilization']! as Map<String, Object?>;
       expect(stabilization['actualRuns'], 20);
+      expect(stabilization['inferenceMicroseconds'], <int>[
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+      ]);
       expect(stabilization['batchMedianMicroseconds'], <int>[
         1000,
         1000,
@@ -187,6 +439,8 @@ void main() {
 
       await expectLater(
         runDesktopCpuBenchmark(
+          launchChallenge: _challenge,
+          processId: _processId,
           assets: _MemoryAssetBundle(tampered),
           createProbe: (CpuBenchmarkAssets _) {
             factoryCalls += 1;
@@ -204,6 +458,8 @@ void main() {
     late _FakeProbe probe;
     await expectLater(
       runDesktopCpuBenchmark(
+        launchChallenge: _challenge,
+        processId: _processId,
         assets: _MemoryAssetBundle(fixtureAssets),
         createProbe: (CpuBenchmarkAssets _) =>
             probe = _FakeProbe(onRun: clock.advance, neverStabilizes: true),
@@ -227,6 +483,8 @@ void main() {
     late _FakeProbe probe;
     await expectLater(
       runDesktopCpuBenchmark(
+        launchChallenge: _challenge,
+        processId: _processId,
         assets: _MemoryAssetBundle(fixtureAssets),
         createProbe: (CpuBenchmarkAssets _) =>
             probe = _FakeProbe(onRun: () {}, failRun: true),
@@ -250,6 +508,12 @@ final class _MemoryAssetBundle extends CachingAssetBundle {
     if (value == null) throw StateError('Unexpected test asset key.');
     return ByteData.sublistView(value);
   }
+}
+
+final class _ForbiddenAssetBundle extends CachingAssetBundle {
+  @override
+  Future<ByteData> load(String key) =>
+      throw StateError('Launch validation must precede asset loading.');
 }
 
 final class _FakeClock {
@@ -280,6 +544,7 @@ final class _FakeProbe implements CpuBenchmarkProbe {
   CpuBenchmarkTargetIdentity get identity => CpuBenchmarkTargetIdentity(
     packageVersion: '0.1.0-dev.1',
     runtimeVersion: '1.27.1',
+    runtimeLibraryIdentity: 'onnxruntime.1',
     runtimeSource: 'bundled',
     runtimeOwner: 'wrapper',
     artifactFlavor: 'default',
@@ -288,6 +553,7 @@ final class _FakeProbe implements CpuBenchmarkProbe {
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     platform: 'macos',
     architecture: 'arm64',
+    shimNativeIdentity: 'fonix_shim',
     shimAbi: 1,
     shimBuildId: 'fonix-test',
     requiredOrtApi: 27,

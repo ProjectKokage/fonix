@@ -8,7 +8,7 @@
 
 The declared development API and locally controllable package boundary pass
 the completed validation recorded below. The current shared reference source
-passes 78/78 application tests and analysis. The separately frozen,
+passes 81/81 application tests and analysis. The separately frozen,
 manifest-bound iOS gate source epoch passed its historical 72/72 application
 tests, including 25/25 reference-smoke tests and 5/5 iOS project-contract
 tests, and its linked simulator application passed two consecutive Debug
@@ -130,11 +130,21 @@ synchronous API. A fresh macOS arm64 Release build passed the current path with
 asset rehashing, bounded stabilization, 100 warm samples, three one-second
 throughput windows, exact finite float32 bit checks after every run, strict
 one-node CPU assignment outside timing, eight total-process RSS samples,
-double disposal, and temporary-profile deletion. Its emitted fragment remains
-measurement-only. Repeated controlled collection, a versioned protocol-bound
-host receipt, reviewed baselines, and thresholds remain open; this checkpoint
-contains no baseline policy, approved threshold, performance claim, provider
-qualification, or release approval.
+double disposal, and temporary-profile deletion.
+
+The follow-up protocol-v2 collector launches exactly five fresh challenge- and
+PID-bound processes, retains every raw target fragment plus one raw host
+sidecar, observes one canonical application tree unchanged around the launches,
+and derives a collection-schema-2 record. A separate offline validator reopens
+that exact seven-file bundle and independently rederives the collection before
+emitting a schema-1 `offline-consistency-only` validation record. A fresh
+macOS arm64 Release collection and replay passed on this host; its comparability
+status is `incomplete`, as required by the current production observer's
+unavailable power/thermal fields. The raw fragments are not independently
+authenticated, supplied native members are packaged inputs rather than exact
+loaded-byte proof, repository evidence is not compiled provenance, and neither
+record is a baseline, approved threshold, performance claim, provider
+qualification, platform support decision, or release approval.
 
 ## Implemented boundary
 
@@ -221,10 +231,10 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 681/681 passed after regenerating the closed source manifest |
+| Python CI-script tests | 766/766 passed after regenerating the closed source manifest |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `38b298fcb36e6f0eb5390485f15db6f1bb7c9b8acdb372ad1e3f83cd4878652f` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Scoped candidate approval validator | 26/26 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, hostile Git environment isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 681-test Python suite |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 756-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -252,8 +262,9 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 72/72 app tests and analysis, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Current shared public-API reference source | 78/78 app tests and analysis passed in a clean external copy |
-| Current macOS arm64 CPU measurement path | Fresh 66.6 MB Release application passed: 25-run stabilization, 100 warm samples, three one-second windows, exact-bit outputs, full CPU assignment, eight RSS phases, and settled lifecycle; one development-host run only |
+| Current shared public-API reference source | 81/81 app tests and analysis passed in a clean external copy |
+| CPU collection-v2 and offline-replay tooling | 102/102 focused tests passed: 19 bounded-process, 21 derivation/core, 35 collector, and 27 independent-validator tests, including the closed platform-stderr contract, spaced packaged basenames, tamper, replay, alias, mutation, collision, retained-inode, parent relocation, partial-publication, and durability failures |
+| Current macOS arm64 CPU measurement path | Fresh Release application passed five challenge/PID-bound processes, exact seven-file raw publication, collection-schema-2 derivation, and independent schema-1 offline replay; comparability is `incomplete`, so this remains development-host measurement evidence rather than a baseline |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |
 | Source-final sherpa-owned Android arm64 package and 4 KiB/16 KiB target gates | 50 staged Flutter tests, analysis, locked offline resolution, exact eight-asset audit, R8 Release APK/base-only-AAB build, hosted-package/native-input guards, and closed package-pair audit passed; trusted `dart-first` and `sherpa-first` captures passed on the exact API 35 arm64-v8a/4096-byte and 16384-byte emulators, with verified uninstall after every run; the four-record compatibility manifest was generated |
 | Closed source checksum manifest | The current API/ABI checkpoint reproduces exactly after regeneration. Historical Android records retain their commit-bound manifest; the iOS gate passed with frozen manifest SHA-256 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a` and source-tree SHA-256 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2` |

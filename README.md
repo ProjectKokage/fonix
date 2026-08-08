@@ -33,7 +33,8 @@ matrix, including the deferred Windows target-host lane.
   node assignment.
 - Deterministic build hooks, a hash-pinned native lockfile, final-package
   auditors, Android single-ORT ownership tooling, and reproducible release-
-  evidence generators, plus a bounded public-API CPU measurement path.
+  evidence generators, plus a bounded public-API CPU target protocol, five-
+  launch raw collection, and independent offline replay validator.
 
 Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
 GenAI, and Web/WASM are outside the current API.
@@ -356,10 +357,18 @@ and an externally controlled bundle conforming to
 The repository contains the fail-closed validator but no approved bundle or
 publication authority. Local development can proceed in parallel with
 lifecycle/performance stabilization for those exact macOS, iOS-device, Linux,
-and Android-without-QNN candidates. The reference app now has a bounded,
-measurement-only macOS/Linux CPU target fragment over a reproducible
-static-weight MatMul; repeated controlled launches, formal receipts, reviewed
-thresholds, and non-macOS target evidence remain open. Android
+and Android-without-QNN candidates. These are four selected OS target rows and
+five CPU compositions: macOS arm64 bundled, iOS arm64 linked device, Linux
+x86_64 bundled, and Android arm64 application-owned bundled plus sherpa-owned
+process mode. The reference app now has a bounded, measurement-only
+macOS/Linux CPU target protocol over a reproducible static-weight MatMul. Its
+host collector records five challenge-bound fresh processes, preserves the raw
+target fragments and host observations, and derives a collection-v2 record;
+the separate offline validator independently reopens that raw bundle and emits
+only a schema-1 `offline-consistency-only` validation record. This capability
+does not create a controlled baseline, reviewed threshold, provider
+qualification, support promotion, release approval, or non-macOS target
+evidence. Android
 QNN/aligned-runtime device qualification and all Windows target-host,
 provider, final-app/package, installer, and clean-machine work are deferred
 until their required SDK/hardware or Windows environment exists. Their
