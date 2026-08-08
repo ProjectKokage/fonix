@@ -1113,7 +1113,7 @@
         "returnType": "dort_status_t *"
       }
     ],
-    "nativeCTestCMakeSha256": "3991d3da1a5dd2d4ac975abf5b6ae707a4186084de9ddfdb78097c74a4002b0a",
+    "nativeCTestCMakeSha256": "d8aa2e85666319f7684df19aede7911a8e828d86d285030b6bdec4b2440ca02a",
     "opaqueTypes": [
       {
         "alias": "dort_status_t",
@@ -1518,6 +1518,6 @@
     ],
     "windowsLibrary": "fonix_shim"
   },
-  "contractSha256": "0f4004e44fa83c751502ae41bced844799625773505dbb48275067dfd1800464",
+  "contractSha256": "6916f71dea873d6ec1e0db85e1cd8530edb51c922bef7ddbbf3d60eb54dc64b1",
   "schemaVersion": 1
 }

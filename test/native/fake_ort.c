@@ -1,7 +1,9 @@
 #include <onnxruntime_c_api.h>
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #if FONIX_FAKE_ORT_BEHAVIOR != 1 && FONIX_FAKE_ORT_BEHAVIOR != 2 && \
     FONIX_FAKE_ORT_BEHAVIOR != 3 && FONIX_FAKE_ORT_BEHAVIOR != 4
@@ -55,18 +57,36 @@ static void ORT_API_CALL fake_release_status(OrtStatus* status) NO_EXCEPTION {
 
 typedef struct fake_run_options {
   uint32_t terminated;
+  char* profile_prefix;
 } fake_run_options_t;
+
+static size_t fake_run_options_owner_count = 0u;
 
 static OrtStatus* ORT_API_CALL fake_create_run_options(
     OrtRunOptions** out) NO_EXCEPTION {
-  if (out != NULL) {
-    *out = (OrtRunOptions*)calloc(1u, sizeof(fake_run_options_t));
+  if (out == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  *out = NULL;
+  if (getenv("FONIX_TEST_REQUIRE_RUN_OPTIONS_CLEANUP") != NULL &&
+      fake_run_options_owner_count != 0u) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  *out = (OrtRunOptions*)calloc(1u, sizeof(fake_run_options_t));
+  if (*out != NULL) {
+    ++fake_run_options_owner_count;
   }
   return NULL;
 }
 
 static void ORT_API_CALL fake_release_run_options(
     OrtRunOptions* options) NO_EXCEPTION {
+  if (options != NULL) {
+    free(((fake_run_options_t*)options)->profile_prefix);
+    if (fake_run_options_owner_count > 0u) {
+      --fake_run_options_owner_count;
+    }
+  }
   free(options);
 }
 
@@ -83,6 +103,55 @@ static OrtStatus* ORT_API_CALL fake_run_options_unset_terminate(
   if (options != NULL) {
     ((fake_run_options_t*)options)->terminated = 0u;
   }
+  return NULL;
+}
+
+static OrtStatus* ORT_API_CALL fake_run_options_enable_profiling(
+    OrtRunOptions* options,
+    const ORTCHAR_T* profile_file_prefix) NO_EXCEPTION {
+  fake_run_options_t* fake = (fake_run_options_t*)options;
+  size_t length = 0u;
+  if (fake == NULL || profile_file_prefix == NULL ||
+      fake->profile_prefix != NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  length = strlen(profile_file_prefix);
+  fake->profile_prefix = (char*)malloc(length + 1u);
+  if (fake->profile_prefix == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  memcpy(fake->profile_prefix, profile_file_prefix, length + 1u);
+  return NULL;
+}
+
+static OrtStatus* ORT_API_CALL fake_run_options_disable_profiling(
+    OrtRunOptions* options) NO_EXCEPTION {
+  fake_run_options_t* fake = (fake_run_options_t*)options;
+  char path[4096];
+  FILE* output = NULL;
+  int written = 0;
+  if (fake == NULL || fake->profile_prefix == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  written = snprintf(path, sizeof(path),
+                     "%s_2026-08-06_17-09-03_125.json",
+                     fake->profile_prefix);
+  if (written <= 0 || (size_t)written >= sizeof(path)) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  output = fopen(path, "wb");
+  if (output == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  if (fwrite("[]", 1u, 2u, output) != 2u) {
+    (void)fclose(output);
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  if (fclose(output) != 0) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  free(fake->profile_prefix);
+  fake->profile_prefix = NULL;
   return NULL;
 }
 
@@ -194,6 +263,8 @@ static const OrtApi FONIX_FAKE_API = {
     .ReleaseRunOptions = fake_release_run_options,
     .RunOptionsSetTerminate = fake_run_options_set_terminate,
     .RunOptionsUnsetTerminate = fake_run_options_unset_terminate,
+    .RunOptionsEnableProfiling = fake_run_options_enable_profiling,
+    .RunOptionsDisableProfiling = fake_run_options_disable_profiling,
     .Run = fake_run,
     .ReleaseValue = fake_release_value,
     .GetAvailableProviders = fake_get_available_providers,

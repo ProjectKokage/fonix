@@ -148,19 +148,43 @@ RSS, or platform support; the same focused run separately exercised the strict
 fake cancellation registry
 and lock-pinned exact ORT 1.27.1 worker.
 
-The native-allocation checkpoint routes every shim-owned heap and aligned
-allocation through an internal seam whose fail-Nth activation exists only in
-the POSIX test build. It deterministically injected 29 success-path failures:
-one build-manifest string, five runtime-open, five provider-discovery, one
-session-options, fourteen session-construction/metadata, and three aligned
-tensor-creation allocations. Each failure left its public output neutral,
-returned the allocation-domain or static emergency status, and permitted an
-immediate clean retry. The metadata fake made every retry conditional on prior
+The native-allocation checkpoint routes wrapper-requested heap, aligned, and
+returned canonical-path owners through an internal seam whose fail-Nth
+activation exists only in the POSIX test build. It deterministically injected
+63 success-path failures: one build-manifest, eight runtime-open/
+canonicalization, five provider-discovery, one run-options, five complete
+profiling-cycle, one session-options, fourteen session-construction/metadata,
+twenty-two two-entry external-data session, three tensor-creation, and three
+two-child sequence/composite allocations. Each failure left its public output
+neutral, returned the allocation-domain or static emergency status, and
+permitted an immediate clean retry. Fake owner guards made run-options,
+external-initializer, metadata, and composite retries conditional on prior
 partial-owner release. A separate fake ORT `Run` returned one owned output with
 an error; the shim released it exactly once, preserved the ORT-domain run
-failure, then completed and disposed a successful recovery run. The 14-test
-source POSIX suite and its Address/UndefinedBehavior variant both passed on
-this host; Apple LeakSanitizer remains unavailable.
+failure, then completed and disposed a successful recovery run.
+
+The same POSIX suite rejected a renamed-and-replaced private profiling
+directory without reading forged bytes or touching the replacement, withheld
+output on permission loss and an unexpected nonempty child, gave cleanup
+failure status precedence, retained the exact owner while blocking reuse, and
+retired it after an explicit repair-and-finish retry. A synchronized retry
+window continued rejecting concurrent native Run, and an injected private-child
+descriptor failure under `umask(0700)` left the application root empty; a
+successful cycle under that umask repaired the private child to exact `0700`.
+The root check rejected a final symlink even with a trailing separator. An
+exact-name FIFO was rejected without blocking or publishing bytes and was
+retired completely. Exact filename, descriptor, device/inode, link-count,
+regular-file type, size, bounded-read, and checked cleanup conditions precede
+evidence publication. The 14-test source POSIX suite and its
+Address/UndefinedBehavior and ThreadSanitizer variants passed on this host;
+Apple LeakSanitizer remains unavailable.
+
+The provisioned 16-test native suite used the exact locked macOS arm64 ORT
+1.27.1 and now includes a real CPU run-options profile cycle. It accepted the
+runtime's exact `profile_YYYY-MM-DD_HH-MM-SS_mmm.json` basename, returned a
+non-empty JSON event array from the deliberately poisoned output, and left its
+private artifact root empty. This is exact-host native evidence, not a Windows,
+Linux, Android, or iOS target-host claim.
 
 The CPU measurement checkpoint adds a reproducible 4.29-GFLOP float32 MatMul
 fixture and an exact opt-in macOS/Linux final-application path over the public
@@ -264,9 +288,9 @@ paths.
 | Ordinary offline Dart suite | 260 passed, 18 explicitly provisioned skips on exact Dart 3.11.5 |
 | Provisioned Dart suite | 298 passed, 8 explicitly provisioned skips with the freshly built shim, strict fake runtimes, and exact ORT 1.27.1 supplied |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
-| Native C ABI baseline | 16/16 focused tests and the 14/14 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `0f4004e44fa83c751502ae41bced844799625773505dbb48275067dfd1800464` and canonical file SHA-256 `98ec753a1180bd22367374b1edb4b268589f9dc28c1c08f9b549be23ae500023` |
+| Native C ABI baseline | 16/16 focused tests and the 14/14 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `6916f71dea873d6ec1e0db85e1cd8530edb51c922bef7ddbbf3d60eb54dc64b1` and canonical file SHA-256 `6e8083359626e4d5b6760bdaa0838598333b78185e34cab68ff74c2fb0328895` |
 | Worker lifecycle and strict JSON with strict fake and exact ORT | 55/55 focused tests passed, including eight unique bounded composed lifecycle traces, positive-int64 request-ID exhaustion, ordered fatal exit, acknowledged startup retirement, exact empty-container depth, and 4,096 deterministic mutations |
-| Shim allocation and partial-output fault injection | 29/29 representative success-path allocation points plus the emergency-status allocation passed with neutral outputs and clean retry; ORT error-plus-owned-output cleanup released exactly once and recovered on the next successful run |
+| Shim allocation and partial-output fault injection | 63/63 representative success-path allocation points plus the emergency-status allocation passed with neutral outputs, partial-owner release, and clean retry; ORT error-plus-owned-output cleanup released exactly once and recovered on the next successful run; POSIX profile replacement, restrictive-umask, nonregular-file, and cleanup failures published no bytes and retained or retired ownership as required |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |

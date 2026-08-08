@@ -488,8 +488,13 @@ DORT_API dort_status_t* DORT_CALL dort_run_options_unset_terminate(
 /*
  * Enables one bounded run profile inside an existing app-owned artifact root.
  * finish disables profiling, copies exactly one regular profile file, and
- * removes the temporary native artifacts before returning. It must be called
- * after the associated run returns, including when that run failed.
+ * publishes it only after the temporary native artifacts are removed. On
+ * POSIX, the root must be an existing absolute non-/, non-symlink directory
+ * owned by the effective user, with owner read/write/search permission and no
+ * group/other write permission. A failed POSIX retirement publishes no bytes,
+ * blocks reuse, and may be retried with finish after the owned root is
+ * repaired. finish must be called after the associated run returns, including
+ * when that run failed.
  */
 DORT_API dort_status_t* DORT_CALL dort_run_options_profiling_start(
     dort_run_options_t* options,

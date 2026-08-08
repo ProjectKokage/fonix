@@ -1,10 +1,18 @@
 #if !defined(_WIN32)
-#define _POSIX_C_SOURCE 200112L
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE 1
+#else
+#define _GNU_SOURCE 1
+#endif
+#define _POSIX_C_SOURCE 200809L
 #endif
 
 #include "dort_internal.h"
 
 #include <errno.h>
+#if !defined(_WIN32)
+#include <limits.h>
+#endif
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -110,3 +118,27 @@ void dort_memory_aligned_free(void* pointer) {
   free(pointer);
 #endif
 }
+
+#if !defined(_WIN32)
+char* dort_memory_realpath(const char* path) {
+  size_t capacity = (size_t)PATH_MAX;
+  char* resolved = NULL;
+  int error_number = 0;
+  if (capacity < (size_t)DORT_MAX_PATH_BYTES + 1u) {
+    capacity = (size_t)DORT_MAX_PATH_BYTES + 1u;
+  }
+  resolved = (char*)dort_memory_allocate(capacity);
+  if (resolved == NULL) {
+    errno = ENOMEM;
+    return NULL;
+  }
+  errno = 0;
+  if (realpath(path, resolved) == NULL) {
+    error_number = errno;
+    free(resolved);
+    errno = error_number;
+    return NULL;
+  }
+  return resolved;
+}
+#endif

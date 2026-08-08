@@ -158,7 +158,12 @@ profiling, optimized-model output, a CoreML cache, `requireActive`/
 provider. Fonix
 enables ORT 1.25+ profiling on the run options, validates and removes the one
 bounded native profile, enforces policy, and only then constructs the public
-run result. `OrtRunResult.providerEvidence` and
+run result. On POSIX, a profiling `artifactRoot` must be an existing absolute
+non-`/`, non-symlink directory owned by the effective user, with owner
+read/write/search permission and no group/world write permission. Profile
+evidence remains neutral until the exact private child and its artifacts have
+been retired; an incomplete retirement blocks run-options reuse and can be
+retried after the application repairs its owned root. `OrtRunResult.providerEvidence` and
 `OrtRunResult.providerDiagnostics` are immutable receipts for that exact run;
 session-level diagnostics never infer node assignment from successful session
 creation. Worker-isolate results carry the same copied receipts. Worker

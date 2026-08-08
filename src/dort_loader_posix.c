@@ -44,9 +44,17 @@ static dort_status_t* dort_resolve_file_path(
         "runtime_open",
         "The runtime library path must be absolute.");
   }
-  canonical_path = realpath(path, NULL);
+  canonical_path = dort_memory_realpath(path);
   if (canonical_path == NULL) {
     error_number = errno;
+    if (error_number == ENOMEM) {
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "runtime_open",
+          "Could not allocate the canonical runtime library path.");
+    }
     return dort_status_createf(
         DORT_ERROR_DOMAIN_LOADER,
         DORT_ERROR_RUNTIME_NOT_FOUND,
@@ -77,10 +85,18 @@ static dort_status_t* dort_resolve_file_path(
           "runtime_open",
           "The allowed runtime root must be absolute.");
     }
-    canonical_root = realpath(allowed_root, NULL);
+    canonical_root = dort_memory_realpath(allowed_root);
     if (canonical_root == NULL) {
       error_number = errno;
       free(canonical_path);
+      if (error_number == ENOMEM) {
+        return dort_status_create(
+            DORT_ERROR_DOMAIN_ALLOCATION,
+            DORT_ERROR_ALLOCATION_FAILED,
+            0,
+            "runtime_open",
+            "Could not allocate the canonical allowed runtime root.");
+      }
       return dort_status_createf(
           DORT_ERROR_DOMAIN_LOADER,
           DORT_ERROR_RUNTIME_NOT_FOUND,
@@ -154,7 +170,15 @@ static dort_status_t* dort_assign_symbol(
 
   memset(&symbol_info, 0, sizeof(symbol_info));
   if (dladdr(symbol, &symbol_info) != 0 && symbol_info.dli_fname != NULL) {
-    canonical_symbol_path = realpath(symbol_info.dli_fname, NULL);
+    canonical_symbol_path = dort_memory_realpath(symbol_info.dli_fname);
+    if (canonical_symbol_path == NULL && errno == ENOMEM) {
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "runtime_open",
+          "Could not allocate the canonical loaded runtime identity.");
+    }
     identity = canonical_symbol_path == NULL ? symbol_info.dli_fname
                                              : canonical_symbol_path;
   }
@@ -524,8 +548,16 @@ static dort_status_t* dort_open_bundled(
 #if defined(__ANDROID__) || defined(FONIX_TEST_ANDROID_BUNDLED_LOADER)
   return dort_open_android_bundled(shim_info.dli_fname, out_library);
 #else
-  shim_path = realpath(shim_info.dli_fname, NULL);
+  shim_path = dort_memory_realpath(shim_info.dli_fname);
   if (shim_path == NULL) {
+    if (errno == ENOMEM) {
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "runtime_open",
+          "Could not allocate the canonical bundled Fonix shim path.");
+    }
     return dort_status_create(
         DORT_ERROR_DOMAIN_LOADER,
         DORT_ERROR_RUNTIME_NOT_FOUND,
@@ -660,7 +692,12 @@ static dort_status_t* dort_open_process(
     symbol = dlsym(handle, "OrtGetApiBase");
     loader_error = dlerror();
     if (loader_error == NULL && symbol != NULL) {
-      return dort_assign_symbol(handle, symbol, name, 1, out_library);
+      dort_status_t* status =
+          dort_assign_symbol(handle, symbol, name, 1, out_library);
+      if (status != NULL) {
+        dlclose(handle);
+      }
+      return status;
     }
     dlclose(handle);
   }

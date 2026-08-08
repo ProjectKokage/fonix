@@ -109,6 +109,9 @@ Provider configuration is ordered. CPU, when explicit, must be last. Use
 `OrtProviderRequirement.requireFullAssignment` when a run must prove
 assignment. Non-CPU reporting and strict fallback policies require an existing
 absolute `artifactRoot`, where Fonix creates a private per-run profiling area.
+On POSIX, that root must be a non-`/`, non-symlink directory owned by the
+effective user, with owner read/write/search permission and no group/world
+write permission.
 
 ```dart
 final options = OrtSessionOptions(

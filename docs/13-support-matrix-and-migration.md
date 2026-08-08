@@ -206,7 +206,11 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
    SHA-256 and an existing private absolute artifact root.
 5. Supply `artifactRoot` whenever non-CPU provider reporting, assignment proof,
    explicit profiling, optimized-model output, or CoreML caching requires
-   native output artifacts.
+   native output artifacts. On POSIX, profiling additionally requires an
+   existing absolute non-`/`, non-symlink root owned by the effective user,
+   with owner read/write/search permission and no group/world write permission.
+   Repair that owned root and retry finish if checked retirement fails; no
+   evidence is published before cleanup completes.
 6. Treat `registered` and `discoverable` provider diagnostics as creation facts.
    Read `OrtRunResult.providerEvidence` for active/full-assignment claims.
 7. Replace preview `OrtProviderPolicy` values with the ordered

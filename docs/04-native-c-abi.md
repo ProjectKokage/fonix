@@ -344,16 +344,34 @@ Any ring buffer must avoid unbounded allocation and redact tensor data.
 For strict per-run evidence, `dort_run_options_profiling_start` creates one
 private child directory under an existing caller-owned artifact root and calls
 ORT 1.25+ `RunOptionsEnableProfiling` with a shim-owned prefix.
+On POSIX, the root is retained by descriptor and device/inode identity and must
+be an existing absolute non-`/`, non-symlink directory owned by the effective
+user, with owner read/write/search permission and no group/world write
+permission. The child uses a CSPRNG-derived 128-bit leaf, mode `0700`, and its
+own retained descriptor and device/inode identity.
 `dort_run_options_profiling_finish` disables profiling, accepts exactly one
 non-empty regular non-link profile up to 8 MiB, copies it into an owned
-`dort_string_t`, and removes the temporary file/directory after profiling has
-been authoritatively disabled. A failed finish publishes no bytes. If native
-disable itself fails, the shim retains the private directory and profiling
-state, rejects reuse of those run options before another native `Run`, and
-allows an explicit finish retry. Final disposal releases the native run-options
-owner before removing the retained directory, so a late native artifact cannot
-be recreated after cleanup. The run-options retain used by synchronous
-Run/cancellation prevents cleanup before Run returns.
+`dort_string_t`, accepts the pinned ORT basename shape
+`profile_YYYY-MM-DD_HH-MM-SS_mmm.json`, rechecks the file identity and size
+after its bounded read, and publishes bytes only after cleanup succeeds.
+
+On POSIX, cleanup is bounded, non-recursive, and descriptor-relative. Identity
+replacement, permission drift, unexpected nonempty children, incomplete
+enumeration, or any checked cleanup failure takes precedence and publishes no
+bytes. The retained POSIX owner blocks run-options reuse and permits an
+explicit finish retry after the caller repairs its owned root. A replacement
+observed before cleanup is left untouched while the retained original is
+scrubbed through its descriptor. POSIX cannot remove a directory by
+descriptor, so concurrent namespace mutation by other code running as the same
+effective user is outside this isolation boundary. Windows retains its bounded
+recursive cleanup contract and does not retain failed cleanup for retry.
+
+If native disable itself fails, the shim likewise retains the private
+directory and profiling state for retry. Final disposal releases the native
+run-options owner before best-effort retirement (descriptor-relative on
+POSIX), so a late native artifact cannot be recreated after cleanup. The
+run-options retain used by synchronous Run/cancellation prevents cleanup before
+Run returns.
 
 ## 4.13 Symbol visibility
 

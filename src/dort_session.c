@@ -1390,8 +1390,24 @@ windows_artifact_cleanup:
           "session_options_create",
           "Session artifact paths and roots must be absolute.");
     }
-    canonical_root = realpath(root, NULL);
-    if (canonical_root == NULL || stat(canonical_root, &root_stat) != 0 ||
+    canonical_root = dort_memory_realpath(root);
+    if (canonical_root == NULL) {
+      if (errno == ENOMEM) {
+        return dort_status_create(
+            DORT_ERROR_DOMAIN_ALLOCATION,
+            DORT_ERROR_ALLOCATION_FAILED,
+            0,
+            "session_options_create",
+            "Could not allocate the canonical session artifact root.");
+      }
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM,
+          DORT_ERROR_INVALID_ARGUMENT,
+          0,
+          "session_options_create",
+          "The session artifact root does not identify an existing directory.");
+    }
+    if (stat(canonical_root, &root_stat) != 0 ||
         !S_ISDIR(root_stat.st_mode)) {
       free(canonical_root);
       return dort_status_create(
@@ -1401,7 +1417,16 @@ windows_artifact_cleanup:
           "session_options_create",
           "The session artifact root does not identify an existing directory.");
     }
-    canonical_existing = realpath(path, NULL);
+    canonical_existing = dort_memory_realpath(path);
+    if (canonical_existing == NULL && errno == ENOMEM) {
+      free(canonical_root);
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "session_options_create",
+          "Could not allocate a canonical existing session artifact path.");
+    }
     if (canonical_existing != NULL) {
       if (!dort_path_is_within(canonical_existing, canonical_root)) {
         free(canonical_existing);
@@ -1439,7 +1464,16 @@ windows_artifact_cleanup:
       return NULL;
     }
     path_copy = dort_copy_c_string(path, strlen(path));
-    slash = path_copy == NULL ? NULL : strrchr(path_copy, '/');
+    if (path_copy == NULL) {
+      free(canonical_root);
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "session_options_create",
+          "Could not copy the session artifact destination path.");
+    }
+    slash = strrchr(path_copy, '/');
     if (slash == NULL || slash[1] == '\0' || strcmp(slash + 1, ".") == 0 ||
         strcmp(slash + 1, "..") == 0) {
       free(path_copy);
@@ -1467,7 +1501,18 @@ windows_artifact_cleanup:
     } else {
       *slash = '\0';
     }
-    canonical_parent = realpath(path_copy, NULL);
+    canonical_parent = dort_memory_realpath(path_copy);
+    if (canonical_parent == NULL && errno == ENOMEM) {
+      free(path_copy);
+      free(leaf_copy);
+      free(canonical_root);
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "session_options_create",
+          "Could not allocate the canonical session artifact parent.");
+    }
     if (canonical_parent == NULL ||
         !dort_path_is_within(canonical_parent, canonical_root)) {
       free(path_copy);
@@ -1587,7 +1632,15 @@ static dort_status_t* dort_prepare_coreml_cache_directory(
           "session_options_create",
           "The Core ML cache root must be an existing non-symlink directory.");
     }
-    canonical_root = realpath(root, NULL);
+    canonical_root = dort_memory_realpath(root);
+    if (canonical_root == NULL && errno == ENOMEM) {
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "session_options_create",
+          "Could not allocate the canonical Core ML cache root.");
+    }
     if (canonical_root == NULL || strncmp(path, root, root_length) != 0 ||
         path[root_length] != '/' ||
         path[root_length + 1u] == '\0' ||
@@ -1677,7 +1730,16 @@ static dort_status_t* dort_prepare_coreml_cache_directory(
           "The scoped Core ML cache destination is not a non-symlink directory.");
       goto coreml_cache_cleanup;
     }
-    canonical_cache = realpath(cache_path, NULL);
+    canonical_cache = dort_memory_realpath(cache_path);
+    if (canonical_cache == NULL && errno == ENOMEM) {
+      status = dort_status_create(
+          DORT_ERROR_DOMAIN_ALLOCATION,
+          DORT_ERROR_ALLOCATION_FAILED,
+          0,
+          "session_options_create",
+          "Could not allocate the canonical Core ML cache path.");
+      goto coreml_cache_cleanup;
+    }
     if (canonical_cache == NULL || strcmp(canonical_cache, cache_path) != 0 ||
         !dort_path_is_within(canonical_cache, canonical_root)) {
       status = dort_status_create(

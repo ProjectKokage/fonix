@@ -26,9 +26,27 @@ typedef struct fake_metadata {
   uint8_t scenario;
 } fake_metadata_t;
 
+typedef struct fake_session_options {
+  uint8_t cloned;
+  uint8_t external_initializers_added;
+} fake_session_options_t;
+
+typedef struct fake_value {
+  uint8_t kind;
+} fake_value_t;
+
+enum {
+  FAKE_VALUE_TENSOR = 1u,
+  FAKE_VALUE_COMPOSITE = 2u,
+};
+
 static size_t fake_metadata_owner_count = 0u;
 static void* fake_tracked_key_allocations[FAKE_MAX_TRACKED_KEY_ALLOCATIONS];
 static size_t fake_key_owner_count = 0u;
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+static size_t fake_cloned_options_count = 0u;
+static size_t fake_composite_owner_count = 0u;
+#endif
 
 static void* fake_allocate_tracked_key(size_t size) {
   void* allocation = NULL;
@@ -94,14 +112,60 @@ static void ORT_API_CALL fake_release_status(OrtStatus* status) NO_EXCEPTION {
 
 static OrtStatus* ORT_API_CALL fake_create_session_options(
     OrtSessionOptions** out) NO_EXCEPTION {
-  *out = (OrtSessionOptions*)malloc(1u);
+  *out = (OrtSessionOptions*)calloc(1u, sizeof(fake_session_options_t));
   return NULL;
 }
 
 static void ORT_API_CALL fake_release_session_options(
     OrtSessionOptions* options) NO_EXCEPTION {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  const fake_session_options_t* fake = (const fake_session_options_t*)options;
+  if (fake != NULL && fake->cloned != 0u && fake_cloned_options_count > 0u) {
+    --fake_cloned_options_count;
+  }
+#endif
   free(options);
 }
+
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+static OrtStatus* ORT_API_CALL fake_clone_session_options(
+    const OrtSessionOptions* input,
+    OrtSessionOptions** out) NO_EXCEPTION {
+  fake_session_options_t* clone = NULL;
+  *out = NULL;
+  if (input == NULL || fake_cloned_options_count != 0u) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  clone = (fake_session_options_t*)calloc(1u, sizeof(*clone));
+  if (clone == NULL) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  clone->cloned = 1u;
+  ++fake_cloned_options_count;
+  *out = (OrtSessionOptions*)clone;
+  return NULL;
+}
+
+static OrtStatus* ORT_API_CALL fake_add_external_initializers(
+    OrtSessionOptions* options,
+    const ORTCHAR_T* const* names,
+    char* const* buffers,
+    const size_t* lengths,
+    size_t count) NO_EXCEPTION {
+  fake_session_options_t* fake = (fake_session_options_t*)options;
+  if (fake == NULL || fake->cloned == 0u || names == NULL ||
+      buffers == NULL || lengths == NULL || count != 2u ||
+      names[0] == NULL || names[1] == NULL || buffers[0] == NULL ||
+      buffers[1] == NULL || strcmp(names[0], "a.bin") != 0 ||
+      strcmp(names[1], "nested/b.bin") != 0 || lengths[0] != 2u ||
+      lengths[1] != 3u || memcmp(buffers[0], "ab", 2u) != 0 ||
+      memcmp(buffers[1], "cde", 3u) != 0) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  fake->external_initializers_added = 1u;
+  return NULL;
+}
+#endif
 
 static OrtStatus* ORT_API_CALL fake_set_graph_optimization(
     OrtSessionOptions* options,
@@ -204,8 +268,14 @@ static OrtStatus* ORT_API_CALL fake_create_session_from_array(
     const OrtSessionOptions* options,
     OrtSession** out) NO_EXCEPTION {
   fake_session_t* session = NULL;
+  const fake_session_options_t* fake_options =
+      (const fake_session_options_t*)options;
   (void)environment;
-  (void)options;
+  *out = NULL;
+  if (fake_options != NULL && fake_options->cloned != 0u &&
+      fake_options->external_initializers_added == 0u) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
   session = (fake_session_t*)calloc(1u, sizeof(*session));
   if (session != NULL && model_data != NULL && model_length > 0u) {
     session->scenario = ((const uint8_t*)model_data)[0];
@@ -335,11 +405,24 @@ static OrtStatus* ORT_API_CALL fake_create_tensor_with_data(
   (void)shape;
   (void)shape_length;
   (void)element_type;
-  *out = (OrtValue*)malloc(1u);
+  {
+    fake_value_t* value = (fake_value_t*)calloc(1u, sizeof(*value));
+    if (value != NULL) {
+      value->kind = (uint8_t)FAKE_VALUE_TENSOR;
+    }
+    *out = (OrtValue*)value;
+  }
   return NULL;
 }
 
 static void ORT_API_CALL fake_release_value(OrtValue* value) NO_EXCEPTION {
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+  const fake_value_t* fake = (const fake_value_t*)value;
+  if (fake != NULL && fake->kind == FAKE_VALUE_COMPOSITE &&
+      fake_composite_owner_count > 0u) {
+    --fake_composite_owner_count;
+  }
+#endif
   free(value);
 }
 
@@ -387,7 +470,24 @@ static OrtStatus* ORT_API_CALL fake_create_value(
   (void)values;
   (void)value_count;
   (void)value_type;
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
   *out = NULL;
+  if (values == NULL || value_count != 2u ||
+      value_type != ONNX_TYPE_SEQUENCE || fake_composite_owner_count != 0u) {
+    return (OrtStatus*)(uintptr_t)1u;
+  }
+  {
+    fake_value_t* value = (fake_value_t*)calloc(1u, sizeof(*value));
+    if (value == NULL) {
+      return (OrtStatus*)(uintptr_t)1u;
+    }
+    value->kind = (uint8_t)FAKE_VALUE_COMPOSITE;
+    ++fake_composite_owner_count;
+    *out = (OrtValue*)value;
+  }
+#else
+  *out = NULL;
+#endif
   return NULL;
 }
 
@@ -670,6 +770,9 @@ static const OrtApi fake_api = {
     .ReleaseStatus = fake_release_status,
     .CreateSessionOptions = fake_create_session_options,
     .ReleaseSessionOptions = fake_release_session_options,
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+    .CloneSessionOptions = fake_clone_session_options,
+#endif
     .SetSessionGraphOptimizationLevel = fake_set_graph_optimization,
     .SetSessionExecutionMode = fake_set_execution_mode,
     .SetIntraOpNumThreads = fake_set_threads,
@@ -687,6 +790,9 @@ static const OrtApi fake_api = {
     .SetOptimizedModelFilePath = fake_set_optimized_path,
     .AddSessionConfigEntry = fake_add_config_entry,
     .SessionOptionsAppendExecutionProvider = fake_append_provider,
+#if defined(FONIX_FAKE_ALLOCATION_EXTENSIONS)
+    .AddExternalInitializersFromFilesInMemory = fake_add_external_initializers,
+#endif
     .CreateSessionFromArray = fake_create_session_from_array,
     .ReleaseSession = fake_release_session,
     .SessionGetInputCount = fake_input_count,

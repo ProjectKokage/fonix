@@ -5,12 +5,14 @@
 
 #include "dort_internal.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -56,6 +58,12 @@ typedef struct cancel_thread_context {
   uint32_t completed;
 } cancel_thread_context_t;
 
+typedef struct profile_finish_thread_context {
+  dort_run_options_t* options;
+  dort_status_t* status;
+  dort_string_t output;
+} profile_finish_thread_context_t;
+
 static struct dort_runtime test_runtime = {0x52554e31u};
 static struct dort_session test_session = {0x53455331u};
 static pthread_mutex_t run_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -69,6 +77,15 @@ static uint32_t profile_extra_file = 0u;
 static uint32_t profile_invalid_utf8 = 0u;
 static uint32_t profile_disable_failures = 0u;
 static uint32_t release_saw_profile_directory = 0u;
+static uint32_t profile_replace_directory = 0u;
+static uint32_t profile_create_nonempty_directory = 0u;
+static uint32_t profile_make_root_read_only = 0u;
+static uint32_t profile_replace_with_fifo = 0u;
+static char profile_last_directory[4096];
+static char profile_moved_directory[4096];
+static char profile_forged_file[4096];
+static char profile_blocker_directory[4096];
+static char profile_blocker_file[4096];
 static uint32_t run_call_count = 0u;
 static uint32_t fake_run_mode = 0u;
 static size_t fake_value_owner_count = 0u;
@@ -84,6 +101,80 @@ static uint32_t allow_terminate_unset = 0u;
 static uint32_t terminate_gate_timed_out = 0u;
 static uint32_t terminate_set_failures = 0u;
 static uint32_t terminate_unset_failures = 0u;
+static pthread_mutex_t profile_retry_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t profile_retry_condition = PTHREAD_COND_INITIALIZER;
+static uint32_t block_profile_retry = 0u;
+static uint32_t profile_retry_entered = 0u;
+static uint32_t release_profile_retry = 0u;
+static uint32_t profile_retry_timed_out = 0u;
+static uint32_t profile_fail_directory_open = 0u;
+
+void dort_test_profile_retirement_window(void) {
+  struct timespec deadline;
+  int wait_status = 0;
+  (void)timespec_get(&deadline, TIME_UTC);
+  deadline.tv_sec += 5;
+  (void)pthread_mutex_lock(&profile_retry_lock);
+  if (block_profile_retry != 0u) {
+    profile_retry_entered = 1u;
+    (void)pthread_cond_broadcast(&profile_retry_condition);
+    while (release_profile_retry == 0u && wait_status != ETIMEDOUT) {
+      wait_status = pthread_cond_timedwait(
+          &profile_retry_condition, &profile_retry_lock, &deadline);
+    }
+    if (wait_status == ETIMEDOUT) {
+      profile_retry_timed_out = 1u;
+    }
+  }
+  (void)pthread_mutex_unlock(&profile_retry_lock);
+}
+
+int dort_test_profile_fail_directory_open(void) {
+  if (profile_fail_directory_open == 0u) {
+    return 0;
+  }
+  profile_fail_directory_open = 0u;
+  return 1;
+}
+
+static int directory_is_empty(const char* path) {
+  DIR* stream = opendir(path);
+  struct dirent* entry = NULL;
+  int empty = 1;
+  if (stream == NULL) {
+    return 0;
+  }
+  for (;;) {
+    errno = 0;
+    entry = readdir(stream);
+    if (entry == NULL) {
+      if (errno != 0) {
+        empty = 0;
+      }
+      break;
+    }
+    if (strcmp(entry->d_name, ".") != 0 &&
+        strcmp(entry->d_name, "..") != 0) {
+      empty = 0;
+    }
+  }
+  if (closedir(stream) != 0) {
+    empty = 0;
+  }
+  return empty;
+}
+
+static int write_file_bytes(const char* path, const char* bytes, size_t length) {
+  FILE* output = fopen(path, "wb");
+  if (output == NULL) {
+    return 0;
+  }
+  if (fwrite(bytes, 1u, length, output) != length) {
+    (void)fclose(output);
+    return 0;
+  }
+  return fclose(output) == 0;
+}
 
 static OrtStatus* ORT_API_CALL
 fake_create_run_options(OrtRunOptions** out_options) NO_EXCEPTION {
@@ -124,11 +215,25 @@ static OrtStatus* ORT_API_CALL fake_enable_run_profiling(
     OrtRunOptions* options, const ORTCHAR_T* profile_file_prefix) NO_EXCEPTION {
   fake_run_options_t* fake = (fake_run_options_t*)options;
   size_t length = strlen(profile_file_prefix);
+  char* separator = NULL;
   fake->profile_prefix = (char*)malloc(length + 1u);
   if (fake->profile_prefix == NULL) {
     return (OrtStatus*)malloc(1u);
   }
   memcpy(fake->profile_prefix, profile_file_prefix, length + 1u);
+  if (length >= sizeof(profile_last_directory)) {
+    free(fake->profile_prefix);
+    fake->profile_prefix = NULL;
+    return (OrtStatus*)malloc(1u);
+  }
+  memcpy(profile_last_directory, profile_file_prefix, length + 1u);
+  separator = strrchr(profile_last_directory, '/');
+  if (separator == NULL) {
+    free(fake->profile_prefix);
+    fake->profile_prefix = NULL;
+    return (OrtStatus*)malloc(1u);
+  }
+  *separator = '\0';
   return NULL;
 }
 
@@ -142,7 +247,9 @@ fake_disable_run_profiling(OrtRunOptions* options) NO_EXCEPTION {
     return (OrtStatus*)malloc(1u);
   }
   if (fake->profile_prefix == NULL ||
-      snprintf(path, sizeof(path), "%s_123.json", fake->profile_prefix) < 0) {
+      snprintf(path, sizeof(path),
+               "%s_2026-08-06_17-09-03_125.json",
+               fake->profile_prefix) < 0) {
     return (OrtStatus*)malloc(1u);
   }
   output = fopen(path, "wb");
@@ -163,6 +270,12 @@ fake_disable_run_profiling(OrtRunOptions* options) NO_EXCEPTION {
   if (fclose(output) != 0) {
     return (OrtStatus*)malloc(1u);
   }
+  if (profile_replace_with_fifo != 0u) {
+    if (unlink(path) != 0 || mkfifo(path, S_IRUSR | S_IWUSR) != 0) {
+      return (OrtStatus*)malloc(1u);
+    }
+    profile_replace_with_fifo = 0u;
+  }
   if (profile_extra_file != 0u) {
     if (snprintf(path, sizeof(path), "%s_extra.json", fake->profile_prefix) <
         0) {
@@ -179,6 +292,58 @@ fake_disable_run_profiling(OrtRunOptions* options) NO_EXCEPTION {
     if (fclose(output) != 0) {
       return (OrtStatus*)malloc(1u);
     }
+  }
+  if (profile_create_nonempty_directory != 0u) {
+    int length = snprintf(profile_blocker_directory,
+                          sizeof(profile_blocker_directory), "%s/blocker",
+                          profile_last_directory);
+    if (length <= 0 || (size_t)length >= sizeof(profile_blocker_directory) ||
+        mkdir(profile_blocker_directory, S_IRWXU) != 0) {
+      return (OrtStatus*)malloc(1u);
+    }
+    length = snprintf(profile_blocker_file, sizeof(profile_blocker_file),
+                      "%s/retained", profile_blocker_directory);
+    if (length <= 0 || (size_t)length >= sizeof(profile_blocker_file) ||
+        !write_file_bytes(profile_blocker_file, "x", 1u)) {
+      return (OrtStatus*)malloc(1u);
+    }
+    profile_create_nonempty_directory = 0u;
+  }
+  if (profile_make_root_read_only != 0u) {
+    char root[4096];
+    char* separator = NULL;
+    size_t length = strlen(profile_last_directory);
+    if (length >= sizeof(root)) {
+      return (OrtStatus*)malloc(1u);
+    }
+    memcpy(root, profile_last_directory, length + 1u);
+    separator = strrchr(root, '/');
+    if (separator == NULL) {
+      return (OrtStatus*)malloc(1u);
+    }
+    *separator = '\0';
+    if (chmod(root, S_IRUSR | S_IXUSR) != 0) {
+      return (OrtStatus*)malloc(1u);
+    }
+    profile_make_root_read_only = 0u;
+  }
+  if (profile_replace_directory != 0u) {
+    int length = snprintf(profile_moved_directory,
+                          sizeof(profile_moved_directory), "%s-moved",
+                          profile_last_directory);
+    if (length <= 0 || (size_t)length >= sizeof(profile_moved_directory) ||
+        rename(profile_last_directory, profile_moved_directory) != 0 ||
+        mkdir(profile_last_directory, S_IRWXU) != 0) {
+      return (OrtStatus*)malloc(1u);
+    }
+    length = snprintf(profile_forged_file, sizeof(profile_forged_file),
+                      "%s_2026-08-06_17-09-03_999.json",
+                      fake->profile_prefix);
+    if (length <= 0 || (size_t)length >= sizeof(profile_forged_file) ||
+        !write_file_bytes(profile_forged_file, "{\"forged\":true}", 15u)) {
+      return (OrtStatus*)malloc(1u);
+    }
+    profile_replace_directory = 0u;
   }
   free(fake->profile_prefix);
   fake->profile_prefix = NULL;
@@ -564,6 +729,38 @@ static int wait_until_run_entered(void) {
   }
   (void)pthread_mutex_unlock(&run_lock);
   return wait_result != ETIMEDOUT;
+}
+
+static int wait_until_profile_retry_entered(void) {
+  struct timespec deadline;
+  int wait_result = 0;
+  int entered = 0;
+  (void)timespec_get(&deadline, TIME_UTC);
+  deadline.tv_sec += 5;
+  (void)pthread_mutex_lock(&profile_retry_lock);
+  while (profile_retry_entered == 0u && wait_result != ETIMEDOUT) {
+    wait_result = pthread_cond_timedwait(
+        &profile_retry_condition, &profile_retry_lock, &deadline);
+  }
+  entered = profile_retry_entered != 0u;
+  (void)pthread_mutex_unlock(&profile_retry_lock);
+  return wait_result != ETIMEDOUT && entered;
+}
+
+static void release_profile_retry_gate(void) {
+  (void)pthread_mutex_lock(&profile_retry_lock);
+  release_profile_retry = 1u;
+  (void)pthread_cond_broadcast(&profile_retry_condition);
+  (void)pthread_mutex_unlock(&profile_retry_lock);
+}
+
+static void* finish_profile_retry(void* opaque_context) {
+  profile_finish_thread_context_t* context =
+      (profile_finish_thread_context_t*)opaque_context;
+  memset(&context->output, 0xff, sizeof(context->output));
+  context->status =
+      dort_run_options_profiling_finish(context->options, &context->output);
+  return NULL;
 }
 
 static void cancel_thread_mark_completed(cancel_thread_context_t* context) {
@@ -1022,11 +1219,14 @@ int main(void) {
   uint32_t did_request = 0u;
   uint32_t was_requested = 0u;
   pthread_t run_thread;
+  pthread_t profile_finish_thread;
   run_thread_context_t context;
+  profile_finish_thread_context_t profile_finish_context;
   dort_string_t profile_json;
   char profile_root[] = "/tmp/fonix-profile-native-XXXXXX";
 
   memset(&context, 0, sizeof(context));
+  memset(&profile_finish_context, 0, sizeof(profile_finish_context));
   CHECK(test_partial_output_error_cleanup() == 0,
         "partial-output cleanup and recovery failed");
   status = dort_run_options_create(&test_runtime, &options);
@@ -1073,6 +1273,80 @@ int main(void) {
       "bounded cancellation token sequence reused a stale token");
 
   CHECK(mkdtemp(profile_root) != NULL, "could not create profile root");
+  {
+    char symlink_root[] = "/tmp/fonix-profile-symlink-XXXXXX";
+    char symlink_root_with_slash[4096];
+    int placeholder = mkstemp(symlink_root);
+    int path_length = 0;
+    CHECK(placeholder >= 0, "could not reserve profile-root symlink path");
+    CHECK(close(placeholder) == 0 && unlink(symlink_root) == 0 &&
+              symlink(profile_root, symlink_root) == 0,
+          "could not create profile-root symlink");
+    path_length = snprintf(symlink_root_with_slash,
+                           sizeof(symlink_root_with_slash), "%s/",
+                           symlink_root);
+    CHECK(path_length > 0 &&
+              (size_t)path_length < sizeof(symlink_root_with_slash),
+          "profile-root symlink path exceeded its test buffer");
+    status =
+        dort_run_options_profiling_start(options, symlink_root_with_slash);
+    CHECK(status != NULL &&
+              dort_status_code(status) == DORT_ERROR_INVALID_ARGUMENT &&
+              directory_is_empty(profile_root),
+          "trailing-slash profile-root symlink was accepted");
+    dort_status_release(status);
+    CHECK(unlink(symlink_root) == 0,
+          "could not remove profile-root symlink");
+  }
+  CHECK(chmod(profile_root, S_IRWXU | S_IWGRP) == 0,
+        "could not make profile root group-writable");
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status != NULL && dort_status_code(status) == DORT_ERROR_PLATFORM &&
+            directory_is_empty(profile_root),
+        "group-writable profile root was accepted");
+  dort_status_release(status);
+  CHECK(chmod(profile_root, S_IWUSR | S_IXUSR) == 0,
+        "could not remove profile-root read permission");
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status != NULL && dort_status_code(status) == DORT_ERROR_PLATFORM,
+        "owner-unreadable profile root was accepted");
+  dort_status_release(status);
+  CHECK(chmod(profile_root, S_IRWXU) == 0,
+        "could not restore private profile-root permissions");
+  CHECK(directory_is_empty(profile_root),
+        "rejected profile root retained a private child");
+  {
+    mode_t previous_umask = umask(S_IRWXU);
+    profile_fail_directory_open = 1u;
+    status = dort_run_options_profiling_start(options, profile_root);
+    (void)umask(previous_umask);
+    CHECK(status != NULL &&
+              dort_status_code(status) ==
+                  DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT &&
+              directory_is_empty(profile_root),
+          "restrictive-umask child-open failure retained a private directory");
+    dort_status_release(status);
+  }
+  {
+    struct stat private_directory_stat;
+    mode_t previous_umask = umask(S_IRWXU);
+    status = dort_run_options_profiling_start(options, profile_root);
+    (void)umask(previous_umask);
+    memset(&private_directory_stat, 0, sizeof(private_directory_stat));
+    CHECK(status == NULL &&
+              stat(profile_last_directory, &private_directory_stat) == 0 &&
+              S_ISDIR(private_directory_stat.st_mode) &&
+              (private_directory_stat.st_mode &
+               (S_IRWXU | S_IRWXG | S_IRWXO)) == S_IRWXU,
+          "restrictive umask prevented a private 0700 profile directory");
+    memset(&profile_json, 0xff, sizeof(profile_json));
+    status = dort_run_options_profiling_finish(options, &profile_json);
+    CHECK(status == NULL && profile_json.length == 2u &&
+              memcmp(profile_json.data, "[]", profile_json.length) == 0 &&
+              directory_is_empty(profile_root),
+          "restrictive-umask profile cycle did not settle cleanly");
+    free(profile_json.private_owner);
+  }
   status = dort_run_options_profiling_start(options, profile_root);
   CHECK(status == NULL, "could not start one-run profiling");
   memset(&profile_json, 0, sizeof(profile_json));
@@ -1087,6 +1361,22 @@ int main(void) {
   CHECK(profile_json.data == NULL && profile_json.length == 0u &&
             profile_json.private_owner == NULL,
         "a repeated profile finish published stale bytes");
+  dort_status_release(status);
+
+  profile_replace_with_fifo = 1u;
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status == NULL, "could not start nonblocking-FIFO profiling");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  (void)alarm(5u);
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  (void)alarm(0u);
+  CHECK(status != NULL &&
+            dort_status_code(status) == DORT_ERROR_LIMIT_EXCEEDED &&
+            profile_json.struct_size == (uint32_t)sizeof(profile_json) &&
+            profile_json.data == NULL && profile_json.length == 0u &&
+            profile_json.private_owner == NULL &&
+            directory_is_empty(profile_root),
+        "profile-named FIFO blocked or published partial evidence");
   dort_status_release(status);
 
   profile_invalid_utf8 = 1u;
@@ -1114,6 +1404,129 @@ int main(void) {
   dort_status_release(status);
 
   profile_extra_file = 0u;
+  profile_replace_directory = 1u;
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status == NULL, "could not start replacement-race profiling");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL,
+        "a replaced private profile directory published forged evidence");
+  CHECK(dort_status_code(status) == DORT_ERROR_PLATFORM &&
+            profile_json.struct_size == (uint32_t)sizeof(profile_json) &&
+            profile_json.data == NULL && profile_json.length == 0u &&
+            profile_json.private_owner == NULL,
+        "replacement-race profiling did not fail closed");
+  dort_status_release(status);
+  CHECK(access(profile_forged_file, F_OK) == 0,
+        "profile cleanup touched the replacement directory");
+  CHECK(directory_is_empty(profile_moved_directory),
+        "retained profile bytes survived in the renamed owned directory");
+  CHECK(unlink(profile_forged_file) == 0 &&
+            rmdir(profile_last_directory) == 0 &&
+            rename(profile_moved_directory, profile_last_directory) == 0,
+        "could not restore replacement-race profile ownership");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL &&
+            dort_status_code(status) == DORT_ERROR_MODEL_INVALID &&
+            profile_json.data == NULL && profile_json.length == 0u &&
+            profile_json.private_owner == NULL &&
+            directory_is_empty(profile_root),
+        "replacement-race cleanup retry did not retire its owner");
+  dort_status_release(status);
+
+  profile_create_nonempty_directory = 1u;
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status == NULL, "could not start nonempty-cleanup profiling");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL && profile_json.data == NULL &&
+            profile_json.length == 0u && profile_json.private_owner == NULL,
+        "nonempty private directory cleanup published profile bytes");
+  CHECK(dort_status_code(status) == DORT_ERROR_PLATFORM,
+        "nonempty cleanup failure did not take status precedence");
+  dort_status_release(status);
+  {
+    uint32_t calls_before_reuse = run_call_count;
+    const char* output_names[] = {"Y"};
+    status = dort_session_run(&test_session, options, NULL, 0u, output_names,
+                              1u, &context.result);
+    CHECK(status != NULL && context.result == NULL &&
+              dort_status_code(status) == DORT_ERROR_RUN_FAILED &&
+              run_call_count == calls_before_reuse,
+          "incomplete profile cleanup allowed run-options reuse");
+    dort_status_release(status);
+  }
+  CHECK(unlink(profile_blocker_file) == 0 &&
+            rmdir(profile_blocker_directory) == 0,
+        "could not unblock bounded nonempty-cleanup retry");
+  {
+    const char* output_names[] = {"Y"};
+    dort_run_result_t* concurrent_result = NULL;
+    uint32_t calls_before_reuse = run_call_count;
+    int retry_entered = 0;
+    int join_result = 0;
+    memset(&profile_finish_context, 0, sizeof(profile_finish_context));
+    profile_finish_context.options = options;
+    (void)pthread_mutex_lock(&profile_retry_lock);
+    block_profile_retry = 1u;
+    profile_retry_entered = 0u;
+    release_profile_retry = 0u;
+    profile_retry_timed_out = 0u;
+    (void)pthread_mutex_unlock(&profile_retry_lock);
+    CHECK(pthread_create(&profile_finish_thread, NULL, finish_profile_retry,
+                         &profile_finish_context) == 0,
+          "could not create profile-cleanup retry thread");
+    retry_entered = wait_until_profile_retry_entered();
+    fake_run_mode = 2u;
+    status = dort_session_run(&test_session, options, NULL, 0u, output_names,
+                              1u, &concurrent_result);
+    fake_run_mode = 0u;
+    release_profile_retry_gate();
+    join_result = pthread_join(profile_finish_thread, NULL);
+    dort_run_result_release(concurrent_result);
+    CHECK(retry_entered && profile_retry_timed_out == 0u && join_result == 0,
+          "profile-cleanup retry gate did not settle");
+    CHECK(status != NULL && concurrent_result == NULL &&
+              dort_status_code(status) == DORT_ERROR_RUN_FAILED &&
+              run_call_count == calls_before_reuse,
+          "profile-cleanup retry exposed a run-reuse window");
+    dort_status_release(status);
+    CHECK(profile_finish_context.status != NULL &&
+              dort_status_code(profile_finish_context.status) ==
+                  DORT_ERROR_MODEL_INVALID &&
+              profile_finish_context.output.data == NULL &&
+              profile_finish_context.output.length == 0u &&
+              profile_finish_context.output.private_owner == NULL &&
+              directory_is_empty(profile_root),
+          "nonempty cleanup retry did not retire its owner");
+    dort_status_release(profile_finish_context.status);
+    block_profile_retry = 0u;
+  }
+
+  profile_make_root_read_only = 1u;
+  status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status == NULL, "could not start cleanup-failure profiling");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL && profile_json.data == NULL &&
+            profile_json.length == 0u && profile_json.private_owner == NULL,
+        "profile-root cleanup failure published profile bytes");
+  CHECK(dort_status_code(status) == DORT_ERROR_PLATFORM,
+        "profile-root cleanup failure did not take status precedence");
+  dort_status_release(status);
+  CHECK(chmod(profile_root, S_IRWXU) == 0,
+        "could not restore profile-test root permissions");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL &&
+            dort_status_code(status) == DORT_ERROR_MODEL_INVALID &&
+            profile_json.data == NULL && profile_json.length == 0u &&
+            profile_json.private_owner == NULL &&
+            directory_is_empty(profile_root),
+        "profile-root cleanup retry did not retire its owner");
+  dort_status_release(status);
+
   status = dort_run_options_profiling_start(options, profile_root);
   CHECK(status == NULL, "could not start profiling before disable failure");
   profile_disable_failures = 1u;

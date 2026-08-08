@@ -147,7 +147,15 @@ Default logs must not include:
 - credentials or provider SDK secrets;
 - proprietary model metadata unless explicitly enabled.
 
-Profiling is opt-in and writes only to an application-approved directory. Document that ORT/provider profiling may expose node/model names.
+Profiling is opt-in and may expose node/model names. On POSIX it writes only
+under an existing absolute non-`/` application root owned by the effective
+user, with owner read/write/search permission and no group/world write
+permission. Fonix retains the root and randomized `0700` child by descriptor
+and device/inode identity, reads the one bounded regular artifact without
+following links, and publishes bytes only after checked non-recursive cleanup.
+Replacement or incomplete cleanup returns neutral output, blocks reuse, and
+retains the owner for an explicit finish retry. Other code executing as the
+same effective user remains inside the application trust boundary.
 
 No wrapper telemetry is enabled by default. Any future telemetry is application-controlled and documented separately from ORT/platform behavior.
 

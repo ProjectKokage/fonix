@@ -84,20 +84,32 @@ Cover:
 - profiling-disable fault injection, including no partial bytes, fail-closed
   run-options reuse, successful retry, and native-owner release before private
   directory cleanup;
+- POSIX profiling replacement, root-permission loss, and unexpected nonempty
+  child cleanup, including neutral output, cleanup-error precedence, retained
+  owner retry, concurrent run rejection throughout that retry, failed child
+  descriptor acquisition under a restrictive umask without residue, exact
+  private-mode repair, trailing-separator symlink rejection, nonblocking
+  rejection of a profile-named FIFO, and no recursive deletion;
 - exported symbol allowlist;
 - process mode without link-time ORT dependency.
 
 Use fault injection for allocation, loader, and ORT error-plus-output failures.
 The POSIX shim test build routes every wrapper-owned `malloc`, `calloc`,
-`realloc`, and aligned allocation through one internal fail-Nth seam that is
-absent from production activation. The deterministic suite enumerates each
-success-path allocation in representative status/string, runtime, provider,
-session-options, session-metadata, and tensor-owner operations. Every failure
-must leave its output neutral, preserve the allocation-domain status (including
-the static emergency status), release partial native owners, and permit a clean
-retry. A separate fake `Run` returns an owned output together with an ORT error;
+`realloc`, aligned allocation, and returned `realpath` owner through one
+internal fail-Nth seam that is absent from production activation. The
+deterministic suite enumerates success-path allocations in representative
+status/string, runtime canonicalization, provider, run-options/profiling,
+session-options/metadata, two-entry external-data, tensor-owner, and composite
+operations. Every failure must leave its output neutral, preserve the
+allocation-domain status (including the static emergency status), release
+partial native owners, and permit a clean retry. Opaque allocations owned by
+libc, the platform loader, or ORT itself remain outside this wrapper fail-Nth
+seam. A separate fake `Run` returns an owned output together with an ORT error;
 the shim must release that output exactly once, preserve the ORT error, and
 complete a later successful run.
+The provisioned native suite additionally profiles a real run with the exact
+locked ORT, accepts only its closed timestamp basename shape, returns a
+non-empty JSON event array, and proves the private artifact root is empty.
 Compile separate Address/UndefinedBehavior and ThreadSanitizer variants where
 toolchains/providers permit. The required Linux x64 TSan lane always runs the
 fake-backed shared-value test; real-ORT concurrency remains an additional

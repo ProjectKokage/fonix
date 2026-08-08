@@ -1,3 +1,12 @@
+#if !defined(_WIN32)
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE 1
+#else
+#define _GNU_SOURCE 1
+#endif
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "dort_internal.h"
 
 #include <stdatomic.h>
@@ -18,14 +27,32 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #endif
 
 #define DORT_RUN_OPTIONS_MAGIC 0x44524f31u
 #define DORT_RUN_RESULT_MAGIC 0x44525231u
 #define DORT_MAX_CANCEL_TOKENS 1024u
+#define DORT_PROFILE_PATH_RESERVE_BYTES 89u
 #ifndef DORT_CANCEL_TOKEN_UPPER_BOUND
 #define DORT_CANCEL_TOKEN_UPPER_BOUND ((uint64_t)INT64_MAX)
+#endif
+
+#if !defined(_WIN32)
+typedef struct dort_posix_profile_owner {
+  char leaf[51];
+  int root_descriptor;
+  int directory_descriptor;
+  dev_t root_device;
+  ino_t root_inode;
+  dev_t directory_device;
+  ino_t directory_inode;
+} dort_posix_profile_owner_t;
+#if defined(FONIX_PROFILE_TESTING)
+void dort_test_profile_retirement_window(void);
+int dort_test_profile_fail_directory_open(void);
+#endif
 #endif
 
 struct dort_run_options {
@@ -42,6 +69,8 @@ struct dort_run_options {
 #else
   char* profile_directory;
   char* profile_prefix;
+  dort_posix_profile_owner_t profile_owner;
+  uint32_t profile_native_disabled;
 #endif
 #if defined(_WIN32)
   SRWLOCK profile_lock;
@@ -671,12 +700,20 @@ static int dort_windows_profile_remove_directory(const wchar_t* directory,
 static int dort_windows_profile_name_is_expected(const wchar_t* name) {
   size_t length = name == NULL ? 0u : wcslen(name);
   size_t index = 0u;
-  if (length <= 13u || wcsncmp(name, L"profile_", 8u) != 0 ||
+  if (length != 36u || wcsncmp(name, L"profile_", 8u) != 0 ||
       wcscmp(name + length - 5u, L".json") != 0) {
     return 0;
   }
   for (index = 8u; index < length - 5u; ++index) {
-    if (name[index] < L'0' || name[index] > L'9') {
+    if (index == 12u || index == 15u || index == 21u || index == 24u) {
+      if (name[index] != L'-') {
+        return 0;
+      }
+    } else if (index == 18u || index == 27u) {
+      if (name[index] != L'_') {
+        return 0;
+      }
+    } else if (name[index] < L'0' || name[index] > L'9') {
       return 0;
     }
   }
@@ -778,6 +815,14 @@ static dort_status_t* dort_profile_prepare(const char* root,
                                 "run_options_profiling_start",
                                 "The profiling artifact root traverses a "
                                 "reparse point or changed identity.");
+    goto windows_profile_prepare_cleanup;
+  }
+  if (wcslen(canonical_root) >
+      DORT_MAX_PATH_BYTES - DORT_PROFILE_PATH_RESERVE_BYTES) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_LIMIT_EXCEEDED, 0,
+        "run_options_profiling_start",
+        "The profiling artifact root leaves no room for a bounded profile path.");
     goto windows_profile_prepare_cleanup;
   }
   if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -1157,55 +1202,336 @@ int dort_windows_test_profile_remove_directory(const wchar_t* directory,
 #endif
 
 #else
+#define DORT_POSIX_PROFILE_MAX_CLEANUP_ENTRIES 4096u
+#define DORT_POSIX_PROFILE_RANDOM_BYTES 16u
+#define DORT_POSIX_PROFILE_CREATE_ATTEMPTS 16u
+
 static int dort_profile_name_is_expected(const char* name) {
   size_t length = name == NULL ? 0u : strlen(name);
-  return length > 13u && strncmp(name, "profile_", 8u) == 0 &&
-         strcmp(name + length - 5u, ".json") == 0;
-}
-
-static void dort_profile_remove_directory(const char* directory) {
-  DIR* stream = NULL;
-  struct dirent* entry = NULL;
-  int directory_fd = -1;
-  if (directory == NULL) {
-    return;
+  size_t index = 0u;
+  if (length != 36u || strncmp(name, "profile_", 8u) != 0 ||
+      strcmp(name + length - 5u, ".json") != 0) {
+    return 0;
   }
-  directory_fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (directory_fd >= 0) {
-    stream = fdopendir(directory_fd);
-    if (stream != NULL) {
-      while ((entry = readdir(stream)) != NULL) {
-        if (strcmp(entry->d_name, ".") != 0 &&
-            strcmp(entry->d_name, "..") != 0) {
-          (void)unlinkat(directory_fd, entry->d_name, 0);
-        }
+  for (index = 8u; index < length - 5u; ++index) {
+    if (index == 12u || index == 15u || index == 21u || index == 24u) {
+      if (name[index] != '-') {
+        return 0;
       }
-      (void)closedir(stream);
-      directory_fd = -1;
+    } else if (index == 18u || index == 27u) {
+      if (name[index] != '_') {
+        return 0;
+      }
+    } else if (name[index] < '0' || name[index] > '9') {
+      return 0;
     }
   }
-  if (directory_fd >= 0) {
-    (void)close(directory_fd);
-  }
-  (void)rmdir(directory);
+  return 1;
 }
 
-static dort_status_t* dort_profile_prepare(const char* root,
-                                           char** out_directory,
-                                           char** out_prefix) {
+static void dort_posix_profile_owner_init(
+    dort_posix_profile_owner_t* owner) {
+  memset(owner, 0, sizeof(*owner));
+  owner->root_descriptor = -1;
+  owner->directory_descriptor = -1;
+}
+
+static int dort_posix_profile_owner_close(
+    dort_posix_profile_owner_t* owner) {
+  int success = 1;
+  if (owner == NULL) {
+    return 0;
+  }
+  if (owner->directory_descriptor >= 0 &&
+      close(owner->directory_descriptor) != 0) {
+    success = 0;
+  }
+  if (owner->root_descriptor >= 0 && close(owner->root_descriptor) != 0) {
+    success = 0;
+  }
+  dort_posix_profile_owner_init(owner);
+  return success;
+}
+
+static int dort_posix_profile_root_matches(
+    const struct stat* information,
+    const dort_posix_profile_owner_t* owner) {
+  return information != NULL && owner != NULL &&
+         S_ISDIR(information->st_mode) &&
+         information->st_dev == owner->root_device &&
+         information->st_ino == owner->root_inode &&
+         information->st_uid == geteuid() &&
+         (information->st_mode & S_IRWXU) == S_IRWXU &&
+         (information->st_mode & (S_IWGRP | S_IWOTH)) == 0;
+}
+
+static int dort_posix_profile_directory_matches(
+    const struct stat* information,
+    const dort_posix_profile_owner_t* owner) {
+  return information != NULL && owner != NULL &&
+         S_ISDIR(information->st_mode) &&
+         information->st_dev == owner->directory_device &&
+         information->st_ino == owner->directory_inode &&
+         information->st_uid == geteuid() &&
+         (information->st_mode & S_IRWXU) == S_IRWXU &&
+         (information->st_mode & (S_IRWXG | S_IRWXO)) == 0;
+}
+
+static int dort_posix_profile_directory_identity_matches(
+    const struct stat* information,
+    const dort_posix_profile_owner_t* owner) {
+  return information != NULL && owner != NULL &&
+         S_ISDIR(information->st_mode) &&
+         information->st_dev == owner->directory_device &&
+         information->st_ino == owner->directory_inode &&
+         information->st_uid == geteuid();
+}
+
+static int dort_posix_profile_random_bytes(uint8_t* bytes, size_t length) {
+  int descriptor = -1;
+  size_t offset = 0u;
+  int success = 1;
+  descriptor = open("/dev/urandom", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (descriptor < 0) {
+    return 0;
+  }
+  while (offset < length) {
+    ssize_t count = read(descriptor, bytes + offset, length - offset);
+    if (count < 0 && errno == EINTR) {
+      continue;
+    }
+    if (count <= 0) {
+      success = 0;
+      break;
+    }
+    offset += (size_t)count;
+  }
+  if (close(descriptor) != 0) {
+    success = 0;
+  }
+  return success;
+}
+
+static int dort_posix_profile_generate_leaf(char leaf[51]) {
+  static const char hex[] = "0123456789abcdef";
+  uint8_t random_bytes[DORT_POSIX_PROFILE_RANDOM_BYTES];
+  size_t index = 0u;
+  if (!dort_posix_profile_random_bytes(random_bytes, sizeof(random_bytes))) {
+    return 0;
+  }
+  memcpy(leaf, "fonix-run-profile-", 18u);
+  for (index = 0u; index < sizeof(random_bytes); ++index) {
+    leaf[18u + (index * 2u)] = hex[random_bytes[index] >> 4u];
+    leaf[19u + (index * 2u)] = hex[random_bytes[index] & 0x0fu];
+  }
+  leaf[18u + (sizeof(random_bytes) * 2u)] = '\0';
+  return 1;
+}
+
+static int dort_posix_profile_delete_entries(int directory_descriptor) {
+  DIR* stream = NULL;
+  struct dirent* entry = NULL;
+  int duplicate = -1;
+  int success = 1;
+  size_t entry_count = 0u;
+  if (directory_descriptor < 0) {
+    return 0;
+  }
+  duplicate = openat(directory_descriptor, ".",
+                     O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (duplicate < 0) {
+    return 0;
+  }
+  stream = fdopendir(duplicate);
+  if (stream == NULL) {
+    (void)close(duplicate);
+    return 0;
+  }
+  for (;;) {
+    struct stat information;
+    errno = 0;
+    entry = readdir(stream);
+    if (entry == NULL) {
+      if (errno != 0) {
+        success = 0;
+      }
+      break;
+    }
+    if (strcmp(entry->d_name, ".") == 0 ||
+        strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    if (entry_count >= DORT_POSIX_PROFILE_MAX_CLEANUP_ENTRIES) {
+      success = 0;
+      break;
+    }
+    entry_count += 1u;
+    memset(&information, 0, sizeof(information));
+    if (fstatat(directory_descriptor, entry->d_name, &information,
+                AT_SYMLINK_NOFOLLOW) != 0) {
+      success = 0;
+      continue;
+    }
+    if (S_ISDIR(information.st_mode)) {
+      if (unlinkat(directory_descriptor, entry->d_name, AT_REMOVEDIR) != 0) {
+        success = 0;
+      }
+    } else if (unlinkat(directory_descriptor, entry->d_name, 0) != 0) {
+      success = 0;
+    }
+  }
+  if (closedir(stream) != 0) {
+    success = 0;
+  }
+  return success;
+}
+
+static int dort_posix_profile_remove_created_leaf(
+    const dort_posix_profile_owner_t* owner) {
+  struct stat information;
+  if (owner == NULL || owner->root_descriptor < 0 || owner->leaf[0] == '\0') {
+    return 0;
+  }
+  memset(&information, 0, sizeof(information));
+  if (fstatat(owner->root_descriptor, owner->leaf, &information,
+              AT_SYMLINK_NOFOLLOW) != 0 ||
+      !S_ISDIR(information.st_mode) || information.st_uid != geteuid() ||
+      (information.st_mode & (S_IRWXG | S_IRWXO)) != 0 ||
+      ((owner->directory_device != 0 || owner->directory_inode != 0) &&
+       (information.st_dev != owner->directory_device ||
+        information.st_ino != owner->directory_inode))) {
+    return 0;
+  }
+  return unlinkat(owner->root_descriptor, owner->leaf, AT_REMOVEDIR) == 0;
+}
+
+static int dort_profile_remove_directory(
+    const char* directory,
+    dort_posix_profile_owner_t* owner) {
+  struct stat root_information;
+  struct stat descriptor_information;
+  struct stat path_information;
+  struct stat rooted_information;
+  int root_matches = 0;
+  int descriptor_identity_matches = 0;
+  int descriptor_matches = 0;
+  int path_matches = 0;
+  int rooted_matches = 0;
+  int entries_deleted = 0;
+  int success = 1;
+  if (owner == NULL) {
+    return 0;
+  }
+  if (directory == NULL) {
+    return dort_posix_profile_owner_close(owner);
+  }
+  memset(&root_information, 0, sizeof(root_information));
+  memset(&descriptor_information, 0, sizeof(descriptor_information));
+  memset(&path_information, 0, sizeof(path_information));
+  memset(&rooted_information, 0, sizeof(rooted_information));
+  if (owner->root_descriptor >= 0 &&
+      fstat(owner->root_descriptor, &root_information) == 0) {
+    root_matches = dort_posix_profile_root_matches(&root_information, owner);
+  }
+  if (owner->directory_descriptor >= 0 && owner->leaf[0] != '\0' &&
+      fstat(owner->directory_descriptor, &descriptor_information) == 0) {
+    descriptor_identity_matches =
+        dort_posix_profile_directory_identity_matches(
+            &descriptor_information, owner);
+    descriptor_matches =
+        dort_posix_profile_directory_matches(&descriptor_information, owner);
+  }
+  if (!root_matches || !descriptor_matches) {
+    success = 0;
+  }
+  if (descriptor_identity_matches) {
+    if (fchmod(owner->directory_descriptor, S_IRWXU) != 0) {
+      success = 0;
+    }
+    entries_deleted =
+        dort_posix_profile_delete_entries(owner->directory_descriptor);
+    if (!entries_deleted) {
+      success = 0;
+    }
+  } else {
+    success = 0;
+  }
+  if (descriptor_identity_matches &&
+      lstat(directory, &path_information) == 0) {
+    path_matches =
+        dort_posix_profile_directory_matches(&path_information, owner);
+  }
+  if (root_matches && descriptor_identity_matches && owner->leaf[0] != '\0' &&
+      fstatat(owner->root_descriptor, owner->leaf, &rooted_information,
+              AT_SYMLINK_NOFOLLOW) == 0) {
+    rooted_matches =
+        dort_posix_profile_directory_matches(&rooted_information, owner);
+  }
+  if (!path_matches || !rooted_matches) {
+    success = 0;
+  }
+  if (!success) {
+    return 0;
+  }
+  memset(&root_information, 0, sizeof(root_information));
+  memset(&descriptor_information, 0, sizeof(descriptor_information));
+  memset(&path_information, 0, sizeof(path_information));
+  memset(&rooted_information, 0, sizeof(rooted_information));
+  if (!entries_deleted ||
+      fstat(owner->root_descriptor, &root_information) != 0 ||
+      fstat(owner->directory_descriptor, &descriptor_information) != 0 ||
+      lstat(directory, &path_information) != 0 ||
+      fstatat(owner->root_descriptor, owner->leaf, &rooted_information,
+              AT_SYMLINK_NOFOLLOW) != 0 ||
+      !dort_posix_profile_root_matches(&root_information, owner) ||
+      !dort_posix_profile_directory_matches(&descriptor_information, owner) ||
+      !dort_posix_profile_directory_matches(&path_information, owner) ||
+      !dort_posix_profile_directory_matches(&rooted_information, owner)) {
+    return 0;
+  }
+  if (unlinkat(owner->root_descriptor, owner->leaf, AT_REMOVEDIR) != 0) {
+    return 0;
+  }
+  return dort_posix_profile_owner_close(owner);
+}
+
+static dort_status_t* dort_profile_prepare(
+    const char* root,
+    char** out_directory,
+    char** out_prefix,
+    dort_posix_profile_owner_t* out_owner) {
   struct stat root_stat;
+  struct stat root_path_stat;
+  struct stat created_stat;
+  struct stat directory_stat;
+  struct stat path_stat;
+  struct stat rooted_stat;
+  char root_identity_path[DORT_MAX_PATH_BYTES + 1u];
   char* canonical_root = NULL;
   char* directory = NULL;
   char* prefix = NULL;
   size_t root_length = 0u;
   size_t directory_length = 0u;
+  size_t attempt = 0u;
   int validation = DORT_ERROR_NONE;
+  int created = 0;
+  dort_posix_profile_owner_t owner;
+  dort_status_t* status = NULL;
+  dort_posix_profile_owner_init(&owner);
   *out_directory = NULL;
   *out_prefix = NULL;
+  *out_owner = owner;
   validation =
       dort_bounded_utf8_length(root, DORT_MAX_PATH_BYTES, 0, &root_length);
+  if (validation == DORT_ERROR_NONE) {
+    while (root_length > 1u && root[root_length - 1u] == '/') {
+      root_length -= 1u;
+    }
+    memcpy(root_identity_path, root, root_length);
+    root_identity_path[root_length] = '\0';
+  }
   if (validation != DORT_ERROR_NONE || root[0] != '/' ||
-      strcmp(root, "/") == 0 || lstat(root, &root_stat) != 0 ||
+      root_length == 1u || lstat(root_identity_path, &root_stat) != 0 ||
       S_ISLNK(root_stat.st_mode) || !S_ISDIR(root_stat.st_mode)) {
     return dort_status_create(DORT_ERROR_DOMAIN_SHIM,
                               validation == DORT_ERROR_NONE
@@ -1215,59 +1541,206 @@ static dort_status_t* dort_profile_prepare(const char* root,
                               "The profiling artifact root must be an existing "
                               "non-symlink directory.");
   }
-  canonical_root = realpath(root, NULL);
-  if (canonical_root == NULL || strlen(canonical_root) > DORT_MAX_PATH_BYTES) {
+  canonical_root = dort_memory_realpath(root_identity_path);
+  if (canonical_root == NULL && errno == ENOMEM) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
+        "run_options_profiling_start",
+        "The canonical profiling artifact root could not be allocated.");
+  }
+  if (canonical_root == NULL || strcmp(canonical_root, "/") == 0 ||
+      strlen(canonical_root) > DORT_MAX_PATH_BYTES) {
     free(canonical_root);
     return dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT, 0,
         "run_options_profiling_start",
         "The profiling artifact root could not be resolved safely.");
   }
+  owner.root_descriptor = open(
+      canonical_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  memset(&root_stat, 0, sizeof(root_stat));
+  memset(&root_path_stat, 0, sizeof(root_path_stat));
+  if (owner.root_descriptor < 0 ||
+      fstat(owner.root_descriptor, &root_stat) != 0 ||
+      lstat(canonical_root, &root_path_stat) != 0 ||
+      !S_ISDIR(root_stat.st_mode) || root_stat.st_uid != geteuid() ||
+      (root_stat.st_mode & S_IRWXU) != S_IRWXU ||
+      (root_stat.st_mode & (S_IWGRP | S_IWOTH)) != 0 ||
+      root_path_stat.st_dev != root_stat.st_dev ||
+      root_path_stat.st_ino != root_stat.st_ino) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+        "run_options_profiling_start",
+        "The canonical profiling artifact root could not be retained safely.");
+    goto profile_prepare_cleanup;
+  }
+  owner.root_device = root_stat.st_dev;
+  owner.root_inode = root_stat.st_ino;
   root_length = strlen(canonical_root);
-  if (root_length > DORT_MAX_PATH_BYTES - 25u) {
-    free(canonical_root);
-    return dort_status_create(
+  if (root_length >
+      DORT_MAX_PATH_BYTES - DORT_PROFILE_PATH_RESERVE_BYTES) {
+    status = dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_LIMIT_EXCEEDED, 0,
         "run_options_profiling_start",
         "The profiling artifact path exceeds its ABI limit.");
+    goto profile_prepare_cleanup;
   }
-  directory_length = root_length + 25u;
+  directory_length = root_length + 51u;
   directory = (char*)dort_memory_allocate(directory_length + 1u);
-  if (directory != NULL) {
-    (void)snprintf(directory, directory_length + 1u,
-                   "%s/fonix-run-profile-XXXXXX", canonical_root);
+  if (directory == NULL) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
+        "run_options_profiling_start",
+        "The private profiling directory path could not be allocated.");
+    goto profile_prepare_cleanup;
   }
-  free(canonical_root);
-  if (directory == NULL || mkdtemp(directory) == NULL) {
-    free(directory);
-    return dort_status_create(
-        DORT_ERROR_DOMAIN_ALLOCATION,
-        directory == NULL ? DORT_ERROR_ALLOCATION_FAILED : DORT_ERROR_PLATFORM,
-        0, "run_options_profiling_start",
-        "The private profiling directory could not be created.");
+  for (attempt = 0u; attempt < DORT_POSIX_PROFILE_CREATE_ATTEMPTS; ++attempt) {
+    if (!dort_posix_profile_generate_leaf(owner.leaf)) {
+      status = dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+          "run_options_profiling_start",
+          "A unique private profiling directory name could not be generated.");
+      goto profile_prepare_cleanup;
+    }
+    if (mkdirat(owner.root_descriptor, owner.leaf, S_IRWXU) == 0) {
+      created = 1;
+      break;
+    }
+    if (errno != EEXIST) {
+      status = dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+          "run_options_profiling_start",
+          "The private profiling directory could not be created.");
+      goto profile_prepare_cleanup;
+    }
+  }
+  if (!created) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+        "run_options_profiling_start",
+        "A unique private profiling directory could not be created.");
+    goto profile_prepare_cleanup;
+  }
+  memset(&created_stat, 0, sizeof(created_stat));
+  if (fstatat(owner.root_descriptor, owner.leaf, &created_stat,
+              AT_SYMLINK_NOFOLLOW) != 0 ||
+      !S_ISDIR(created_stat.st_mode) || created_stat.st_uid != geteuid() ||
+      (created_stat.st_mode & (S_IRWXG | S_IRWXO)) != 0) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT, 0,
+        "run_options_profiling_start",
+        "The newly created private profiling directory changed identity.");
+    goto profile_prepare_cleanup;
+  }
+  owner.directory_device = created_stat.st_dev;
+  owner.directory_inode = created_stat.st_ino;
+  if (fchmodat(owner.root_descriptor, owner.leaf, S_IRWXU, 0) != 0) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+        "run_options_profiling_start",
+        "The private profiling directory permissions could not be fixed.");
+    goto profile_prepare_cleanup;
+  }
+  memset(&created_stat, 0, sizeof(created_stat));
+  if (fstatat(owner.root_descriptor, owner.leaf, &created_stat,
+              AT_SYMLINK_NOFOLLOW) != 0 ||
+      !dort_posix_profile_directory_matches(&created_stat, &owner)) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT, 0,
+        "run_options_profiling_start",
+        "The private profiling directory changed while fixing permissions.");
+    goto profile_prepare_cleanup;
+  }
+  (void)snprintf(directory, directory_length + 1u, "%s/%s", canonical_root,
+                 owner.leaf);
+#if defined(FONIX_PROFILE_TESTING)
+  if (dort_test_profile_fail_directory_open()) {
+    errno = EMFILE;
+    owner.directory_descriptor = -1;
+  } else
+#endif
+  {
+    owner.directory_descriptor = openat(
+        owner.root_descriptor, owner.leaf,
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  }
+  memset(&directory_stat, 0, sizeof(directory_stat));
+  memset(&path_stat, 0, sizeof(path_stat));
+  memset(&rooted_stat, 0, sizeof(rooted_stat));
+  if (owner.directory_descriptor < 0 ||
+      fstat(owner.directory_descriptor, &directory_stat) != 0 ||
+      lstat(directory, &path_stat) != 0 ||
+      fstatat(owner.root_descriptor, owner.leaf, &rooted_stat,
+              AT_SYMLINK_NOFOLLOW) != 0 ||
+      !S_ISDIR(directory_stat.st_mode) ||
+      directory_stat.st_uid != geteuid() ||
+      (directory_stat.st_mode & S_IRWXU) != S_IRWXU ||
+      (directory_stat.st_mode & (S_IRWXG | S_IRWXO)) != 0 ||
+      directory_stat.st_dev != created_stat.st_dev ||
+      directory_stat.st_ino != created_stat.st_ino ||
+      path_stat.st_dev != directory_stat.st_dev ||
+      path_stat.st_ino != directory_stat.st_ino ||
+      rooted_stat.st_dev != directory_stat.st_dev ||
+      rooted_stat.st_ino != directory_stat.st_ino) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT, 0,
+        "run_options_profiling_start",
+        "The private profiling directory changed identity or escaped its retained root.");
+    goto profile_prepare_cleanup;
   }
   prefix = (char*)dort_memory_allocate(strlen(directory) + 9u);
   if (prefix == NULL) {
-    dort_profile_remove_directory(directory);
-    free(directory);
-    return dort_status_create(DORT_ERROR_DOMAIN_ALLOCATION,
-                              DORT_ERROR_ALLOCATION_FAILED, 0,
-                              "run_options_profiling_start",
-                              "The profiling prefix could not be allocated.");
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION, DORT_ERROR_ALLOCATION_FAILED, 0,
+        "run_options_profiling_start",
+        "The profiling prefix could not be allocated.");
+    goto profile_prepare_cleanup;
   }
   (void)snprintf(prefix, strlen(directory) + 9u, "%s/profile", directory);
   *out_directory = directory;
   *out_prefix = prefix;
+  *out_owner = owner;
+  free(canonical_root);
   return NULL;
+
+profile_prepare_cleanup:
+  if (created) {
+    if (owner.directory_device != 0 || owner.directory_inode != 0) {
+      if (!dort_profile_remove_directory(directory, &owner) &&
+          owner.root_descriptor >= 0) {
+        (void)dort_posix_profile_remove_created_leaf(&owner);
+      }
+    } else if (owner.root_descriptor >= 0) {
+      (void)dort_posix_profile_remove_created_leaf(&owner);
+    }
+  }
+  if (owner.directory_descriptor >= 0) {
+    (void)close(owner.directory_descriptor);
+  }
+  if (owner.root_descriptor >= 0) {
+    (void)close(owner.root_descriptor);
+  }
+  free(prefix);
+  free(directory);
+  free(canonical_root);
+  return status;
 }
 
 static dort_status_t*
 dort_profile_read_and_remove(const char* directory,
-                             dort_string_t* out_profile_json) {
+                             dort_posix_profile_owner_t* owner,
+                             dort_string_t* out_profile_json,
+                             int* out_retirement_pending) {
   DIR* stream = NULL;
   struct dirent* entry = NULL;
+  struct stat root_stat;
+  struct stat directory_stat;
+  struct stat path_stat;
+  struct stat rooted_stat;
   struct stat file_stat;
-  int directory_fd = -1;
+  struct stat final_file_stat;
+  struct stat final_path_stat;
+  int duplicate = -1;
   int file_fd = -1;
   char* expected_name = NULL;
   char* bytes = NULL;
@@ -1275,31 +1748,66 @@ dort_profile_read_and_remove(const char* directory,
   size_t expected_length = 0u;
   size_t candidate_count = 0u;
   int invalid_entry = 0;
+  int handles_closed = 1;
+  int cleanup_success = 0;
   dort_status_t* status = NULL;
-  directory_fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (directory_fd < 0) {
+  *out_retirement_pending = 0;
+  memset(&root_stat, 0, sizeof(root_stat));
+  memset(&directory_stat, 0, sizeof(directory_stat));
+  memset(&path_stat, 0, sizeof(path_stat));
+  memset(&rooted_stat, 0, sizeof(rooted_stat));
+  if (owner == NULL || owner->directory_descriptor < 0 ||
+      owner->root_descriptor < 0 || owner->leaf[0] == '\0' ||
+      fstat(owner->root_descriptor, &root_stat) != 0 ||
+      fstat(owner->directory_descriptor, &directory_stat) != 0 ||
+      lstat(directory, &path_stat) != 0 ||
+      fstatat(owner->root_descriptor, owner->leaf, &rooted_stat,
+              AT_SYMLINK_NOFOLLOW) != 0 ||
+      !dort_posix_profile_root_matches(&root_stat, owner) ||
+      !dort_posix_profile_directory_matches(&directory_stat, owner) ||
+      !dort_posix_profile_directory_matches(&path_stat, owner) ||
+      !dort_posix_profile_directory_matches(&rooted_stat, owner)) {
     status = dort_status_create(
-        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT, 0,
         "run_options_profiling_finish",
-        "The private profiling directory could not be inspected.");
+        "The retained private profiling directory changed identity.");
     goto profile_read_cleanup;
   }
-  stream = fdopendir(dup(directory_fd));
+  duplicate = openat(owner->directory_descriptor, ".",
+                     O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (duplicate >= 0) {
+    stream = fdopendir(duplicate);
+  }
   if (stream == NULL) {
+    if (duplicate >= 0) {
+      (void)close(duplicate);
+    }
     status = dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
         "run_options_profiling_finish",
         "The private profiling directory could not be enumerated.");
     goto profile_read_cleanup;
   }
-  while ((entry = readdir(stream)) != NULL) {
+  for (;;) {
+    errno = 0;
+    entry = readdir(stream);
+    if (entry == NULL) {
+      if (errno != 0) {
+        status = dort_status_create(
+            DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+            "run_options_profiling_finish",
+            "The private profiling directory could not be enumerated completely.");
+      }
+      break;
+    }
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       continue;
     }
     candidate_count += 1u;
-    if (candidate_count > 1u || !dort_profile_name_is_expected(entry->d_name)) {
+    if (candidate_count > 1u ||
+        !dort_profile_name_is_expected(entry->d_name)) {
       invalid_entry = 1;
-      continue;
+      break;
     }
     expected_name = dort_copy_c_string(entry->d_name, strlen(entry->d_name));
     if (expected_name == NULL) {
@@ -1310,8 +1818,16 @@ dort_profile_read_and_remove(const char* directory,
       goto profile_read_cleanup;
     }
   }
-  (void)closedir(stream);
+  if (closedir(stream) != 0 && status == NULL) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+        "run_options_profiling_finish",
+        "The private profiling directory could not be closed after enumeration.");
+  }
   stream = NULL;
+  if (status != NULL) {
+    goto profile_read_cleanup;
+  }
   if (invalid_entry || candidate_count != 1u || expected_name == NULL) {
     status = dort_status_create(
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_MODEL_INVALID, 0,
@@ -1319,9 +1835,11 @@ dort_profile_read_and_remove(const char* directory,
         "ONNX Runtime did not produce exactly one closed profile artifact.");
     goto profile_read_cleanup;
   }
-  file_fd = openat(directory_fd, expected_name, O_RDONLY | O_NOFOLLOW);
+  file_fd = openat(owner->directory_descriptor, expected_name,
+                   O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
   if (file_fd < 0 || fstat(file_fd, &file_stat) != 0 ||
-      !S_ISREG(file_stat.st_mode) || file_stat.st_size <= 0 ||
+      !S_ISREG(file_stat.st_mode) || file_stat.st_nlink != 1 ||
+      file_stat.st_size <= 0 ||
       (uint64_t)file_stat.st_size > (uint64_t)DORT_MAX_PROVIDER_PROFILE_BYTES) {
     status =
         dort_status_create(DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_LIMIT_EXCEEDED, 0,
@@ -1341,6 +1859,9 @@ dort_profile_read_and_remove(const char* directory,
   }
   while (offset < expected_length) {
     ssize_t count = read(file_fd, bytes + offset, expected_length - offset);
+    if (count < 0 && errno == EINTR) {
+      continue;
+    }
     if (count <= 0) {
       status = dort_status_create(
           DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
@@ -1349,6 +1870,33 @@ dort_profile_read_and_remove(const char* directory,
       goto profile_read_cleanup;
     }
     offset += (size_t)count;
+  }
+  {
+    char extra = '\0';
+    ssize_t extra_count = 0;
+    do {
+      extra_count = read(file_fd, &extra, 1u);
+    } while (extra_count < 0 && errno == EINTR);
+    memset(&final_file_stat, 0, sizeof(final_file_stat));
+    memset(&final_path_stat, 0, sizeof(final_path_stat));
+    if (extra_count != 0 || fstat(file_fd, &final_file_stat) != 0 ||
+        fstatat(owner->directory_descriptor, expected_name, &final_path_stat,
+                AT_SYMLINK_NOFOLLOW) != 0 ||
+        final_file_stat.st_dev != file_stat.st_dev ||
+        final_file_stat.st_ino != file_stat.st_ino ||
+        final_file_stat.st_nlink != 1 ||
+        final_file_stat.st_size != file_stat.st_size ||
+        !S_ISREG(final_path_stat.st_mode) ||
+        final_path_stat.st_dev != final_file_stat.st_dev ||
+        final_path_stat.st_ino != final_file_stat.st_ino ||
+        final_path_stat.st_nlink != 1 ||
+        final_path_stat.st_size != final_file_stat.st_size) {
+      status = dort_status_create(
+          DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_MODEL_INVALID, 0,
+          "run_options_profiling_finish",
+          "The run profile changed identity or size during its bounded read.");
+      goto profile_read_cleanup;
+    }
   }
   if (memchr(bytes, '\0', expected_length) != NULL) {
     status =
@@ -1370,29 +1918,39 @@ dort_profile_read_and_remove(const char* directory,
       goto profile_read_cleanup;
     }
   }
-  memset(out_profile_json, 0, sizeof(*out_profile_json));
-  out_profile_json->struct_size = (uint32_t)sizeof(*out_profile_json);
-  out_profile_json->data = (const uint8_t*)bytes;
-  out_profile_json->length = expected_length;
-  out_profile_json->private_owner = bytes;
-  bytes = NULL;
-
 profile_read_cleanup:
   if (stream != NULL) {
-    (void)closedir(stream);
+    if (closedir(stream) != 0) {
+      handles_closed = 0;
+    }
   }
   if (file_fd >= 0) {
-    (void)close(file_fd);
-  }
-  if (directory_fd >= 0) {
-    if (expected_name != NULL) {
-      (void)unlinkat(directory_fd, expected_name, 0);
+    if (close(file_fd) != 0) {
+      handles_closed = 0;
     }
-    (void)close(directory_fd);
+  }
+  cleanup_success = dort_profile_remove_directory(directory, owner);
+  if (!handles_closed) {
+    cleanup_success = 0;
+  }
+  if (!cleanup_success) {
+    dort_status_release(status);
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_PLATFORM, 0,
+        "run_options_profiling_finish",
+        "The private profiling artifacts could not be retired completely.");
+    if (owner->root_descriptor >= 0 || owner->directory_descriptor >= 0) {
+      *out_retirement_pending = 1;
+    }
+  }
+  if (status == NULL) {
+    out_profile_json->data = (const uint8_t*)bytes;
+    out_profile_json->length = expected_length;
+    out_profile_json->private_owner = bytes;
+    bytes = NULL;
   }
   free(expected_name);
   free(bytes);
-  dort_profile_remove_directory(directory);
   return status;
 }
 #endif
@@ -1456,6 +2014,7 @@ dort_status_t* DORT_CALL dort_run_options_create(
 #if defined(_WIN32)
   InitializeSRWLock(&options->profile_lock);
 #else
+  dort_posix_profile_owner_init(&options->profile_owner);
   if (pthread_mutex_init(&options->profile_lock, NULL) != 0) {
     options->magic = 0u;
     options->runtime = NULL;
@@ -1506,6 +2065,11 @@ void DORT_CALL dort_run_options_release(dort_run_options_t* options) {
 #else
     char* profile_directory = NULL;
     char* profile_prefix = NULL;
+    dort_posix_profile_owner_t profile_owner;
+    uint32_t profile_native_disabled = 0u;
+#endif
+#if !defined(_WIN32)
+    dort_posix_profile_owner_init(&profile_owner);
 #endif
     dort_profile_lock(options);
     profile_directory = options->profile_directory;
@@ -1517,8 +2081,17 @@ void DORT_CALL dort_run_options_release(dort_run_options_t* options) {
     profile_directory_handle = options->profile_directory_handle;
     options->profile_root_handle = NULL;
     options->profile_directory_handle = NULL;
+#else
+    profile_owner = options->profile_owner;
+    dort_posix_profile_owner_init(&options->profile_owner);
+    profile_native_disabled = options->profile_native_disabled;
+    options->profile_native_disabled = 0u;
 #endif
-    if (profile_directory != NULL) {
+    if (profile_directory != NULL
+#if !defined(_WIN32)
+        && profile_native_disabled == 0u
+#endif
+    ) {
       OrtStatus* ignored =
           dort_runtime_api(runtime)->RunOptionsDisableProfiling(ort_options);
       if (ignored != NULL) {
@@ -1538,7 +2111,9 @@ void DORT_CALL dort_run_options_release(dort_run_options_t* options) {
     (void)dort_windows_profile_remove_directory(
         profile_directory, &profile_directory_handle, &profile_root_handle);
 #else
-    dort_profile_remove_directory(profile_directory);
+    if (!dort_profile_remove_directory(profile_directory, &profile_owner)) {
+      (void)dort_posix_profile_owner_close(&profile_owner);
+    }
 #endif
     free(profile_directory);
     free(profile_prefix);
@@ -1597,6 +2172,10 @@ dort_status_t* DORT_CALL dort_run_options_profiling_start(
 #else
   char* directory = NULL;
   char* prefix = NULL;
+  dort_posix_profile_owner_t profile_owner;
+#endif
+#if !defined(_WIN32)
+  dort_posix_profile_owner_init(&profile_owner);
 #endif
   if (!dort_run_options_is_valid(options)) {
     return dort_status_create(DORT_ERROR_DOMAIN_SHIM,
@@ -1614,7 +2193,8 @@ dort_status_t* DORT_CALL dort_run_options_profiling_start(
   status = dort_profile_prepare(artifact_root_utf8, &directory, &prefix,
                                 &root_handle, &directory_handle);
 #else
-  status = dort_profile_prepare(artifact_root_utf8, &directory, &prefix);
+  status = dort_profile_prepare(artifact_root_utf8, &directory, &prefix,
+                                &profile_owner);
 #endif
   if (status != NULL) {
     return status;
@@ -1626,7 +2206,9 @@ dort_status_t* DORT_CALL dort_run_options_profiling_start(
     (void)dort_windows_profile_remove_directory(directory, &directory_handle,
                                                 &root_handle);
 #else
-    dort_profile_remove_directory(directory);
+    if (!dort_profile_remove_directory(directory, &profile_owner)) {
+      (void)dort_posix_profile_owner_close(&profile_owner);
+    }
 #endif
     free(directory);
     free(prefix);
@@ -1645,6 +2227,10 @@ dort_status_t* DORT_CALL dort_run_options_profiling_start(
     options->profile_directory_handle = directory_handle;
     root_handle = NULL;
     directory_handle = NULL;
+#else
+    options->profile_owner = profile_owner;
+    options->profile_native_disabled = 0u;
+    dort_posix_profile_owner_init(&profile_owner);
 #endif
     directory = NULL;
     prefix = NULL;
@@ -1659,7 +2245,9 @@ dort_status_t* DORT_CALL dort_run_options_profiling_start(
   (void)dort_windows_profile_remove_directory(directory, &directory_handle,
                                               &root_handle);
 #else
-  dort_profile_remove_directory(directory);
+  if (!dort_profile_remove_directory(directory, &profile_owner)) {
+    (void)dort_posix_profile_owner_close(&profile_owner);
+  }
 #endif
   free(directory);
   free(prefix);
@@ -1678,6 +2266,11 @@ dort_status_t* DORT_CALL dort_run_options_profiling_finish(
 #else
   char* directory = NULL;
   char* prefix = NULL;
+  dort_posix_profile_owner_t profile_owner;
+  int retirement_pending = 0;
+#endif
+#if !defined(_WIN32)
+  dort_posix_profile_owner_init(&profile_owner);
 #endif
   if (out_profile_json == NULL) {
     return dort_status_create(DORT_ERROR_DOMAIN_SHIM,
@@ -1707,8 +2300,16 @@ dort_status_t* DORT_CALL dort_run_options_profiling_finish(
                               "run_options_profiling_finish",
                               "Profiling is not active on these run options.");
   }
+  ort_status = NULL;
+#if defined(_WIN32)
   ort_status = dort_runtime_api(options->runtime)
                    ->RunOptionsDisableProfiling(options->options);
+#else
+  if (options->profile_native_disabled == 0u) {
+    ort_status = dort_runtime_api(options->runtime)
+                     ->RunOptionsDisableProfiling(options->options);
+  }
+#endif
   if (ort_status != NULL) {
     status = dort_status_from_ort(options->runtime, ort_status,
                                   DORT_ERROR_RUN_FAILED,
@@ -1718,8 +2319,11 @@ dort_status_t* DORT_CALL dort_run_options_profiling_finish(
     dort_profile_unlock(options);
     return status;
   }
-  atomic_store_explicit(&options->profile_retirement_failed, 0u,
+  atomic_store_explicit(&options->profile_retirement_failed, 1u,
                         memory_order_release);
+#if !defined(_WIN32)
+  options->profile_native_disabled = 1u;
+#endif
   directory = options->profile_directory;
   prefix = options->profile_prefix;
   options->profile_directory = NULL;
@@ -1729,12 +2333,36 @@ dort_status_t* DORT_CALL dort_run_options_profiling_finish(
   directory_handle = options->profile_directory_handle;
   options->profile_root_handle = NULL;
   options->profile_directory_handle = NULL;
+#else
+  profile_owner = options->profile_owner;
+  dort_posix_profile_owner_init(&options->profile_owner);
 #endif
 #if defined(_WIN32)
   status = dort_profile_read_and_remove(directory, &root_handle,
                                         &directory_handle, out_profile_json);
+  atomic_store_explicit(&options->profile_retirement_failed, 0u,
+                        memory_order_release);
 #else
-  status = dort_profile_read_and_remove(directory, out_profile_json);
+#if defined(FONIX_PROFILE_TESTING)
+  dort_test_profile_retirement_window();
+#endif
+  status = dort_profile_read_and_remove(directory, &profile_owner,
+                                        out_profile_json,
+                                        &retirement_pending);
+  if (retirement_pending) {
+    options->profile_directory = directory;
+    options->profile_prefix = prefix;
+    options->profile_owner = profile_owner;
+    directory = NULL;
+    prefix = NULL;
+    dort_posix_profile_owner_init(&profile_owner);
+    atomic_store_explicit(&options->profile_retirement_failed, 1u,
+                          memory_order_release);
+  } else {
+    options->profile_native_disabled = 0u;
+    atomic_store_explicit(&options->profile_retirement_failed, 0u,
+                          memory_order_release);
+  }
 #endif
   free(directory);
   free(prefix);

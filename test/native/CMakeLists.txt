@@ -107,6 +107,21 @@ set_target_properties(
 )
 fonix_strict_target(fake_ort_null_metadata)
 
+add_library(fake_ort_allocation SHARED fake_null_metadata_ort.c)
+target_compile_definitions(
+  fake_ort_allocation PRIVATE FONIX_FAKE_ALLOCATION_EXTENSIONS=1
+)
+target_include_directories(
+  fake_ort_allocation SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}"
+)
+set_target_properties(
+  fake_ort_allocation PROPERTIES
+  C_VISIBILITY_PRESET hidden
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fake/allocation"
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fake/allocation"
+)
+fonix_strict_target(fake_ort_allocation)
+
 add_library(fake_ort_desktop_providers SHARED fake_provider_ort.c)
 target_include_directories(
   fake_ort_desktop_providers SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}"
@@ -247,6 +262,7 @@ target_compile_definitions(
   FONIX_RUNTIME_PROFILE_EXTERNAL=1
   FONIX_RUNTIME_PROFILE="external"
   FONIX_SHIM_BUILD_ID="native-tests"
+  FONIX_PROFILE_TESTING=1
   DORT_CANCEL_TOKEN_UPPER_BOUND=32u
 )
 target_link_libraries(fonix_cancel_during_run_tests PRIVATE Threads::Threads)
@@ -287,8 +303,8 @@ add_test(
   COMMAND fonix_allocation_fault_tests
     "$<TARGET_FILE:fake_ort_good>"
     "$<TARGET_FILE_DIR:fake_ort_good>"
-    "$<TARGET_FILE:fake_ort_null_metadata>"
-    "$<TARGET_FILE_DIR:fake_ort_null_metadata>"
+    "$<TARGET_FILE:fake_ort_allocation>"
+    "$<TARGET_FILE_DIR:fake_ort_allocation>"
 )
 
 add_executable(fonix_shared_value_thread_tests shared_value_thread_tests.c)

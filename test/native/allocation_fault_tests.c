@@ -1,13 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE 1
+#endif
 
 #include "dort.h"
 
+#include <dirent.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define MAX_FAULT_POINT 256u
+#define EXPECTED_TOTAL_ALLOCATION_FAULTS 63u
 
 #define CHECK(condition, message)                                              \
   do {                                                                         \
@@ -30,6 +37,7 @@ typedef struct fault_case {
   fault_state_fn is_success;
   fault_cleanup_fn cleanup;
   fault_iteration_fn set_iteration;
+  size_t expected_allocation_count;
 } fault_case_t;
 
 typedef struct string_context {
@@ -66,6 +74,33 @@ typedef struct tensor_context {
   float value;
   int64_t shape[1];
 } tensor_context_t;
+
+typedef struct sequence_context {
+  dort_runtime_t* runtime;
+  dort_value_t* children[2];
+  dort_value_t* output;
+} sequence_context_t;
+
+typedef struct external_data_context {
+  dort_runtime_t* runtime;
+  dort_session_options_t* options;
+  dort_external_data_t entries[2];
+  uint8_t model_data[1];
+  uint8_t first_data[2];
+  uint8_t second_data[3];
+  dort_session_t* output;
+} external_data_context_t;
+
+typedef struct profile_context {
+  dort_run_options_t* options;
+  const char* root;
+  dort_string_t output;
+} profile_context_t;
+
+typedef struct run_options_context {
+  dort_runtime_t* runtime;
+  dort_run_options_t* output;
+} run_options_context_t;
 
 static uint64_t fault_epoch = 0u;
 
@@ -109,6 +144,8 @@ static int exercise_fault_case(const fault_case_t* test_case) {
             "fault sentinel returned malformed success output");
       test_case->cleanup(test_case->context);
       CHECK(fault_point > 1u, "operation did not exercise an allocation");
+      CHECK(fault_point - 1u == test_case->expected_allocation_count,
+            "operation allocation count changed unexpectedly");
       printf("%s: %zu success-path allocation faults verified.\n",
              test_case->name, fault_point - 1u);
       return 0;
@@ -311,6 +348,149 @@ static void tensor_cleanup(void* opaque_context) {
   context->output = NULL;
 }
 
+static dort_status_t* invoke_sequence(void* opaque_context) {
+  sequence_context_t* context = (sequence_context_t*)opaque_context;
+  const dort_value_t* children[2] = {context->children[0],
+                                     context->children[1]};
+  context->output = (dort_value_t*)(uintptr_t)1u;
+  return dort_sequence_create(context->runtime, children, 2u,
+                              &context->output);
+}
+
+static int sequence_is_neutral(const void* opaque_context) {
+  const sequence_context_t* context =
+      (const sequence_context_t*)opaque_context;
+  return context->output == NULL;
+}
+
+static int sequence_is_success(const void* opaque_context) {
+  const sequence_context_t* context =
+      (const sequence_context_t*)opaque_context;
+  return context->output != NULL;
+}
+
+static void sequence_cleanup(void* opaque_context) {
+  sequence_context_t* context = (sequence_context_t*)opaque_context;
+  dort_value_release(context->output);
+  context->output = NULL;
+}
+
+static dort_status_t* invoke_external_data(void* opaque_context) {
+  external_data_context_t* context =
+      (external_data_context_t*)opaque_context;
+  context->output = (dort_session_t*)(uintptr_t)1u;
+  return dort_session_create_from_bytes_with_external_data(
+      context->runtime, context->options, context->model_data,
+      sizeof(context->model_data), context->entries, 2u, &context->output);
+}
+
+static int external_data_is_neutral(const void* opaque_context) {
+  const external_data_context_t* context =
+      (const external_data_context_t*)opaque_context;
+  return context->output == NULL;
+}
+
+static int external_data_is_success(const void* opaque_context) {
+  const external_data_context_t* context =
+      (const external_data_context_t*)opaque_context;
+  return context->output != NULL;
+}
+
+static void external_data_cleanup(void* opaque_context) {
+  external_data_context_t* context =
+      (external_data_context_t*)opaque_context;
+  dort_session_release(context->output);
+  context->output = NULL;
+}
+
+static dort_status_t* invoke_run_options(void* opaque_context) {
+  run_options_context_t* context = (run_options_context_t*)opaque_context;
+  context->output = (dort_run_options_t*)(uintptr_t)1u;
+  return dort_run_options_create(context->runtime, &context->output);
+}
+
+static int run_options_is_neutral(const void* opaque_context) {
+  const run_options_context_t* context =
+      (const run_options_context_t*)opaque_context;
+  return context->output == NULL;
+}
+
+static int run_options_is_success(const void* opaque_context) {
+  const run_options_context_t* context =
+      (const run_options_context_t*)opaque_context;
+  return context->output != NULL;
+}
+
+static void run_options_cleanup(void* opaque_context) {
+  run_options_context_t* context = (run_options_context_t*)opaque_context;
+  dort_run_options_release(context->output);
+  context->output = NULL;
+}
+
+static int profile_root_is_empty(const char* root) {
+  DIR* stream = opendir(root);
+  struct dirent* entry = NULL;
+  int empty = 1;
+  if (stream == NULL) {
+    return 0;
+  }
+  for (;;) {
+    errno = 0;
+    entry = readdir(stream);
+    if (entry == NULL) {
+      if (errno != 0) {
+        empty = 0;
+      }
+      break;
+    }
+    if (strcmp(entry->d_name, ".") != 0 &&
+        strcmp(entry->d_name, "..") != 0) {
+      empty = 0;
+    }
+  }
+  if (closedir(stream) != 0) {
+    empty = 0;
+  }
+  return empty;
+}
+
+static dort_status_t* invoke_profile_cycle(void* opaque_context) {
+  profile_context_t* context = (profile_context_t*)opaque_context;
+  dort_status_t* status = NULL;
+  memset(&context->output, 0, sizeof(context->output));
+  context->output.struct_size = (uint32_t)sizeof(context->output);
+  status = dort_run_options_profiling_start(context->options, context->root);
+  if (status != NULL) {
+    return status;
+  }
+  memset(&context->output, 0xff, sizeof(context->output));
+  return dort_run_options_profiling_finish(context->options, &context->output);
+}
+
+static int profile_is_neutral(const void* opaque_context) {
+  const profile_context_t* context =
+      (const profile_context_t*)opaque_context;
+  return context->output.struct_size == sizeof(context->output) &&
+         context->output.data == NULL && context->output.length == 0u &&
+         context->output.private_owner == NULL &&
+         profile_root_is_empty(context->root);
+}
+
+static int profile_is_success(const void* opaque_context) {
+  const profile_context_t* context =
+      (const profile_context_t*)opaque_context;
+  return context->output.struct_size == sizeof(context->output) &&
+         context->output.data != NULL && context->output.length == 2u &&
+         context->output.private_owner != NULL &&
+         memcmp(context->output.data, "[]", 2u) == 0 &&
+         profile_root_is_empty(context->root);
+}
+
+static void profile_cleanup(void* opaque_context) {
+  profile_context_t* context = (profile_context_t*)opaque_context;
+  dort_string_release(&context->output);
+}
+
 static int test_emergency_status(void) {
   dort_string_t output;
   dort_status_t* status = NULL;
@@ -342,11 +522,18 @@ int main(int argc, char** argv) {
   options_context_t options_context;
   session_context_t session_context;
   tensor_context_t tensor_context;
+  sequence_context_t sequence_context;
+  external_data_context_t external_data_context;
+  profile_context_t profile_context;
+  run_options_context_t run_options_context;
   dort_runtime_t* provider_runtime = NULL;
   dort_runtime_t* session_runtime = NULL;
   dort_session_options_t* session_options = NULL;
+  dort_run_options_t* profile_options = NULL;
   dort_status_t* status = NULL;
   fault_case_t test_case;
+  size_t verified_total = 0u;
+  char profile_root[] = "/tmp/fonix-allocation-profile-XXXXXX";
 
   CHECK(argc == 5,
         "expected good/runtime-root/session-fake/session-root paths");
@@ -363,17 +550,21 @@ int main(int argc, char** argv) {
                              string_is_neutral,
                              string_is_success,
                              string_cleanup,
-                             NULL};
+                             NULL,
+                             1u};
   CHECK(exercise_fault_case(&test_case) == 0,
         "build-manifest allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
   CHECK(test_emergency_status() == 0, "emergency status fault failed");
 
   test_case = (fault_case_t){"runtime open",       &runtime_fault_context,
                              invoke_runtime_open,  runtime_is_neutral,
                              runtime_is_success,   runtime_cleanup,
-                             set_runtime_iteration};
+                             set_runtime_iteration,
+                             8u};
   CHECK(exercise_fault_case(&test_case) == 0,
         "runtime allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
 
   CHECK(configure_fault(0u), "could not disable runtime setup fault");
   {
@@ -391,9 +582,50 @@ int main(int argc, char** argv) {
                              provider_is_neutral,
                              provider_is_success,
                              provider_cleanup,
-                             NULL};
+                             NULL,
+                             5u};
   CHECK(exercise_fault_case(&test_case) == 0,
         "provider-discovery allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  CHECK(setenv("FONIX_TEST_REQUIRE_RUN_OPTIONS_CLEANUP", "1", 1) == 0,
+        "could not enable fake run-options owner accounting");
+  memset(&run_options_context, 0, sizeof(run_options_context));
+  run_options_context.runtime = provider_runtime;
+  test_case = (fault_case_t){"run options",
+                             &run_options_context,
+                             invoke_run_options,
+                             run_options_is_neutral,
+                             run_options_is_success,
+                             run_options_cleanup,
+                             NULL,
+                             1u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "run-options allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  CHECK(configure_fault(0u), "could not disable profile setup fault");
+  status = dort_run_options_create(provider_runtime, &profile_options);
+  CHECK(status == NULL && profile_options != NULL,
+        "could not create persistent profile options");
+  CHECK(unsetenv("FONIX_TEST_REQUIRE_RUN_OPTIONS_CLEANUP") == 0,
+        "could not disable fake run-options owner accounting");
+  CHECK(mkdtemp(profile_root) != NULL,
+        "could not create private profile-test root");
+  memset(&profile_context, 0, sizeof(profile_context));
+  profile_context.options = profile_options;
+  profile_context.root = profile_root;
+  test_case = (fault_case_t){"profiling cycle",
+                             &profile_context,
+                             invoke_profile_cycle,
+                             profile_is_neutral,
+                             profile_is_success,
+                             profile_cleanup,
+                             NULL,
+                             5u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "profiling allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
 
   CHECK(configure_fault(0u), "could not disable session setup fault");
   {
@@ -412,9 +644,11 @@ int main(int argc, char** argv) {
                              options_is_neutral,
                              options_is_success,
                              options_cleanup,
-                             NULL};
+                             NULL,
+                             1u};
   CHECK(exercise_fault_case(&test_case) == 0,
         "session-options allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
 
   CHECK(configure_fault(0u), "could not disable persistent-options fault");
   status = dort_session_options_create(session_runtime, &options_context.config,
@@ -431,9 +665,43 @@ int main(int argc, char** argv) {
                              session_is_neutral,
                              session_is_success,
                              session_cleanup,
-                             NULL};
+                             NULL,
+                             14u};
   CHECK(exercise_fault_case(&test_case) == 0,
         "session allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  memset(&external_data_context, 0, sizeof(external_data_context));
+  external_data_context.runtime = session_runtime;
+  external_data_context.options = session_options;
+  external_data_context.model_data[0] = fake_session_verify_metadata_owner;
+  memcpy(external_data_context.first_data, "ab", 2u);
+  memcpy(external_data_context.second_data, "cde", 3u);
+  external_data_context.entries[0].struct_size = DORT_EXTERNAL_DATA_V1_SIZE;
+  external_data_context.entries[0].relative_name_utf8 =
+      (const uint8_t*)"a.bin";
+  external_data_context.entries[0].relative_name_length = 5u;
+  external_data_context.entries[0].data = external_data_context.first_data;
+  external_data_context.entries[0].data_length =
+      sizeof(external_data_context.first_data);
+  external_data_context.entries[1].struct_size = DORT_EXTERNAL_DATA_V1_SIZE;
+  external_data_context.entries[1].relative_name_utf8 =
+      (const uint8_t*)"nested/b.bin";
+  external_data_context.entries[1].relative_name_length = 12u;
+  external_data_context.entries[1].data = external_data_context.second_data;
+  external_data_context.entries[1].data_length =
+      sizeof(external_data_context.second_data);
+  test_case = (fault_case_t){"external-data session",
+                             &external_data_context,
+                             invoke_external_data,
+                             external_data_is_neutral,
+                             external_data_is_success,
+                             external_data_cleanup,
+                             NULL,
+                             22u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "external-data allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
 
   memset(&tensor_context, 0, sizeof(tensor_context));
   tensor_context.runtime = session_runtime;
@@ -441,16 +709,53 @@ int main(int argc, char** argv) {
   tensor_context.shape[0] = 1;
   test_case = (fault_case_t){
       "tensor creation", &tensor_context, invoke_tensor, tensor_is_neutral,
-      tensor_is_success, tensor_cleanup,  NULL};
+      tensor_is_success, tensor_cleanup,  NULL, 3u};
   CHECK(exercise_fault_case(&test_case) == 0,
         "tensor allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
+
+  memset(&sequence_context, 0, sizeof(sequence_context));
+  sequence_context.runtime = session_runtime;
+  CHECK(configure_fault(0u), "could not disable sequence setup fault");
+  status = dort_tensor_create_copy(
+      session_runtime, &tensor_context.value, sizeof(tensor_context.value),
+      tensor_context.shape, 1u, DORT_TENSOR_FLOAT32,
+      &sequence_context.children[0]);
+  CHECK(status == NULL && sequence_context.children[0] != NULL,
+        "could not create first persistent sequence child");
+  status = dort_tensor_create_copy(
+      session_runtime, &tensor_context.value, sizeof(tensor_context.value),
+      tensor_context.shape, 1u, DORT_TENSOR_FLOAT32,
+      &sequence_context.children[1]);
+  CHECK(status == NULL && sequence_context.children[1] != NULL,
+        "could not create second persistent sequence child");
+  test_case = (fault_case_t){"sequence creation",
+                             &sequence_context,
+                             invoke_sequence,
+                             sequence_is_neutral,
+                             sequence_is_success,
+                             sequence_cleanup,
+                             NULL,
+                             3u};
+  CHECK(exercise_fault_case(&test_case) == 0,
+        "sequence allocation faults failed");
+  verified_total += test_case.expected_allocation_count;
 
   CHECK(configure_fault(0u), "could not disable final allocation fault");
+  CHECK(verified_total == EXPECTED_TOTAL_ALLOCATION_FAULTS,
+        "allocation-fault total changed unexpectedly");
+  dort_value_release(sequence_context.children[1]);
+  dort_value_release(sequence_context.children[0]);
+  dort_run_options_release(profile_options);
+  CHECK(profile_root_is_empty(profile_root),
+        "profile-test root retained temporary artifacts");
+  CHECK(rmdir(profile_root) == 0, "could not remove profile-test root");
   dort_session_options_release(session_options);
   dort_runtime_release(session_runtime);
   dort_runtime_release(provider_runtime);
   (void)unsetenv("FONIX_TEST_ALLOCATION_EPOCH");
   (void)unsetenv("FONIX_TEST_ALLOCATION_FAIL_AT");
-  printf("Fonix shim allocation-fault tests passed.\n");
+  printf("Fonix shim allocation-fault tests passed (%u points).\n",
+         EXPECTED_TOTAL_ALLOCATION_FAULTS);
   return 0;
 }

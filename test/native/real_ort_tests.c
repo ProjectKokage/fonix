@@ -607,6 +607,7 @@ int main(int argc, char** argv) {
   dort_run_result_t* result = NULL;
   dort_string_t metadata;
   dort_string_t output_name;
+  dort_string_t profile_json;
   dort_string_t tensor_info;
   dort_status_t* status = NULL;
   dort_runtime_config_t config;
@@ -623,6 +624,7 @@ int main(int argc, char** argv) {
   float expected[6] = {2.0f, 4.0f, 6.0f, 8.0f, 10.0f, 12.0f};
   size_t required = 0u;
   size_t index = 0u;
+  char profile_root[] = "/tmp/fonix-real-profile-XXXXXX";
 
   CHECK(argc == 5, "expected real ORT/library root/model/model root paths");
   config = runtime_config(argv[1], argv[2], "phase2-real-runtime-a");
@@ -791,7 +793,44 @@ int main(int argc, char** argv) {
           dort_run_options_unset_terminate(run_options),
           "unset run termination") == 0,
       "unset terminate failed");
+  CHECK(mkdtemp(profile_root) != NULL,
+        "could not create real-ORT profile root");
+  CHECK(
+      check_ok(
+          dort_run_options_profiling_start(run_options, profile_root),
+          "start real-ORT profiling") == 0,
+      "real-ORT profile start failed");
   CHECK(run_once(session, run_options, input, &result) == 0, "numeric run failed");
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  CHECK(
+      check_ok(
+          dort_run_options_profiling_finish(run_options, &profile_json),
+          "finish real-ORT profiling") == 0,
+      "real-ORT profile finish failed");
+  {
+    size_t begin = 0u;
+    size_t end = profile_json.length;
+    while (begin < end &&
+           (profile_json.data[begin] == ' ' ||
+            profile_json.data[begin] == '\n' ||
+            profile_json.data[begin] == '\r' ||
+            profile_json.data[begin] == '\t')) {
+      ++begin;
+    }
+    while (end > begin &&
+           (profile_json.data[end - 1u] == ' ' ||
+            profile_json.data[end - 1u] == '\n' ||
+            profile_json.data[end - 1u] == '\r' ||
+            profile_json.data[end - 1u] == '\t')) {
+      --end;
+    }
+    CHECK(end > begin + 1u && profile_json.data[begin] == '[' &&
+              profile_json.data[end - 1u] == ']',
+          "real-ORT profile bytes were not a JSON event array");
+  }
+  dort_string_release(&profile_json);
+  CHECK(rmdir(profile_root) == 0,
+        "real-ORT profile root retained native artifacts");
   CHECK(dort_run_result_count(result) == 1u, "numeric output count mismatch");
   memset(&output_name, 0, sizeof(output_name));
   CHECK(

@@ -14,6 +14,9 @@ void* dort_memory_allocate_zeroed(size_t count, size_t size);
 void* dort_memory_reallocate(void* pointer, size_t size);
 void* dort_memory_aligned_allocate(size_t size, size_t alignment);
 void dort_memory_aligned_free(void* pointer);
+#if !defined(_WIN32)
+char* dort_memory_realpath(const char* path);
+#endif
 
 #define DORT_MAX_LOG_ID_BYTES 128u
 #define DORT_MAX_PATH_BYTES 4096u
