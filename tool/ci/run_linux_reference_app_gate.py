@@ -269,6 +269,25 @@ def _single_version_line(output: str, pattern: re.Pattern[str], label: str) -> s
     return value if isinstance(value, str) else value[0]
 
 
+def _loaded_glibc_version() -> str:
+    try:
+        identity = os.confstr("CS_GNU_LIBC_VERSION")
+    except (OSError, ValueError) as error:
+        raise LinuxReferenceAppGateError(
+            "target-host loaded glibc identity is unavailable"
+        ) from error
+    if not isinstance(identity, str):
+        raise LinuxReferenceAppGateError(
+            "target-host loaded glibc identity is unavailable"
+        )
+    match = re.fullmatch(r"glibc ([0-9]+\.[0-9]+)", identity)
+    if match is None:
+        raise LinuxReferenceAppGateError(
+            "target-host loaded glibc identity is invalid"
+        )
+    return match.group(1)
+
+
 def _verify_exact_host() -> None:
     if platform.system() != "Linux" or platform.machine() != HOST_ARCHITECTURE:
         raise LinuxReferenceAppGateError(
@@ -285,8 +304,7 @@ def _verify_exact_host() -> None:
         raise LinuxReferenceAppGateError(
             "newer or different Linux hosts may audit bytes but cannot pass the glibc 2.27 target-host gate"
         )
-    libc_name, libc_version = platform.libc_ver()
-    if libc_name != "glibc" or libc_version != HOST_GLIBC_VERSION:
+    if _loaded_glibc_version() != HOST_GLIBC_VERSION:
         raise LinuxReferenceAppGateError("target-host glibc identity changed")
 
 

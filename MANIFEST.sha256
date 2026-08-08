@@ -4,7 +4,7 @@
 0044976d541c65c33f8e594a0c845d1f28b72d07842d8c79dbff1692b383f1e1  ./AGENTS.md
 fb29aee5ba826dd9733454535a9907ca2dc0e20f16f11d5e95b2a449132684fa  ./CHANGELOG.md
 09f5bef885d0aaa86e61871b889b11d90d63313b6f8e8db3b11a3dbdc7f9269b  ./README.md
-8ec4a7d36a3dd418e222fc27399c81dcf9fdee59b1bf211819f7a19e7b26f2f5  ./VALIDATION.md
+45954de745eed6b04804fde58f66c937f1b0e1633020120e7d8de7e622230b65  ./VALIDATION.md
 791e790a1facac544028f61f9ac36282f36ba5cd48366013430ee6526900cfe5  ./analysis_options.yaml
 68d4118d63c26d520add1d4e22806d5b0171b617fddfaa9b0491efc2eb4fc5ba  ./bin/fonix.dart
 a5dbbdc341b24fa011724c9f23de701a047869feef5d1c80e50f44dd7c8e4624  ./bin/fonix_prepare_flutter_assets.dart
@@ -12,7 +12,7 @@ a0f79920d510bcee860cdda0861f75bbd02779dccb2d469d32eaae763767522d  ./docs/01-scop
 38ae9d3c9b3cfb8687a986db16403c54128941096648765d2f5aff5c1d149f52  ./docs/02-architecture.md
 e6a06b6d9fa1338d92746ef5725d7b45500d28eb400eb1dad0f9167fa7a5c53d  ./docs/03-dart-api-and-memory-model.md
 ecb495b5182c844bc01502596069269949e5c828c8ca94f6936c65ce18326435  ./docs/04-native-c-abi.md
-0254063b94b3aac067553d0d8945252c75e5334f7a36cdf81ba3049aa9ff321d  ./docs/05-build-and-packaging.md
+0afc540bd800b6be604bd3eda9723b9d887b987a0e619ef4c78d0e827cf51d15  ./docs/05-build-and-packaging.md
 e573d1317adfb6aadda10d8026250b11ced78b542e450cffd384c38373cd29be  ./docs/06-execution-providers.md
 75bcb7ef23f1edbe7611d16317a295e57385a7c3a62f8b69e9c0155b098ddab8  ./docs/07-android-sherpa-onnx-coexistence.md
 afa69a2a37882c0b4dc9bb1189244e8af9d909fe0359b772b2cc2211731b4bc7  ./docs/08-testing-benchmarking-and-ci.md
@@ -386,7 +386,7 @@ f5556ce119d98638d1f81b3325564cc513b82b4e4bdace69fccbe7d1ecf2282e  ./tool/ci/maco
 274ef67d239606073da1fb859a66379dbad1c618ca8108e7418c723f568f1bb2  ./tool/ci/run_android_sherpa_reference_app_gate.py
 8e82348faf258917191d109a36fa7e6416e719cff8c86189fec8268bc405c5e6  ./tool/ci/run_android_sherpa_reference_app_target_gate.py
 a1d8b71e7bc3ec8ffc33713ced9cf8f3de7daf110e13e4ebe25423aa0eceef02  ./tool/ci/run_ios_reference_app_gate.py
-8b49783047b37ac6349e0f7d9aa6673631b4d605b69689fa94febdebd053aa25  ./tool/ci/run_linux_reference_app_gate.py
+b38b3f567c928094d050c14a8738db7df78bb311a707a008c132f60c2dc3c0a0  ./tool/ci/run_linux_reference_app_gate.py
 e433c594afa86bd399633ca352a2c3c93405874610ed15f29dc148c317ebe02a  ./tool/ci/run_macos_application_gate.py
 d198a262e38546badde9ae6bffd4ae91d91d8e18d69d3399bb33f9dee5e8c227  ./tool/ci/run_macos_reference_app_gate.py
 1ecf8a51311d753d5d761a7ca2abe303d2500d2f37692003ea3fbc88e1b473c3  ./tool/ci/run_native_tests.py
@@ -408,7 +408,7 @@ ece351c1ccd1d4f203a06de30630907d366133d692e708c7126d875b9853c7ee  ./tool/ci/test
 36b617e0b672cf250ff0a0410a7d4034eba07b423157c5f527b3489ab90a70b5  ./tool/ci/tests/test_generate_android_sherpa_fonix_fixtures.py
 3d75d7ab53dbf1e3eb84e1916b533eee566218945da292204b39a2298f18c5cc  ./tool/ci/tests/test_ios_reference_app_gate.py
 464b46184a5280619bab4ada02560a49dc02a7530e2be83e4f596c8c95917d32  ./tool/ci/tests/test_linux_application_audit.py
-2dbd64b30972dd2f46920a3f6b091547ddc640d214594e31126820e2b18b2849  ./tool/ci/tests/test_linux_reference_app_gate.py
+e1f69a5632603a973f17cc29cf25bab4f072005fa678d444af9e6e70c0e2d83c  ./tool/ci/tests/test_linux_reference_app_gate.py
 5ea7dd9c989c5c3fa964f7d0156563d57bbaa49fb46754bba509efd01e242830  ./tool/ci/tests/test_macos_application_gate.py
 90536ab7178fab93c0e52975e1132e45d2b700b149d64bc81a97d17f7fcff20b  ./tool/ci/tests/test_macos_reference_app_gate.py
 ee35047a99495bf5119b3dde2dfc64f238d1db730eed041f014bbad5ef3c5ad4  ./tool/ci/tests/test_native_c_abi_baseline.py

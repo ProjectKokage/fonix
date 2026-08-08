@@ -577,6 +577,10 @@ Xvfb CPU run. It has focused source-side tests but no target-host PASS in this
 snapshot; do not promote Linux support from the gate implementation or the
 portable Zig cross-build.
 
+The target-host check reads `_CS_GNU_LIBC_VERSION` from the libc loaded by the
+gate process and requires the exact `glibc 2.27` identity. Executable string
+scanning is not accepted as host-libc evidence.
+
 The target invocation and exact provisioned profile are owned by
 `example/README.md`. In particular, use Python 3.11.9 with `-I -S -B`, supply
 an offline pub cache explicitly, retain the enforced lockfile, bind both the

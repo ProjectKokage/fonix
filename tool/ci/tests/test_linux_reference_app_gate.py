@@ -142,7 +142,12 @@ class HostProfileTests(unittest.TestCase):
         with (
             mock.patch.object(gate.platform, "system", return_value="Linux"),
             mock.patch.object(gate.platform, "machine", return_value="x86_64"),
-            mock.patch.object(gate.platform, "libc_ver", return_value=("glibc", "2.27")),
+            mock.patch.object(gate.os, "confstr", return_value="glibc 2.27"),
+            mock.patch.object(
+                gate.platform,
+                "libc_ver",
+                side_effect=AssertionError("executable scanning is not host identity"),
+            ),
             mock.patch.object(gate, "_read_os_release", return_value=exact),
         ):
             gate._verify_exact_host()
@@ -150,8 +155,30 @@ class HostProfileTests(unittest.TestCase):
         with (
             mock.patch.object(gate.platform, "system", return_value="Linux"),
             mock.patch.object(gate.platform, "machine", return_value="x86_64"),
-            mock.patch.object(gate.platform, "libc_ver", return_value=("glibc", "2.27")),
+            mock.patch.object(gate.os, "confstr", return_value="glibc 2.27"),
             mock.patch.object(gate, "_read_os_release", return_value=changed),
+        ):
+            with self.assertRaises(gate.LinuxReferenceAppGateError):
+                gate._verify_exact_host()
+
+        for identity in (None, "musl 1.2", "glibc 2.27.1", "glibc 2.28"):
+            with self.subTest(glibc_identity=identity):
+                with (
+                    mock.patch.object(gate.platform, "system", return_value="Linux"),
+                    mock.patch.object(
+                        gate.platform, "machine", return_value="x86_64"
+                    ),
+                    mock.patch.object(gate.os, "confstr", return_value=identity),
+                    mock.patch.object(gate, "_read_os_release", return_value=exact),
+                ):
+                    with self.assertRaises(gate.LinuxReferenceAppGateError):
+                        gate._verify_exact_host()
+
+        with (
+            mock.patch.object(gate.platform, "system", return_value="Linux"),
+            mock.patch.object(gate.platform, "machine", return_value="x86_64"),
+            mock.patch.object(gate.os, "confstr", side_effect=OSError("unavailable")),
+            mock.patch.object(gate, "_read_os_release", return_value=exact),
         ):
             with self.assertRaises(gate.LinuxReferenceAppGateError):
                 gate._verify_exact_host()

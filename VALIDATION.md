@@ -16,7 +16,10 @@ builds. The complete iOS gate result is `PASS (2026-08-07)` for that exact
 frozen epoch.
 
 This snapshot is not implementation-complete. The Linux x86_64 source path is
-implemented but has no exact target-host PASS. Local stabilization now uses an
+implemented but has no exact target-host PASS. Its host gate now requires the
+exact `_CS_GNU_LIBC_VERSION` identity returned by the libc loaded into the gate
+process instead of inferring libc from executable strings. Local stabilization
+now uses an
 ordered protocol-v4 worker retirement handshake after malformed replies and
 worker-authored terminal failures, and includes `Isolate.spawn` inside the
 startup deadline. Sessions and pools now
@@ -253,7 +256,7 @@ paths.
 | Scoped candidate approval validator | 33/33 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
 | POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 799-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
-| Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
+| Linux final-app auditor/reference-gate focused tests | 39/39 passed, including exact loaded-glibc identity and malformed/unavailable identity rejection; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
 | Android load-order receipt validator | 30/30 focused tests passed; the exact transitive native-library verifier is pinned before its captured bytes can execute |
 | Apple final-application auditor focused tests | 54/54 passed |
