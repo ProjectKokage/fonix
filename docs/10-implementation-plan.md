@@ -557,6 +557,15 @@ host. Broader seeded worker lifecycle stress and allocation enumeration for
 less common composite, external-data, and profiling paths continue within this
 phase.
 
+The follow-up source-closure checkpoint validates release ZIP and gzip-compressed
+Git tar archives without extraction. It binds the archive's declared revision,
+closed member inventory, exact manifest-listed bytes, implied directories, and
+executable semantics to the current repository baseline through the same
+retained descriptor that passed the candidate size and SHA-256 check. Scoped
+approval requires the exact canonical derived closure record; the result is
+offline consistency evidence only, not archive provenance, reproducibility,
+signing, readiness, or publication authority.
+
 The 2026-08-08 CPU measurement checkpoint adds a reproducible 4.29-GFLOP
 static-weight MatMul with exact input/reference bytes and a bounded
 macOS/Linux final-application target path. The path separates runtime, session,

@@ -33,6 +33,9 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 RECEIPT_SCHEMA_PATH = REPOSITORY / "templates/android/load_order_receipt.schema.json"
 VERIFIER_PATH = REPOSITORY / "templates/android/verify_native_libs.py"
 MAX_TOOL_SOURCE_BYTES = 16 * 1024 * 1024
+EXPECTED_NATIVE_VERIFIER_SHA256 = (
+    "7a6313af726ee099fe586401145e7c84f706aa4e6007f042ebe146def1e8b7ad"
+)
 
 
 class LoadOrderReceiptError(RuntimeError):
@@ -131,6 +134,10 @@ _VALIDATOR_SOURCE, VALIDATOR_IDENTITY = _read_stable_source(
 _VERIFIER_SOURCE, VERIFIER_IDENTITY = _read_stable_source(
     VERIFIER_PATH, "Android native-library verifier"
 )
+if VERIFIER_IDENTITY["sha256"] != EXPECTED_NATIVE_VERIFIER_SHA256:
+    raise LoadOrderReceiptError(
+        "Android native-library verifier does not match the pinned bytes"
+    )
 VERIFIER = types.ModuleType("fonix_android_load_order_native_verifier")
 VERIFIER.__file__ = str(VERIFIER_PATH)
 exec(compile(_VERIFIER_SOURCE, str(VERIFIER_PATH), "exec"), VERIFIER.__dict__)

@@ -57,6 +57,7 @@ class _ScopeFixture:
     sherpa_pubspec_lock: Path
     release_evidence_helper: Path
     sherpa_lock_helper: Path
+    source_checksum_helper: Path
     schema: Path
 
 
@@ -81,6 +82,7 @@ class ScopedReleaseScopeTests(unittest.TestCase):
         sherpa_lock_helper = (
             repository / "tool/ci/validate_android_load_order_receipt.py"
         )
+        source_checksum_helper = repository / "tool/ci/source_checksum_manifest.py"
         schema = repository / "templates/ci/scoped_release_scope.schema.json"
         for path in (
             scope,
@@ -89,6 +91,7 @@ class ScopedReleaseScopeTests(unittest.TestCase):
             sherpa_pubspec_lock,
             release_evidence_helper,
             sherpa_lock_helper,
+            source_checksum_helper,
             schema,
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +101,7 @@ class ScopedReleaseScopeTests(unittest.TestCase):
         sherpa_pubspec_lock.write_bytes(SHERPA_PUBSPEC_LOCK.read_bytes())
         release_evidence_helper.write_bytes(RELEASE_EVIDENCE_HELPER.read_bytes())
         sherpa_lock_helper.write_bytes(SHERPA_LOCK_HELPER.read_bytes())
+        source_checksum_helper.write_bytes(SOURCE_CHECKSUM_HELPER.read_bytes())
         schema.write_bytes(SCHEMA.read_bytes())
         return _ScopeFixture(
             repository=repository,
@@ -107,6 +111,7 @@ class ScopedReleaseScopeTests(unittest.TestCase):
             sherpa_pubspec_lock=sherpa_pubspec_lock,
             release_evidence_helper=release_evidence_helper,
             sherpa_lock_helper=sherpa_lock_helper,
+            source_checksum_helper=source_checksum_helper,
             schema=schema,
         )
 
@@ -214,6 +219,9 @@ class ScopedReleaseScopeTests(unittest.TestCase):
         )
         self.fixture.sherpa_lock_helper.write_bytes(
             SHERPA_LOCK_HELPER.read_bytes()
+        )
+        self.fixture.source_checksum_helper.write_bytes(
+            SOURCE_CHECKSUM_HELPER.read_bytes()
         )
 
     def test_accepts_exact_cpu_scope_and_emits_path_free_deterministic_record(

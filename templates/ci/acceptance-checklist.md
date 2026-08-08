@@ -30,6 +30,8 @@
 
 - [ ] Every native artifact is pinned and SHA-256 verified.
 - [ ] Archive extraction is traversal-safe.
+- [ ] A release source archive passes the closed no-extraction member,
+      revision, content, executable-mode, and bound checks.
 - [ ] Lockfile/build manifest is updated.
 - [ ] Licenses/notices/SBOM are updated.
 - [ ] No moving `latest` URL/version resolution is used.
@@ -100,6 +102,9 @@
 - [ ] Source closure, Dart, binding, native/sanitizer,
       lifecycle/cancellation, QNN contract/tamper, and Windows
       source/cross-build/loader-security regression records are present.
+- [ ] `shared-source-closure` exactly matches the canonical record derived from
+      the same retained source-archive descriptor that passed size and SHA-256
+      verification.
 - [ ] Detached API/ABI, licensing, security, signing, and publication approval
       statements and externally produced signature-verification receipts bind
       the exact canonical candidate subject.

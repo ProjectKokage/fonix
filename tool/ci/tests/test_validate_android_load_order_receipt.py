@@ -495,6 +495,39 @@ class AndroidLoadOrderReceiptTest(unittest.TestCase):
         self.assertIn(expected, result.stderr)
         self.assertFalse((self.root / "validated.json").exists())
 
+    def test_rejects_unpinned_native_verifier_before_executing_it(self) -> None:
+        isolated_repository = self.root / "isolated-repository"
+        isolated_script = (
+            isolated_repository / "tool/ci/validate_android_load_order_receipt.py"
+        )
+        isolated_verifier = (
+            isolated_repository / "templates/android/verify_native_libs.py"
+        )
+        isolated_script.parent.mkdir(parents=True)
+        isolated_verifier.parent.mkdir(parents=True)
+        isolated_script.write_bytes(SCRIPT.read_bytes())
+        marker = self.root / "unpinned-verifier-executed"
+        isolated_verifier.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-B", str(isolated_script), "--help"],
+            cwd=isolated_repository,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(
+            "Android native-library verifier does not match the pinned bytes",
+            result.stderr,
+        )
+        self.assertFalse(marker.exists())
+
     def test_accepts_complete_evidence_and_output_is_path_free_deterministic(self) -> None:
         first = self._run("first.json")
         self.assertEqual(first.returncode, 0, first.stderr)

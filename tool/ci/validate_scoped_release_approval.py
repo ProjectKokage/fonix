@@ -11,10 +11,10 @@ does not weaken the separate five-platform release gate.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
-import importlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -23,7 +23,8 @@ import secrets
 import stat
 import subprocess
 import sys
-from typing import Any, Iterable
+from types import ModuleType
+from typing import Any, Iterable, Iterator, Mapping
 
 sys.dont_write_bytecode = True
 
@@ -45,6 +46,7 @@ SCOPE_PATH = "release/scoped-pre-1.0-v1.json"
 SCHEMA_PATH = "templates/ci/scoped_release_approval.schema.json"
 SCOPE_HELPER_PATH = "tool/ci/validate_scoped_release_scope.py"
 SOURCE_HELPER_PATH = "tool/ci/source_checksum_manifest.py"
+SOURCE_ARCHIVE_HELPER_PATH = "tool/ci/validate_source_release_archive.py"
 SOURCE_MANIFEST_PATH = "MANIFEST.sha256"
 PUBSPEC_LOCK_PATH = "pubspec.lock"
 NATIVE_LOCK_PATH = "native/versions.lock.yaml"
@@ -54,10 +56,13 @@ EXPECTED_SCHEMA_SHA256 = (
     "9bf93a714ae89a0fdea3bb6a564fb497c1b09f1fd61e8a008a56335fdc443663"
 )
 EXPECTED_SCOPE_HELPER_SHA256 = (
-    "851b5e89a6e294130aff5829130c4a834a807143fa011375b0ba1987948ed6b4"
+    "fb498411be31111c4540b60d4c18090055aacd61c08646877ca9cefc4b3f0e9d"
 )
 EXPECTED_SOURCE_HELPER_SHA256 = (
     "9ef720e3bae376a01b4b61c2b2a4214c31760075c23bd64dca4fb887641dd5b6"
+)
+EXPECTED_SOURCE_ARCHIVE_HELPER_SHA256 = (
+    "3ef7aa8ca585b9a260f6e4e01cb8fe242fc02317fd83acdc5524782208de4751"
 )
 
 POLICY_ID = "scoped-pre-1.0-cpu-v1"
@@ -72,6 +77,13 @@ REPORT_CLAIM_BOUNDARY = (
     "pinned bundle. Signature-verification receipts are external trust inputs; "
     "this validator does not perform cryptographic verification, authorize "
     "publication or distribution, or weaken the global five-platform release gate."
+)
+SOURCE_ARCHIVE_CLAIM_BOUNDARY = (
+    "Offline source-closure validation only. It binds one archive's declared "
+    "Git revision, closed member inventory, contents, manifest, and executable "
+    "semantics to the current repository baseline; it does not authenticate "
+    "archive origin, prove build reproducibility or target behavior, establish "
+    "licensing, signing, or readiness, or authorize publication or distribution."
 )
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -131,6 +143,37 @@ _EVIDENCE_KEYS = (
 _EVIDENCE_KEY_SET = frozenset(_EVIDENCE_KEYS)
 _SHARED_KEYS = frozenset({"category", "records"})
 _REFERENCE_KEYS = frozenset({"id", "path", "sha256", "sizeBytes", "mediaType"})
+_SOURCE_ARCHIVE_RECORD_KEYS = frozenset(
+    {
+        "schemaVersion",
+        "result",
+        "claimStatus",
+        "purpose",
+        "validationScope",
+        "archive",
+        "source",
+        "tools",
+        "schemas",
+        "claimBoundary",
+    }
+)
+_SOURCE_ARCHIVE_IDENTITY_KEYS = frozenset({"sizeBytes", "sha256"})
+_SOURCE_ARCHIVE_SOURCE_KEYS = frozenset(
+    {
+        "revision",
+        "revisionBinding",
+        "manifestPath",
+        "manifestSha256",
+        "manifestSizeBytes",
+        "manifestEntryCount",
+        "memberCount",
+        "regularFileCount",
+        "directoryCount",
+        "executableFileCount",
+        "expandedBytes",
+        "inventorySha256",
+    }
+)
 _APPROVAL_ENTRY_KEYS = frozenset(
     {
         "category",
@@ -214,6 +257,14 @@ class EvidenceReference:
 class EvidenceContents:
     raw: bytes | None
     parsed_json: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class RetainedEvidence:
+    """One verified evidence descriptor borrowed for bounded inspection."""
+
+    descriptor: int
+    contents: EvidenceContents
 
 
 @dataclass
@@ -659,12 +710,15 @@ def _safe_relative_path(value: Any, label: str) -> str:
     return text
 
 
-def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
+def _stat_identity(
+    metadata: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int]:
     return (
         metadata.st_dev,
         metadata.st_ino,
         metadata.st_mode,
         metadata.st_size,
+        metadata.st_nlink,
         metadata.st_mtime_ns,
         metadata.st_ctime_ns,
     )
@@ -783,7 +837,7 @@ class EvidenceReader:
     def __init__(self, root: Path) -> None:
         self.root = root
         self._root_descriptor: int | None = None
-        self._root_identity: tuple[int, int, int, int, int, int] | None = None
+        self._root_identity: tuple[int, int, int, int, int, int, int] | None = None
         self._seen_ids: set[str] = set()
         self._seen_paths: set[str] = set()
         self._seen_files: set[tuple[int, int]] = set()
@@ -865,9 +919,15 @@ class EvidenceReader:
         finally:
             os.close(current)
 
-    def read(
-        self, reference: EvidenceReference, *, capture_raw: bool = False
-    ) -> EvidenceContents:
+    @contextmanager
+    def retain_verified(
+        self,
+        reference: EvidenceReference,
+        *,
+        capture_raw: bool = False,
+    ) -> Iterator[RetainedEvidence]:
+        """Yield one same-inode, hash-verified descriptor without transferring it."""
+
         if reference.identifier in self._seen_ids:
             raise ScopedReleaseApprovalError(
                 f"evidence duplicates ID {reference.identifier!r}"
@@ -876,9 +936,12 @@ class EvidenceReader:
             raise ScopedReleaseApprovalError(
                 f"evidence duplicates path {reference.path!r}"
             )
-        self.reference_count += 1
-        if self.reference_count > MAX_EVIDENCE_REFERENCES:
+        next_reference_count = self.reference_count + 1
+        if next_reference_count > MAX_EVIDENCE_REFERENCES:
             raise ScopedReleaseApprovalError("evidence reference count exceeds its bound")
+        next_total_bytes = self.total_bytes + reference.size_bytes
+        if next_total_bytes > MAX_EVIDENCE_TOTAL_BYTES:
+            raise ScopedReleaseApprovalError("evidence bytes exceed the aggregate bound")
 
         descriptor = self._open_relative(reference.path)
         raw: bytes | None = None
@@ -888,6 +951,10 @@ class EvidenceReader:
             if not stat.S_ISREG(before.st_mode):
                 raise ScopedReleaseApprovalError(
                     f"evidence {reference.identifier!r} must be a regular file"
+                )
+            if before.st_nlink != 1:
+                raise ScopedReleaseApprovalError(
+                    f"evidence {reference.identifier!r} must not have external hard links"
                 )
             if before.st_size != reference.size_bytes:
                 raise ScopedReleaseApprovalError(
@@ -930,12 +997,51 @@ class EvidenceReader:
                 )
             if keep_raw:
                 raw = b"".join(chunks)
+            parsed = None
+            if raw is not None and reference.media_type in JSON_MEDIA_TYPES:
+                parsed = _strict_json(
+                    raw, label=f"evidence {reference.identifier!r}"
+                )
+            try:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+            except OSError as error:
+                raise ScopedReleaseApprovalError(
+                    f"evidence {reference.identifier!r} cannot be retained for inspection"
+                ) from error
+            yield RetainedEvidence(
+                descriptor=descriptor,
+                contents=EvidenceContents(raw=raw, parsed_json=parsed),
+            )
+            try:
+                offset = os.lseek(descriptor, 0, os.SEEK_CUR)
+                after_inspection = os.fstat(descriptor)
+            except OSError as error:
+                raise ScopedReleaseApprovalError(
+                    f"evidence {reference.identifier!r} was not retained safely"
+                ) from error
+            if offset != 0:
+                raise ScopedReleaseApprovalError(
+                    f"evidence {reference.identifier!r} inspector did not restore its offset"
+                )
+            if _stat_identity(after_inspection) != identity:
+                raise ScopedReleaseApprovalError(
+                    f"evidence {reference.identifier!r} changed while being inspected"
+                )
         finally:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError:
+                # A borrower that improperly closed the descriptor is rejected by
+                # the post-yield lseek/fstat checks; never mask that primary error.
+                pass
 
         reopened = self._open_relative(reference.path)
         try:
-            if _stat_identity(os.fstat(reopened)) != identity:
+            reopened_metadata = os.fstat(reopened)
+            if (
+                reopened_metadata.st_nlink != 1
+                or _stat_identity(reopened_metadata) != identity
+            ):
                 raise ScopedReleaseApprovalError(
                     f"evidence {reference.identifier!r} changed after being read"
                 )
@@ -943,9 +1049,8 @@ class EvidenceReader:
             os.close(reopened)
         self._check_root()
 
-        self.total_bytes += reference.size_bytes
-        if self.total_bytes > MAX_EVIDENCE_TOTAL_BYTES:
-            raise ScopedReleaseApprovalError("evidence bytes exceed the aggregate bound")
+        self.reference_count = next_reference_count
+        self.total_bytes = next_total_bytes
         self._seen_ids.add(reference.identifier)
         self._seen_paths.add(reference.path)
         self._seen_files.add(file_identity)
@@ -958,10 +1063,13 @@ class EvidenceReader:
             }
         )
 
-        parsed = None
-        if raw is not None and reference.media_type in JSON_MEDIA_TYPES:
-            parsed = _strict_json(raw, label=f"evidence {reference.identifier!r}")
-        return EvidenceContents(raw=raw, parsed_json=parsed)
+    def read(
+        self, reference: EvidenceReference, *, capture_raw: bool = False
+    ) -> EvidenceContents:
+        with self.retain_verified(
+            reference, capture_raw=capture_raw
+        ) as retained:
+            return retained.contents
 
 
 def _canonical_repository(path: Path) -> Path:
@@ -1003,22 +1111,24 @@ def _import_pinned_helper(
         raise ScopedReleaseApprovalError(
             f"actual {label} bytes do not match the validator-pinned helper"
         )
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as error:
-        raise ScopedReleaseApprovalError(f"{label} could not be loaded") from error
-    imported_file = getattr(module, "__file__", None)
-    if not isinstance(imported_file, str) or Path(imported_file).absolute() != actual_path:
-        raise ScopedReleaseApprovalError(
-            f"imported {label} did not come from the validator directory"
-        )
-    imported_raw = _read_regular(
-        actual_path, label=f"imported {label}", maximum=MAX_HELPER_BYTES
+    private_name = (
+        f"_fonix_scoped_release_{module_name}_{secrets.token_hex(16)}"
     )
-    if hashlib.sha256(imported_raw).hexdigest() != expected_sha256:
-        raise ScopedReleaseApprovalError(
-            f"imported {label} bytes do not match the validator-pinned helper"
+    module = ModuleType(private_name)
+    module.__file__ = str(repository_path)
+    module.__package__ = ""
+    sys.modules[private_name] = module
+    try:
+        code = compile(
+            repository_raw,
+            str(repository_path),
+            "exec",
+            dont_inherit=True,
         )
+        exec(code, module.__dict__)
+    except Exception as error:
+        sys.modules.pop(private_name, None)
+        raise ScopedReleaseApprovalError(f"{label} could not be loaded") from error
     return module
 
 
@@ -1055,7 +1165,7 @@ def _require_reference(
 
 def _validate_repository_baseline(
     repository: Path, scope_path: Path
-) -> tuple[dict[str, Any], dict[str, Any], Any, Any]:
+) -> tuple[dict[str, Any], dict[str, Any], Any, Any, Any]:
     schema_path = _repository_file(repository, SCHEMA_PATH)
     schema_raw = _read_regular(
         schema_path, label="approval schema", maximum=MAX_SCHEMA_BYTES
@@ -1076,6 +1186,21 @@ def _validate_repository_baseline(
         expected_sha256=EXPECTED_SOURCE_HELPER_SHA256,
         label="source-manifest validator",
     )
+    source_archive_helper = _import_pinned_helper(
+        repository,
+        relative_path=SOURCE_ARCHIVE_HELPER_PATH,
+        module_name="validate_source_release_archive",
+        expected_sha256=EXPECTED_SOURCE_ARCHIVE_HELPER_SHA256,
+        label="source-release archive validator",
+    )
+    if (
+        source_archive_helper.SOURCE_HELPER_PATH != SOURCE_HELPER_PATH
+        or source_archive_helper.EXPECTED_SOURCE_HELPER_SHA256
+        != EXPECTED_SOURCE_HELPER_SHA256
+    ):
+        raise ScopedReleaseApprovalError(
+            "source-release archive validator has a mismatched source-helper pin"
+        )
     scope_helper = _import_pinned_helper(
         repository,
         relative_path=SCOPE_HELPER_PATH,
@@ -1104,6 +1229,14 @@ def _validate_repository_baseline(
         raise ScopedReleaseApprovalError(
             "repository source manifest digest changed during validation"
         )
+    try:
+        source_manifest_entry_count = len(
+            source_helper.parse_manifest(source_manifest_raw)
+        )
+    except source_helper.SourceManifestError as error:
+        raise ScopedReleaseApprovalError(
+            f"repository source manifest is invalid: {error}"
+        ) from error
 
     current_files: dict[str, bytes] = {}
     for relative in (PUBSPEC_LOCK_PATH, NATIVE_LOCK_PATH, SHERPA_LOCK_PATH):
@@ -1155,10 +1288,18 @@ def _validate_repository_baseline(
     baseline = {
         "schemaSha256": schema_sha256,
         "sourceManifestSha256": source_manifest_sha256,
+        "sourceManifestSizeBytes": len(source_manifest_raw),
+        "sourceManifestEntryCount": source_manifest_entry_count,
         "sourceRevision": source_revision,
         "files": current_files,
     }
-    return scope_record, baseline, scope_helper, source_helper
+    return (
+        scope_record,
+        baseline,
+        scope_helper,
+        source_helper,
+        source_archive_helper,
+    )
 
 
 def _validate_scope_binding(
@@ -1193,13 +1334,167 @@ def _validate_scope_binding(
     return reference.sha256
 
 
+def _validate_source_archive_record(
+    value: Any,
+    *,
+    reference: EvidenceReference,
+    source_revision: str,
+    baseline: dict[str, Any],
+    source_archive_helper: Any,
+) -> bytes:
+    record = _object(value, "derived source archive validation record")
+    _exact_keys(
+        record,
+        _SOURCE_ARCHIVE_RECORD_KEYS,
+        "derived source archive validation record",
+    )
+    expected_constants = {
+        "schemaVersion": 1,
+        "result": "validated",
+        "claimStatus": "source-closure-only",
+        "purpose": "source-release-archive-closure-validation",
+        "validationScope": "offline-consistency-only",
+        "claimBoundary": SOURCE_ARCHIVE_CLAIM_BOUNDARY,
+    }
+    for key, expected in expected_constants.items():
+        if record[key] != expected or type(record[key]) is not type(expected):
+            raise ScopedReleaseApprovalError(
+                f"derived source archive validation record {key} is invalid"
+            )
+
+    archive = _object(record["archive"], "derived source archive archive")
+    _exact_keys(
+        archive,
+        frozenset({"format", "mediaType", "sha256", "sizeBytes"}),
+        "derived source archive archive",
+    )
+    expected_archive_format = {
+        "application/zip": "git-archive-zip-v1",
+        "application/gzip": "git-archive-tar-gzip-v1",
+    }[reference.media_type]
+    if type(archive["sizeBytes"]) is not int or archive != {
+        "format": expected_archive_format,
+        "mediaType": reference.media_type,
+        "sha256": reference.sha256,
+        "sizeBytes": reference.size_bytes,
+    }:
+        raise ScopedReleaseApprovalError(
+            "derived source archive identity differs from its retained evidence"
+        )
+
+    source = _object(record["source"], "derived source archive source")
+    _exact_keys(
+        source,
+        _SOURCE_ARCHIVE_SOURCE_KEYS,
+        "derived source archive source",
+    )
+    expected_revision_binding = (
+        "zip-comment"
+        if reference.media_type == "application/zip"
+        else "pax-global-comment"
+    )
+    expected_source = {
+        "revision": source_revision,
+        "revisionBinding": expected_revision_binding,
+        "manifestPath": SOURCE_MANIFEST_PATH,
+        "manifestSha256": baseline["sourceManifestSha256"],
+        "manifestSizeBytes": baseline["sourceManifestSizeBytes"],
+        "manifestEntryCount": baseline["sourceManifestEntryCount"],
+    }
+    for key, expected in expected_source.items():
+        if source[key] != expected or type(source[key]) is not type(expected):
+            raise ScopedReleaseApprovalError(
+                f"derived source archive source {key} differs from the baseline"
+            )
+    inventory_sha256 = _digest(
+        source["inventorySha256"],
+        "derived source archive source.inventorySha256",
+    )
+    bounded_counts = {
+        "memberCount": (2, source_archive_helper.MAXIMUM_MEMBER_COUNT),
+        "regularFileCount": (
+            2,
+            source_archive_helper.MAXIMUM_REGULAR_FILE_COUNT,
+        ),
+        "directoryCount": (
+            1,
+            source_archive_helper.MAXIMUM_DIRECTORY_COUNT,
+        ),
+        "executableFileCount": (0, 16_384),
+        "expandedBytes": (1, 516 * 1024 * 1024),
+    }
+    counts: dict[str, int] = {}
+    for key, (minimum, maximum) in bounded_counts.items():
+        item = source[key]
+        if type(item) is not int or not minimum <= item <= maximum:
+            raise ScopedReleaseApprovalError(
+                f"derived source archive source.{key} is outside its bound"
+            )
+        counts[key] = item
+    if (
+        counts["memberCount"]
+        != counts["regularFileCount"] + counts["directoryCount"]
+        or counts["regularFileCount"]
+        != baseline["sourceManifestEntryCount"] + 1
+        or counts["executableFileCount"] > counts["regularFileCount"]
+        or counts["expandedBytes"] < baseline["sourceManifestSizeBytes"]
+    ):
+        raise ScopedReleaseApprovalError(
+            "derived source archive counts are internally inconsistent"
+        )
+
+    tools = _object(record["tools"], "derived source archive tools")
+    _exact_keys(
+        tools,
+        frozenset({"validator", "sourceManifestValidator"}),
+        "derived source archive tools",
+    )
+    schemas = _object(record["schemas"], "derived source archive schemas")
+    _exact_keys(
+        schemas,
+        frozenset({"validation"}),
+        "derived source archive schemas",
+    )
+
+    def validate_identity(value: Any, label: str, expected_sha256: str) -> None:
+        identity = _object(value, label)
+        _exact_keys(identity, _SOURCE_ARCHIVE_IDENTITY_KEYS, label)
+        _positive_integer(identity["sizeBytes"], f"{label}.sizeBytes", maximum=4 * 1024 * 1024)
+        if _digest(identity["sha256"], f"{label}.sha256") != expected_sha256:
+            raise ScopedReleaseApprovalError(f"{label} digest is not pinned")
+
+    validate_identity(
+        tools["validator"],
+        "derived source archive tools.validator",
+        EXPECTED_SOURCE_ARCHIVE_HELPER_SHA256,
+    )
+    validate_identity(
+        tools["sourceManifestValidator"],
+        "derived source archive tools.sourceManifestValidator",
+        EXPECTED_SOURCE_HELPER_SHA256,
+    )
+    validate_identity(
+        schemas["validation"],
+        "derived source archive schemas.validation",
+        source_archive_helper.EXPECTED_VALIDATION_SCHEMA_SHA256,
+    )
+    if inventory_sha256 != source["inventorySha256"]:
+        raise ScopedReleaseApprovalError(
+            "derived source archive inventory digest is invalid"
+        )
+    return _canonical_pretty_json(record)
+
+
 def _validate_source_binding(
     value: Any,
     *,
     scope_record: dict[str, Any],
     baseline: dict[str, Any],
     reader: EvidenceReader,
-) -> dict[str, Any]:
+    repository: Path,
+    source_helper: Any,
+    source_archive_helper: Any,
+) -> tuple[dict[str, Any], bytes]:
     source = _object(value, "candidateStatement.source")
     _exact_keys(source, _SOURCE_KEYS, "candidateStatement.source")
     source_revision = _string(
@@ -1263,7 +1558,6 @@ def _validate_source_binding(
         media_types=frozenset({"text/plain"}),
     )
 
-    reader.read(references["sourceArchive"])
     manifest_contents = reader.read(references["sourceManifest"], capture_raw=True)
     dart_lock_contents = reader.read(references["dartPubspecLock"], capture_raw=True)
     native_lock_contents = reader.read(references["nativeLock"], capture_raw=True)
@@ -1286,6 +1580,30 @@ def _validate_source_binding(
     if references["sherpaPubspecLock"].sha256 != scope_record["sherpaPubspecLockSha256"]:
         raise ScopedReleaseApprovalError("candidate sherpa lock differs from the scope baseline")
 
+    archive_reference = references["sourceArchive"]
+    try:
+        with reader.retain_verified(archive_reference) as retained:
+            archive_record = source_archive_helper.validate_archive_descriptor(
+                repository,
+                retained.descriptor,
+                media_type=archive_reference.media_type,
+                expected_sha256=archive_reference.sha256,
+                expected_size_bytes=archive_reference.size_bytes,
+                expected_source_revision=source_revision,
+                source_helper=source_helper,
+            )
+    except source_archive_helper.SourceReleaseArchiveError as error:
+        raise ScopedReleaseApprovalError(
+            f"candidate source archive is invalid: {error}"
+        ) from error
+    archive_record_bytes = _validate_source_archive_record(
+        archive_record,
+        reference=archive_reference,
+        source_revision=source_revision,
+        baseline=baseline,
+        source_archive_helper=source_archive_helper,
+    )
+
     return {
         "sourceRevision": source_revision,
         "sourceArchiveSha256": references["sourceArchive"].sha256,
@@ -1295,7 +1613,13 @@ def _validate_source_binding(
         "sherpaPubspecLockSha256": references["sherpaPubspecLock"].sha256,
         "packageName": source["packageName"],
         "packageVersion": source["packageVersion"],
-    }
+        "sourceArchiveValidation": {
+            "recordSha256": hashlib.sha256(archive_record_bytes).hexdigest(),
+            "inventorySha256": archive_record["source"]["inventorySha256"],
+            "validatorSha256": archive_record["tools"]["validator"]["sha256"],
+            "schemaSha256": archive_record["schemas"]["validation"]["sha256"],
+        },
+    }, archive_record_bytes
 
 
 def _validate_record_subset(
@@ -1305,6 +1629,7 @@ def _validate_record_subset(
     label: str,
     slot_prefix: str,
     reader: EvidenceReader,
+    expected_raw_by_id: Mapping[str, bytes] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     records = _array(value, label, minimum=0, maximum=8)
     contract_indexes = {
@@ -1332,7 +1657,16 @@ def _validate_record_subset(
                 f"{reference_label}.mediaType does not match the exact evidence record"
             )
         present.add(reference.identifier)
-        reader.read(reference)
+        expected_raw = (
+            None
+            if expected_raw_by_id is None
+            else expected_raw_by_id.get(reference.identifier)
+        )
+        contents = reader.read(reference, capture_raw=expected_raw is not None)
+        if expected_raw is not None and contents.raw != expected_raw:
+            raise ScopedReleaseApprovalError(
+                f"{reference_label} does not match its exact derived record"
+            )
 
     required_slots = [
         f"{slot_prefix}:{contract.identifier}" for contract in contracts
@@ -1411,7 +1745,7 @@ def _validate_compositions(
 
 
 def _validate_shared_regressions(
-    value: Any, *, reader: EvidenceReader
+    value: Any, *, reader: EvidenceReader, source_closure_record: bytes
 ) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     regressions = _array(
         value, "candidateStatement.sharedRegressionEvidence", minimum=0, maximum=7
@@ -1445,6 +1779,11 @@ def _validate_shared_regressions(
             label=f"{label}.records",
             slot_prefix=f"shared:{category}",
             reader=reader,
+            expected_raw_by_id=(
+                {"shared-source-closure": source_closure_record}
+                if category == "source-closure"
+                else None
+            ),
         )
         satisfied_slots.extend(satisfied)
         missing_slots.extend(missing)
@@ -1696,18 +2035,25 @@ def validate_approval(
             "candidateSubjectSha256 does not match canonical candidateStatement bytes"
         )
 
-    scope_record, baseline, scope_helper, source_helper = _validate_repository_baseline(
-        repository, canonical_scope
-    )
+    (
+        scope_record,
+        baseline,
+        scope_helper,
+        source_helper,
+        source_archive_helper,
+    ) = _validate_repository_baseline(repository, canonical_scope)
     with EvidenceReader(evidence_root) as reader:
         scope_validation_record_sha256 = _validate_scope_binding(
             candidate["scope"], scope_record=scope_record, reader=reader
         )
-        source_baseline = _validate_source_binding(
+        source_baseline, source_closure_record = _validate_source_binding(
             candidate["source"],
             scope_record=scope_record,
             baseline=baseline,
             reader=reader,
+            repository=repository,
+            source_helper=source_helper,
+            source_archive_helper=source_archive_helper,
         )
         (
             composition_required_slots,
@@ -1721,7 +2067,9 @@ def validate_approval(
             shared_satisfied_slots,
             shared_missing_slots,
         ) = _validate_shared_regressions(
-            candidate["sharedRegressionEvidence"], reader=reader
+            candidate["sharedRegressionEvidence"],
+            reader=reader,
+            source_closure_record=source_closure_record,
         )
         approval_results, approved_categories, rejected_categories, missing_categories = (
             _validate_detached_approvals(

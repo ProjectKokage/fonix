@@ -247,13 +247,15 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 766/766 passed after regenerating the closed source manifest |
-| Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `38b298fcb36e6f0eb5390485f15db6f1bb7c9b8acdb372ad1e3f83cd4878652f` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
-| Scoped candidate approval validator | 26/26 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, hostile Git environment isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 756-test Python suite |
+| Python CI-script tests | 799/799 passed after regenerating the closed source manifest |
+| Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `77afac75f64af4df4156e7c60b9fd291d32fc51f41bcdc3cff949de070ed5c58` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
+| Source-release archive validator | 25/25 focused tests passed; exact Git-tree and manifest closure, ZIP and gzip/tar structure, revision rebinding, verified-source loading, retained-descriptor ownership, malformed input, tamper, bounds, and deterministic publication are covered without extraction |
+| Scoped candidate approval validator | 33/33 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 799-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
+| Android load-order receipt validator | 30/30 focused tests passed; the exact transitive native-library verifier is pinned before its captured bytes can execute |
 | Apple final-application auditor focused tests | 54/54 passed |
 | iOS reference-gate focused tests | 97/97 passed |
 | macOS reference/final-app gate focused tests | 32/32 passed |
@@ -803,14 +805,16 @@ five-platform, unqualified `Release-ready`, and 1.0 claims. Existing portable,
 static, source, tamper, cross-build, and loader-security regressions remain
 mandatory even for excluded tuples.
 
-The scoped candidate validator does not itself unpack opaque evidence archives
-or perform cryptographic signature verification. It binds every evidence file
-by exact ID, media type, size, and SHA-256, binds the candidate statement to an
-out-of-band bundle SHA-256, and requires the corresponding external
-verification and approval receipts. Those receipts, their authority, and the
-actual detached-signature verification remain external release inputs. Until
-the complete external bundle passes with `--require-scoped-ready`, scoped
-publication remains blocked.
+The scoped candidate validator does not perform cryptographic signature
+verification. It binds every evidence file by exact ID, media type, size, and
+SHA-256 and binds the candidate statement to an out-of-band bundle SHA-256.
+The source archive additionally undergoes bounded no-extraction semantic
+inspection through that same retained descriptor, and the shared source-closure
+record must exactly match the canonical derived result. This proves offline
+archive/repository consistency, not archive origin or provenance. External
+verification receipts, their authority, and the actual detached-signature
+verification remain external release inputs. Until the complete external
+bundle passes with `--require-scoped-ready`, scoped publication remains blocked.
 
 In particular, the reference app's local ad-hoc build disables library
 validation because it has no authorized Team ID shared with FlutterMacOS. That

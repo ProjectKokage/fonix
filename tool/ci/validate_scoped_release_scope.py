@@ -11,15 +11,16 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
-import importlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
 import stat
 import sys
 import tempfile
-from typing import Any, Iterable
+from types import ModuleType
+from typing import Any, Iterable, Mapping
 
 sys.dont_write_bytecode = True
 
@@ -38,6 +39,7 @@ SHERPA_PUBSPEC_LOCK_PATH = "templates/android/sherpa_reference_app/pubspec.lock"
 PUBSPEC_PATH = "pubspec.yaml"
 RELEASE_EVIDENCE_HELPER_PATH = "tool/ci/generate_release_sbom.py"
 SHERPA_LOCK_HELPER_PATH = "tool/ci/validate_android_load_order_receipt.py"
+SOURCE_MANIFEST_HELPER_PATH = "tool/ci/source_checksum_manifest.py"
 
 POLICY_ID = "scoped-pre-1.0-cpu-v1"
 CLAIM_STATUS = "scope-only"
@@ -49,7 +51,10 @@ EXPECTED_RELEASE_EVIDENCE_HELPER_SHA256 = (
     "6add4550b18e9733f52e33bd47847c88c49c61b752c5e4720c54ec456710f130"
 )
 EXPECTED_SHERPA_LOCK_HELPER_SHA256 = (
-    "21b42508d006d23d104f64e4b955a1c24f77682a71087abcd9c197ca21e039da"
+    "4b1c2087ca7cf204487a591d512cd11268c0731c478bf4aaf13d9ac069425c79"
+)
+EXPECTED_SOURCE_MANIFEST_HELPER_SHA256 = (
+    "9ef720e3bae376a01b4b61c2b2a4214c31760075c23bd64dca4fb887641dd5b6"
 )
 CLAIM_BOUNDARY = (
     "Scope validation proves only that the policy is closed and matches the "
@@ -576,16 +581,8 @@ def _import_pinned_helper(
     expected_path: Path,
     expected_sha256: str,
     label: str,
+    pinned_modules: Mapping[str, Any] | None = None,
 ) -> Any:
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as error:
-        raise ScopedReleaseScopeError(f"{label} could not be loaded") from error
-    imported_file = getattr(module, "__file__", None)
-    if not isinstance(imported_file, str) or Path(imported_file).absolute() != expected_path:
-        raise ScopedReleaseScopeError(
-            f"imported {label} did not come from the validator directory"
-        )
     imported_raw = _read_regular(
         expected_path,
         label=f"imported {label}",
@@ -595,6 +592,35 @@ def _import_pinned_helper(
         raise ScopedReleaseScopeError(
             f"imported {label} bytes do not match the validator-pinned helper"
         )
+    private_name = f"_fonix_scoped_scope_{module_name}_{secrets.token_hex(16)}"
+    module = ModuleType(private_name)
+    module.__file__ = str(expected_path)
+    module.__package__ = ""
+    missing = object()
+    previous_modules: dict[str, Any] = {}
+    for dependency_name, dependency in (pinned_modules or {}).items():
+        previous_modules[dependency_name] = sys.modules.get(
+            dependency_name, missing
+        )
+        sys.modules[dependency_name] = dependency
+    sys.modules[private_name] = module
+    try:
+        code = compile(
+            imported_raw,
+            str(expected_path),
+            "exec",
+            dont_inherit=True,
+        )
+        exec(code, module.__dict__)
+    except Exception as error:
+        raise ScopedReleaseScopeError(f"{label} could not be loaded") from error
+    finally:
+        sys.modules.pop(private_name, None)
+        for dependency_name, previous in previous_modules.items():
+            if previous is missing:
+                sys.modules.pop(dependency_name, None)
+            else:
+                sys.modules[dependency_name] = previous
     return module
 
 
@@ -948,11 +974,24 @@ def validate_scope(repository: Path, scope_path: Path) -> dict[str, Any]:
         expected_sha256=EXPECTED_SHERPA_LOCK_HELPER_SHA256,
         label="sherpa-lock validator",
     )
+    source_manifest_helper_path = _validate_pinned_helper(
+        repository,
+        relative_path=SOURCE_MANIFEST_HELPER_PATH,
+        expected_sha256=EXPECTED_SOURCE_MANIFEST_HELPER_SHA256,
+        label="source-manifest validator",
+    )
+    source_manifest = _import_pinned_helper(
+        module_name="source_checksum_manifest",
+        expected_path=source_manifest_helper_path,
+        expected_sha256=EXPECTED_SOURCE_MANIFEST_HELPER_SHA256,
+        label="source-manifest validator",
+    )
     release_evidence = _import_pinned_helper(
         module_name="generate_release_sbom",
         expected_path=release_helper_path,
         expected_sha256=EXPECTED_RELEASE_EVIDENCE_HELPER_SHA256,
         label="native-lock validator",
+        pinned_modules={"source_checksum_manifest": source_manifest},
     )
     load_order_receipt = _import_pinned_helper(
         module_name="validate_android_load_order_receipt",

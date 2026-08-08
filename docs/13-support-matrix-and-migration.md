@@ -241,7 +241,10 @@ contract and `tool/ci/validate_scoped_release_approval.py`. Readiness requires
 non-empty target, provider, package, SBOM, audit, reproducibility, notices, and
 signing evidence for all five selected compositions, every shared portable
 regression, and externally verified API/ABI, licensing, security, signing, and
-publication approvals over one canonical candidate subject. Missing or
+publication approvals over one canonical candidate subject. The referenced
+source archive must also pass the closed no-extraction archive validator, and
+the shared source-closure evidence must exactly reproduce its canonical derived
+record. Missing or
 rejected evidence remains an explicit blocker. The bundle cannot add Android
 QNN, Windows, or another unsupported tuple, and the repository does not carry
 or synthesize an approved bundle. The closed Android inventory includes the

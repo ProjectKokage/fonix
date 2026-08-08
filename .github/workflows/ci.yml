@@ -120,6 +120,8 @@ jobs:
             -s tool/ci/tests -p 'test_scoped_release_scope.py' -v
           python -B -m unittest discover \
             -s tool/ci/tests -p 'test_scoped_release_approval.py' -v
+          python -B -m unittest discover \
+            -s tool/ci/tests -p 'test_validate_source_release_archive.py' -v
       - name: Validate the committed scoped pre-1.0 policy
         run: >-
           python -B tool/ci/validate_scoped_release_scope.py
@@ -130,18 +132,20 @@ jobs:
         run: >-
           python -B tool/ci/source_checksum_manifest.py check
           --repository . --manifest MANIFEST.sha256
-      - name: Verify the committed source archive manifest
+      - name: Validate the closed source release archive
         shell: bash
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/fonix-source.tar"
-          archive_root="$RUNNER_TEMP/fonix-source"
-          mkdir "$archive_root"
-          git archive --format=tar --output="$archive" HEAD
-          tar -xf "$archive" -C "$archive_root"
-          python -B "$archive_root/tool/ci/source_checksum_manifest.py" check \
-            --repository "$archive_root" \
-            --manifest "$archive_root/MANIFEST.sha256"
+          archive="$RUNNER_TEMP/fonix-source.tar.gz"
+          record="$RUNNER_TEMP/fonix-source-validation.json"
+          git -c tar.umask=0022 archive --format=tar.gz --output="$archive" HEAD
+          archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          python -B tool/ci/validate_source_release_archive.py \
+            --repository . \
+            --archive "$archive" \
+            --media-type application/gzip \
+            --archive-sha256 "$archive_sha256" \
+            --output "$record"
 
   phase3-fixture-bytes:
     name: Phase-3 deterministic fixture bytes (${{ matrix.host }})

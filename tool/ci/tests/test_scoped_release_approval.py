@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,17 +23,14 @@ if str(CI_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(CI_DIRECTORY))
 
 import generate_release_sbom as release_evidence
+import source_checksum_manifest
 import validate_scoped_release_approval as approval_validator
 import validate_scoped_release_scope as scope_validator
+import validate_source_release_archive as source_archive_validator
 
 
-SCRIPT = CI_DIRECTORY / "validate_scoped_release_approval.py"
 SCHEMA = REPOSITORY / "templates/ci/scoped_release_approval.schema.json"
-SCOPE = REPOSITORY / "release/scoped-pre-1.0-v1.json"
 SOURCE_MANIFEST = REPOSITORY / "MANIFEST.sha256"
-DART_LOCK = REPOSITORY / "pubspec.lock"
-NATIVE_LOCK = REPOSITORY / "native/versions.lock.yaml"
-SHERPA_LOCK = REPOSITORY / "templates/android/sherpa_reference_app/pubspec.lock"
 
 CLAIM_BOUNDARY = (
     "This bundle binds candidate evidence and detached approval artifacts only. "
@@ -382,10 +380,10 @@ def _canonical_candidate_statement(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def _source_revision() -> str:
+def _source_revision(repository: Path) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=REPOSITORY,
+        cwd=repository,
         check=True,
         capture_output=True,
         text=True,
@@ -393,15 +391,92 @@ def _source_revision() -> str:
     return result.stdout.strip()
 
 
+def _create_clean_repository(destination: Path) -> Path:
+    destination.mkdir()
+    manifest = SOURCE_MANIFEST.read_bytes()
+    for relative, _digest in source_checksum_manifest.parse_manifest(manifest):
+        source = REPOSITORY.joinpath(*relative.split("/"))
+        target = destination.joinpath(*relative.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    (destination / "MANIFEST.sha256").write_bytes(manifest)
+    source_checksum_manifest.check_manifest(
+        destination, destination / "MANIFEST.sha256"
+    )
+    environment = {
+        **os.environ,
+        "GIT_AUTHOR_DATE": "2026-08-08T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-08-08T00:00:00Z",
+    }
+    commands = (
+        ("init", "-q"),
+        ("config", "user.name", "Fonix tests"),
+        ("config", "user.email", "fonix-tests@example.invalid"),
+        ("add", "-f", "--", "."),
+        ("commit", "-qm", "clean source fixture"),
+    )
+    for command in commands:
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(destination), *command],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            timeout=30,
+        )
+    return destination
+
+
+_SOURCE_ARCHIVE_FIXTURES: dict[Path, tuple[bytes, bytes]] = {}
+
+
+def _closed_source_archive_fixture(repository: Path) -> tuple[bytes, bytes]:
+    """Build one cached real Git ZIP over one clean repository snapshot."""
+
+    cached = _SOURCE_ARCHIVE_FIXTURES.get(repository)
+    if cached is not None:
+        return cached
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(repository), "archive", "--format=zip", "HEAD"],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+    )
+    archive_bytes = result.stdout
+    archive_sha256 = _sha256(archive_bytes)
+    with tempfile.NamedTemporaryFile(
+        mode="w+b", dir=repository.parent
+    ) as stream:
+        stream.write(archive_bytes)
+        stream.flush()
+        stream.seek(0)
+        record = source_archive_validator.validate_archive_descriptor(
+            repository,
+            stream.fileno(),
+            media_type=source_archive_validator.MEDIA_TYPE_ZIP,
+            expected_sha256=archive_sha256,
+            expected_size_bytes=len(archive_bytes),
+            expected_source_revision=_source_revision(repository),
+        )
+    fixture = (archive_bytes, _canonical_json(record))
+    _SOURCE_ARCHIVE_FIXTURES[repository] = fixture
+    return fixture
+
+
 class _ApprovalFixture:
-    def __init__(self, root: Path, *, ready: bool) -> None:
+    def __init__(self, root: Path, *, ready: bool, repository: Path) -> None:
         self.root = root.resolve()
+        self.repository = repository
         self.evidence_root = self.root / "evidence"
         self.evidence_root.mkdir(parents=True)
         self.bundle_path = self.root / "candidate-bundle.json"
         self.output_index = 0
 
-        scope_record = scope_validator.validate_scope(REPOSITORY, SCOPE)
+        scope_path = repository / "release/scoped-pre-1.0-v1.json"
+        scope_record = scope_validator.validate_scope(repository, scope_path)
         scope_reference = self.add_bytes(
             "scope-validation",
             "scope/scope-validation.json",
@@ -409,35 +484,38 @@ class _ApprovalFixture:
             "application/json",
         )
         source = {
-            "sourceRevision": _source_revision(),
+            "sourceRevision": _source_revision(repository),
             "sourceArchive": self.add_bytes(
                 "source-archive",
-                "source/fonix-source.tar.gz",
-                b"synthetic closed source archive\n",
-                "application/gzip",
+                "source/fonix-source.zip",
+                _closed_source_archive_fixture(repository)[0],
+                "application/zip",
             ),
             "sourceManifest": self.add_bytes(
                 "source-manifest",
                 "MANIFEST.sha256",
-                SOURCE_MANIFEST.read_bytes(),
+                (repository / "MANIFEST.sha256").read_bytes(),
                 "text/plain",
             ),
             "dartPubspecLock": self.add_bytes(
                 "dart-pubspec-lock",
                 "pubspec.lock",
-                DART_LOCK.read_bytes(),
+                (repository / "pubspec.lock").read_bytes(),
                 "text/plain",
             ),
             "nativeLock": self.add_bytes(
                 "native-lock",
                 "native/versions.lock.yaml",
-                NATIVE_LOCK.read_bytes(),
+                (repository / "native/versions.lock.yaml").read_bytes(),
                 "application/json",
             ),
             "sherpaPubspecLock": self.add_bytes(
                 "sherpa-pubspec-lock",
                 "templates/android/sherpa_reference_app/pubspec.lock",
-                SHERPA_LOCK.read_bytes(),
+                (
+                    repository
+                    / "templates/android/sherpa_reference_app/pubspec.lock"
+                ).read_bytes(),
                 "text/plain",
             ),
             "packageName": "fonix",
@@ -483,7 +561,7 @@ class _ApprovalFixture:
             "scope": {
                 "policyId": "scoped-pre-1.0-cpu-v1",
                 "scopePath": "release/scoped-pre-1.0-v1.json",
-                "scopeSha256": _sha256(SCOPE.read_bytes()),
+                "scopeSha256": _sha256(scope_path.read_bytes()),
                 "validationRecord": scope_reference,
             },
             "source": source,
@@ -598,12 +676,16 @@ class _ApprovalFixture:
         )
 
     def _shared_evidence(self, category: str) -> dict[str, object]:
+        if category == "source-closure":
+            contents = _closed_source_archive_fixture(self.repository)[1]
+        else:
+            contents = _canonical_json(
+                {"schemaVersion": 1, "result": "passed", "category": category}
+            )
         return self.add_bytes(
             f"shared-{category}",
             f"shared/{category}.json",
-            _canonical_json(
-                {"schemaVersion": 1, "result": "passed", "category": category}
-            ),
+            contents,
             "application/json",
         )
 
@@ -698,6 +780,18 @@ class _ApprovalFixture:
 
 
 class ScopedReleaseApprovalTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.repository_temporary = tempfile.TemporaryDirectory()
+        cls.repository = _create_clean_repository(
+            Path(cls.repository_temporary.name).resolve() / "repository"
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        _SOURCE_ARCHIVE_FIXTURES.pop(cls.repository, None)
+        cls.repository_temporary.cleanup()
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -706,7 +800,11 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
 
     def fixture(self, *, ready: bool) -> _ApprovalFixture:
         self.output_index += 1
-        return _ApprovalFixture(self.root / f"fixture-{self.output_index}", ready=ready)
+        return _ApprovalFixture(
+            self.root / f"fixture-{self.output_index}",
+            ready=ready,
+            repository=self.repository,
+        )
 
     def run_validator(
         self,
@@ -724,11 +822,14 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         selected_bundle = bundle or fixture.bundle_path
         arguments = [
             sys.executable,
-            str(SCRIPT),
+            str(
+                self.repository
+                / "tool/ci/validate_scoped_release_approval.py"
+            ),
             "--repository",
-            str(REPOSITORY),
+            str(self.repository),
             "--scope",
-            str(SCOPE),
+            str(self.repository / "release/scoped-pre-1.0-v1.json"),
             "--bundle",
             str(selected_bundle),
             "--bundle-sha256",
@@ -742,7 +843,7 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
             arguments.append("--require-scoped-ready")
         result = subprocess.run(
             arguments,
-            cwd=REPOSITORY,
+            cwd=self.repository,
             check=False,
             capture_output=True,
             text=True,
@@ -819,6 +920,23 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
             list(REQUIRED_EVIDENCE_SLOT_IDS),
         )
         self.assertEqual(ordinary_report["evidenceReferenceCount"], 76)
+        source_archive_bytes, source_closure_bytes = _closed_source_archive_fixture(
+            self.repository
+        )
+        source_closure = json.loads(source_closure_bytes)
+        self.assertEqual(
+            ordinary_report["sourceBaseline"]["sourceArchiveSha256"],
+            _sha256(source_archive_bytes),
+        )
+        self.assertEqual(
+            ordinary_report["sourceBaseline"]["sourceArchiveValidation"],
+            {
+                "recordSha256": _sha256(source_closure_bytes),
+                "inventorySha256": source_closure["source"]["inventorySha256"],
+                "validatorSha256": source_closure["tools"]["validator"]["sha256"],
+                "schemaSha256": source_closure["schemas"]["validation"]["sha256"],
+            },
+        )
 
         gated, gated_output = self.run_validator(fixture, require_ready=True)
         self.assertEqual(gated.returncode, 0, gated.stderr)
@@ -870,6 +988,69 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIs(json.loads(output.read_bytes())["ready"], True)
+
+    def test_pinned_helpers_ignore_hostile_preloaded_modules(self) -> None:
+        hostile = SimpleNamespace(
+            __file__=str(CI_DIRECTORY / "source_checksum_manifest.py"),
+            check_manifest=lambda *_arguments: "0" * 64,
+        )
+        hostile_release = SimpleNamespace(
+            __file__=str(CI_DIRECTORY / "generate_release_sbom.py"),
+            ReleaseEvidenceError=RuntimeError,
+            _validate_lock=lambda *_arguments: (_ for _ in ()).throw(
+                AssertionError("hostile native-lock helper executed")
+            ),
+        )
+        hostile_sherpa = SimpleNamespace(
+            __file__=str(CI_DIRECTORY / "validate_android_load_order_receipt.py"),
+            LoadOrderReceiptError=RuntimeError,
+            _validate_pubspec_lock=lambda *_arguments: (_ for _ in ()).throw(
+                AssertionError("hostile sherpa-lock helper executed")
+            ),
+        )
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "generate_release_sbom": hostile_release,
+                "source_checksum_manifest": hostile,
+                "validate_android_load_order_receipt": hostile_sherpa,
+                "validate_source_release_archive": hostile,
+            },
+        ):
+            source_helper = approval_validator._import_pinned_helper(
+                self.repository,
+                relative_path=approval_validator.SOURCE_HELPER_PATH,
+                module_name="source_checksum_manifest",
+                expected_sha256=approval_validator.EXPECTED_SOURCE_HELPER_SHA256,
+                label="source-manifest validator",
+            )
+            archive_helper = approval_validator._import_pinned_helper(
+                self.repository,
+                relative_path=approval_validator.SOURCE_ARCHIVE_HELPER_PATH,
+                module_name="validate_source_release_archive",
+                expected_sha256=(
+                    approval_validator.EXPECTED_SOURCE_ARCHIVE_HELPER_SHA256
+                ),
+                label="source-release archive validator",
+            )
+            (
+                scope_record,
+                _baseline,
+                scope_helper,
+                baseline_source_helper,
+                baseline_archive_helper,
+            ) = approval_validator._validate_repository_baseline(
+                self.repository,
+                self.repository / approval_validator.SCOPE_PATH,
+            )
+        self.assertIsNot(source_helper, hostile)
+        self.assertIsNot(archive_helper, hostile)
+        self.assertEqual(scope_record["claimStatus"], "scope-only")
+        self.assertIsNot(scope_helper, hostile)
+        self.assertIsNot(baseline_source_helper, hostile)
+        self.assertIsNot(baseline_archive_helper, hostile)
+        self.assertTrue(callable(source_helper.check_manifest))
+        self.assertTrue(callable(archive_helper.validate_archive_descriptor))
 
     def test_schema_exactly_matches_fixture_and_validator_contracts(self) -> None:
         def strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -1275,6 +1456,77 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
                     fixture.rebind_candidate_and_approvals()
                 self.assert_malformed(fixture)
 
+    def test_rebound_structurally_invalid_source_archive_is_malformed(self) -> None:
+        fixture = self.fixture(ready=True)
+        reference = fixture.candidate_statement["source"]["sourceArchive"]
+        path = fixture.referenced_path(reference)
+        fixture.replace_reference_contents(reference, path.read_bytes() + b"trailing")
+        fixture.rebind_candidate_and_approvals()
+        result = self.assert_malformed(fixture)
+        self.assertIn("candidate source archive is invalid", result.stderr)
+
+    def test_shared_source_closure_must_match_derived_record_bytes(self) -> None:
+        fixture = self.fixture(ready=True)
+        regression = next(
+            item
+            for item in fixture.candidate_statement["sharedRegressionEvidence"]
+            if item["category"] == "source-closure"
+        )
+        reference = regression["records"][0]
+        fixture.replace_reference_contents(
+            reference,
+            _canonical_json(
+                {
+                    "schemaVersion": 1,
+                    "result": "passed",
+                    "category": "source-closure",
+                }
+            ),
+        )
+        fixture.rebind_candidate_and_approvals()
+        result = self.assert_malformed(fixture)
+        self.assertIn("does not match its exact derived record", result.stderr)
+
+    def test_derived_source_archive_record_shape_and_pins_fail_closed(self) -> None:
+        archive_bytes, record_bytes = _closed_source_archive_fixture(self.repository)
+        original = json.loads(record_bytes)
+        reference = approval_validator.EvidenceReference(
+            "source-archive",
+            "source/fonix-source.zip",
+            _sha256(archive_bytes),
+            len(archive_bytes),
+            "application/zip",
+        )
+        baseline = {
+            "sourceManifestSha256": original["source"]["manifestSha256"],
+            "sourceManifestSizeBytes": original["source"]["manifestSizeBytes"],
+            "sourceManifestEntryCount": original["source"]["manifestEntryCount"],
+        }
+        mutations = (
+            lambda record: record.update({"unexpected": True}),
+            lambda record: record["source"].update({"memberCount": True}),
+            lambda record: record["tools"]["validator"].update(
+                {"sha256": "0" * 64}
+            ),
+            lambda record: record["schemas"]["validation"].update(
+                {"sha256": "0" * 64}
+            ),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                changed = copy.deepcopy(original)
+                mutate(changed)
+                with self.assertRaises(
+                    approval_validator.ScopedReleaseApprovalError
+                ):
+                    approval_validator._validate_source_archive_record(
+                        changed,
+                        reference=reference,
+                        source_revision=original["source"]["revision"],
+                        baseline=baseline,
+                        source_archive_helper=source_archive_validator,
+                    )
+
     def test_composition_inventory_and_identity_mutations_are_malformed(self) -> None:
         def missing(fixture: _ApprovalFixture) -> None:
             fixture.candidate_statement["compositions"].pop()
@@ -1586,14 +1838,15 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         )
         self.assert_malformed(
             fixture,
-            output=REPOSITORY / "scoped-release-output.json",
+            output=self.repository / "scoped-release-output.json",
         )
+        repository_scope = self.repository / "release/scoped-pre-1.0-v1.json"
         self.assert_malformed(
             fixture,
-            bundle=SCOPE,
-            bundle_sha256=_sha256(SCOPE.read_bytes()),
+            bundle=repository_scope,
+            bundle_sha256=_sha256(repository_scope.read_bytes()),
         )
-        self.assert_malformed(fixture, evidence_root=REPOSITORY / "tool")
+        self.assert_malformed(fixture, evidence_root=self.repository / "tool")
 
     @unittest.skipIf(os.name == "nt", "symlink creation is not reliable on Windows")
     def test_symlink_substitution_is_rejected(self) -> None:
@@ -1683,7 +1936,7 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
         output = output_parent / "validation.json"
         validated_output = approval_validator._validate_output_location(
             output,
-            REPOSITORY,
+            self.repository,
             fixture.evidence_root,
         )
 
@@ -1788,6 +2041,102 @@ class ScopedReleaseApprovalTests(unittest.TestCase):
                     reader.read(reference)
 
         self.assertEqual(open_count, 2)
+
+    def test_retained_evidence_descriptor_is_borrowed_rewound_and_closed(self) -> None:
+        evidence_root = self.root / "retained-evidence"
+        evidence_root.mkdir()
+        contents = b"retained evidence\n"
+        (evidence_root / "record.bin").write_bytes(contents)
+        reference = approval_validator.EvidenceReference(
+            "retained-record",
+            "record.bin",
+            _sha256(contents),
+            len(contents),
+            "application/octet-stream",
+        )
+        descriptor = -1
+        with approval_validator.EvidenceReader(evidence_root) as reader:
+            with reader.retain_verified(reference) as retained:
+                descriptor = retained.descriptor
+                self.assertEqual(os.lseek(descriptor, 0, os.SEEK_CUR), 0)
+                self.assertEqual(os.read(descriptor, len(contents)), contents)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+            self.assertEqual(reader.reference_count, 1)
+            self.assertEqual(reader.total_bytes, len(contents))
+        with self.assertRaises(OSError):
+            os.fstat(descriptor)
+
+        closed_descriptor = -1
+        with approval_validator.EvidenceReader(evidence_root) as reader:
+            with self.assertRaisesRegex(
+                approval_validator.ScopedReleaseApprovalError,
+                "was not retained safely",
+            ):
+                with reader.retain_verified(reference) as retained:
+                    closed_descriptor = retained.descriptor
+                    os.close(closed_descriptor)
+            self.assertEqual(reader.reference_count, 0)
+        with self.assertRaises(OSError):
+            os.fstat(closed_descriptor)
+
+    def test_retained_evidence_failure_does_not_commit_accounting(self) -> None:
+        evidence_root = self.root / "retained-evidence-failure"
+        evidence_root.mkdir()
+        contents = b"retained evidence\n"
+        (evidence_root / "record.bin").write_bytes(contents)
+        reference = approval_validator.EvidenceReference(
+            "retained-record",
+            "record.bin",
+            _sha256(contents),
+            len(contents),
+            "application/octet-stream",
+        )
+        descriptor = -1
+        with approval_validator.EvidenceReader(evidence_root) as reader:
+            with self.assertRaisesRegex(
+                approval_validator.ScopedReleaseApprovalError,
+                "did not restore its offset",
+            ):
+                with reader.retain_verified(reference) as retained:
+                    descriptor = retained.descriptor
+                    os.read(descriptor, 1)
+            self.assertEqual(reader.reference_count, 0)
+            self.assertEqual(reader.total_bytes, 0)
+        with self.assertRaises(OSError):
+            os.fstat(descriptor)
+
+    @unittest.skipIf(os.name == "nt", "hard-link behavior differs on Windows")
+    def test_retained_evidence_rejects_external_hard_links_and_mutation(self) -> None:
+        evidence_root = self.root / "retained-evidence-mutation"
+        evidence_root.mkdir()
+        path = evidence_root / "record.bin"
+        contents = b"retained evidence\n"
+        path.write_bytes(contents)
+        reference = approval_validator.EvidenceReference(
+            "retained-record",
+            "record.bin",
+            _sha256(contents),
+            len(contents),
+            "application/octet-stream",
+        )
+        external_link = self.root / "external-hard-link.bin"
+        os.link(path, external_link)
+        with approval_validator.EvidenceReader(evidence_root) as reader:
+            with self.assertRaisesRegex(
+                approval_validator.ScopedReleaseApprovalError,
+                "external hard links",
+            ):
+                reader.read(reference)
+        external_link.unlink()
+
+        with approval_validator.EvidenceReader(evidence_root) as reader:
+            with self.assertRaisesRegex(
+                approval_validator.ScopedReleaseApprovalError,
+                "changed while being inspected",
+            ):
+                with reader.retain_verified(reference):
+                    path.write_bytes(b"mutated evidence!\n")
+            self.assertEqual(reader.reference_count, 0)
 
     def test_global_release_ready_flag_remains_fail_closed(self) -> None:
         documents = SimpleNamespace(

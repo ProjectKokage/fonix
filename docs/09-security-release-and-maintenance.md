@@ -310,9 +310,30 @@ Generation rejects unknown top-level entries, links, unsafe paths, special
 files, and configured size/count overflows. Verification requires the exact
 sorted manifest bytes and the exact current closed source file set; it is not a
 best-effort check of only the paths already listed.
-CI repeats verification from a freshly extracted `git archive HEAD`, so ignored
-worktree state and source files that were never committed cannot satisfy the
-release-evidence gate.
+CI also creates a compressed `git archive HEAD` and passes its path to
+`tool/ci/validate_source_release_archive.py`; the validator opens it once and
+passes the retained descriptor to its inspection core. It does not extract or
+execute content from that archive. The validator requires the declared Git
+revision, exact manifest-listed regular files plus `MANIFEST.sha256`, exact
+contents and executable semantics, and the canonical implied directory set.
+It rejects unsafe, duplicate, aliased, special, over-limit, or trailing archive
+structure and emits a deterministic path-free `source-closure-only` record.
+That record establishes offline consistency with the current repository
+baseline only. Git archive metadata is not an authenticated provenance or
+publication authority.
+
+The standalone path uses an external archive and a new external output:
+
+```bash
+git -c tar.umask=0022 archive --format=tar.gz \
+  --output=/absolute/external/fonix-source.tar.gz HEAD
+python3 -B tool/ci/validate_source_release_archive.py \
+  --repository . \
+  --archive /absolute/external/fonix-source.tar.gz \
+  --media-type application/gzip \
+  --archive-sha256 "$EXPECTED_SOURCE_ARCHIVE_SHA256" \
+  --output /absolute/external/new-source-closure.json
+```
 
 For one lock-selected native artifact, generate audit metadata and an SPDX 2.3
 JSON SBOM from the resolver's staged directory:
@@ -423,6 +444,15 @@ cover source closure, Dart analysis/tests, binding reproduction, native
 sanitizers, lifecycle/cancellation stress, the deferred QNN contract/tamper
 suite, and the deferred Windows source/cross-build/loader-security suite. The
 candidate subject is the SHA-256 of canonical JSON for that statement.
+
+The source archive is not treated as an opaque hash-only attachment. After its
+reference size and SHA-256 pass, the validator borrows the same retained,
+no-follow file descriptor for bounded archive inspection. It then rechecks the
+descriptor, path, and evidence-root identities before committing evidence
+accounting. The `shared-source-closure` record must be byte-for-byte equal to
+the canonical record derived from that inspection, including the exact
+inventory and validator/schema pins. Neither the archive revision comment nor
+that derived record authenticates who produced the archive.
 
 Schema version 1 freezes the record IDs, order, and media type as well as the
 categories. In particular, the standalone Android composition requires both
