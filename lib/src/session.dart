@@ -343,7 +343,8 @@ final class OrtSession extends _NativeOwner {
             _nativeApi.finishRunProfiling(effectiveRunOptions!._nativeHandle);
           } catch (_) {
             // Preserve the authoritative Run failure. Native finish still
-            // retires the private profile directory before returning.
+            // makes these run options fail closed until a retry succeeds or
+            // their owner is disposed.
           }
           profilingStarted = false;
         }
@@ -405,7 +406,8 @@ final class OrtSession extends _NativeOwner {
           try {
             _nativeApi.finishRunProfiling(effectiveRunOptions._nativeHandle);
           } catch (_) {
-            // The primary failure is authoritative; finish performs cleanup.
+            // The primary failure is authoritative. Native state remains
+            // fail-closed until finish succeeds or the owner is disposed.
           }
         }
       }

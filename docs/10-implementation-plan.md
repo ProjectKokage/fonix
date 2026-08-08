@@ -514,6 +514,18 @@ before binding regeneration. These drift gates support review and versioning;
 they do not classify compatibility, prove a target binary, or replace the
 external API/ABI approval required by the scoped candidate gate.
 
+The 2026-08-08 shared-runtime hardening checkpoint makes published value-graph
+validation read-only under concurrent sessions, retains failed native profiling
+disable state until retry or owner disposal while blocking run-options reuse,
+bounds isolate string retention even for empty strings, accounts for requested
+output names in the worker request limit, and retires a worker
+through a later valid cleanup-only ready port after malformed startup
+ownership. Focused regressions cover each ownership and resource boundary;
+the shared-value regression is mandatory in a separate Linux x64 TSan CI lane
+and also passed locally with AppleClang TSan. Fuzz expansion, broader seeded
+lifecycle stress, and the remaining cancellation registry lock-contention work
+continue within this phase.
+
 ## Suggested issue breakdown
 
 Create independently reviewable issues:

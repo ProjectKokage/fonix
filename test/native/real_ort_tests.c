@@ -6,11 +6,13 @@
 #include "dort.h"
 
 #include <errno.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define CHECK(condition, message)                                                \
@@ -399,6 +401,196 @@ static int run_once(
       "numeric session run");
 }
 
+typedef struct shared_input_run_gate {
+  pthread_mutex_t lock;
+  pthread_cond_t condition;
+  uint32_t ready_count;
+  int start;
+  int abort_requested;
+} shared_input_run_gate_t;
+
+typedef struct shared_input_run_arguments {
+  dort_session_t* session;
+  dort_value_t* input;
+  shared_input_run_gate_t* gate;
+} shared_input_run_arguments_t;
+
+static int wait_for_shared_input_start(shared_input_run_gate_t* gate) {
+  struct timespec deadline;
+  int condition_status = 0;
+  int failed = 0;
+  if (timespec_get(&deadline, TIME_UTC) != TIME_UTC) {
+    return 1;
+  }
+  deadline.tv_sec += 5;
+  if (pthread_mutex_lock(&gate->lock) != 0) {
+    return 1;
+  }
+  ++gate->ready_count;
+  if (pthread_cond_broadcast(&gate->condition) != 0) {
+    failed = 1;
+  }
+  while (gate->start == 0 && condition_status == 0) {
+    condition_status =
+        pthread_cond_timedwait(&gate->condition, &gate->lock, &deadline);
+  }
+  if (condition_status != 0 || gate->start == 0 || gate->abort_requested != 0) {
+    failed = 1;
+  }
+  if (pthread_mutex_unlock(&gate->lock) != 0) {
+    failed = 1;
+  }
+  return failed;
+}
+
+static void* run_shared_input_stress(void* raw_arguments) {
+  shared_input_run_arguments_t* arguments =
+      (shared_input_run_arguments_t*)raw_arguments;
+  size_t iteration = 0u;
+  if (wait_for_shared_input_start(arguments->gate) != 0) {
+    return (void*)(uintptr_t)1u;
+  }
+  for (iteration = 0u; iteration < 64u; ++iteration) {
+    dort_run_result_t* result = NULL;
+    if (run_once(arguments->session, NULL, arguments->input, &result) != 0) {
+      return (void*)(uintptr_t)1u;
+    }
+    if (dort_run_result_count(result) != 1u) {
+      dort_run_result_release(result);
+      return (void*)(uintptr_t)1u;
+    }
+    dort_run_result_release(result);
+  }
+  return NULL;
+}
+
+static int release_shared_input_gate(
+    shared_input_run_gate_t* gate,
+    int abort_requested) {
+  int failed = 0;
+  if (pthread_mutex_lock(&gate->lock) != 0) {
+    return 1;
+  }
+  gate->abort_requested = abort_requested;
+  gate->start = 1;
+  if (pthread_cond_broadcast(&gate->condition) != 0) {
+    failed = 1;
+  }
+  if (pthread_mutex_unlock(&gate->lock) != 0) {
+    failed = 1;
+  }
+  return failed;
+}
+
+static int wait_for_shared_input_threads(shared_input_run_gate_t* gate) {
+  struct timespec deadline;
+  int condition_status = 0;
+  int failed = 0;
+  if (timespec_get(&deadline, TIME_UTC) != TIME_UTC) {
+    (void)release_shared_input_gate(gate, 1);
+    return 1;
+  }
+  deadline.tv_sec += 5;
+  if (pthread_mutex_lock(&gate->lock) != 0) {
+    return 1;
+  }
+  while (gate->ready_count != 2u && condition_status == 0) {
+    condition_status =
+        pthread_cond_timedwait(&gate->condition, &gate->lock, &deadline);
+  }
+  if (condition_status != 0 || gate->ready_count != 2u) {
+    gate->abort_requested = 1;
+    failed = 1;
+  }
+  gate->start = 1;
+  if (pthread_cond_broadcast(&gate->condition) != 0) {
+    failed = 1;
+  }
+  if (pthread_mutex_unlock(&gate->lock) != 0) {
+    failed = 1;
+  }
+  return failed;
+}
+
+static int test_shared_input_concurrent_runs(
+    dort_session_t* first_session,
+    dort_session_t* second_session,
+    dort_value_t* input) {
+  pthread_t first_thread;
+  pthread_t second_thread;
+  void* first_result = NULL;
+  void* second_result = NULL;
+  int failed = 0;
+  int first_created = 0;
+  int second_created = 0;
+  int first_joined = 0;
+  int second_joined = 0;
+  shared_input_run_gate_t gate;
+  shared_input_run_arguments_t first_arguments;
+  shared_input_run_arguments_t second_arguments;
+  memset(&gate, 0, sizeof(gate));
+  if (pthread_mutex_init(&gate.lock, NULL) != 0) {
+    return 1;
+  }
+  if (pthread_cond_init(&gate.condition, NULL) != 0) {
+    (void)pthread_mutex_destroy(&gate.lock);
+    return 1;
+  }
+  first_arguments.session = first_session;
+  first_arguments.input = input;
+  first_arguments.gate = &gate;
+  second_arguments.session = second_session;
+  second_arguments.input = input;
+  second_arguments.gate = &gate;
+  if (pthread_create(
+          &first_thread, NULL, run_shared_input_stress, &first_arguments) != 0) {
+    failed = 1;
+  } else {
+    first_created = 1;
+  }
+  if (!failed &&
+      pthread_create(
+          &second_thread, NULL, run_shared_input_stress, &second_arguments) !=
+          0) {
+    failed = 1;
+  } else if (!failed) {
+    second_created = 1;
+  }
+  if (first_created && second_created) {
+    if (wait_for_shared_input_threads(&gate) != 0) {
+      failed = 1;
+    }
+  } else if (first_created && release_shared_input_gate(&gate, 1) != 0) {
+    failed = 1;
+  }
+  if (first_created) {
+    if (pthread_join(first_thread, &first_result) == 0) {
+      first_joined = 1;
+    } else {
+      failed = 1;
+    }
+  }
+  if (second_created) {
+    if (pthread_join(second_thread, &second_result) == 0) {
+      second_joined = 1;
+    } else {
+      failed = 1;
+    }
+  }
+  if ((!first_created || first_joined) && (!second_created || second_joined)) {
+    if (pthread_cond_destroy(&gate.condition) != 0) {
+      failed = 1;
+    }
+    if (pthread_mutex_destroy(&gate.lock) != 0) {
+      failed = 1;
+    }
+  }
+  if (first_result != NULL || second_result != NULL) {
+    failed = 1;
+  }
+  return failed;
+}
+
 int main(int argc, char** argv) {
   dort_runtime_t* runtime = NULL;
   dort_runtime_t* other_runtime = NULL;
@@ -484,7 +676,6 @@ int main(int argc, char** argv) {
           "{\"schemaVersion\":2,\"inputs\":[{\"name\":\"X\",\"kind\":\"tensor\",\"elementType\":1,\"hasShape\":true,\"dimensions\":[3,2],\"symbolicDimensions\":[null,null]}],\"outputs\":[{\"name\":\"Y\",\"kind\":\"tensor\",\"elementType\":1,\"hasShape\":true,\"dimensions\":[3,2],\"symbolicDimensions\":[null,null]}]}") == 0,
       "static metadata JSON schema mismatch");
   dort_string_release(&metadata);
-  dort_session_release(file_session);
 
   CHECK(
       check_ok(
@@ -549,6 +740,11 @@ int main(int argc, char** argv) {
               &wrong_input),
           "create wrong-shape input") == 0,
       "wrong input construction failed");
+  CHECK(
+      test_shared_input_concurrent_runs(session, file_session, input) == 0,
+      "concurrent shared-input runs failed");
+  dort_session_release(file_session);
+  file_session = NULL;
   CHECK(
       check_ok(
           dort_run_options_create(runtime, &run_options),

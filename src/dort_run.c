@@ -28,6 +28,7 @@
 struct dort_run_options {
   uint32_t magic;
   atomic_uint reference_count;
+  atomic_uint profile_retirement_failed;
   dort_runtime_t* runtime;
   OrtRunOptions* options;
 #if defined(_WIN32)
@@ -1413,6 +1414,7 @@ dort_status_t* DORT_CALL dort_run_options_create(
   dort_runtime_retain(runtime);
   options->magic = DORT_RUN_OPTIONS_MAGIC;
   atomic_init(&options->reference_count, 1u);
+  atomic_init(&options->profile_retirement_failed, 0u);
   options->runtime = runtime;
   options->options = ort_options;
 #if defined(_WIN32)
@@ -1487,6 +1489,15 @@ void DORT_CALL dort_run_options_release(dort_run_options_t* options) {
         dort_runtime_api(runtime)->ReleaseStatus(ignored);
       }
     }
+    /*
+     * Releasing the native owner is the final authority when profiling could
+     * not be disabled. Keep its private directory present until that release
+     * returns so ONNX Runtime cannot recreate an artifact after cleanup.
+     */
+    options->magic = 0u;
+    options->runtime = NULL;
+    options->options = NULL;
+    dort_runtime_api(runtime)->ReleaseRunOptions(ort_options);
 #if defined(_WIN32)
     (void)dort_windows_profile_remove_directory(
         profile_directory, &profile_directory_handle, &profile_root_handle);
@@ -1499,10 +1510,6 @@ void DORT_CALL dort_run_options_release(dort_run_options_t* options) {
 #if !defined(_WIN32)
     (void)pthread_mutex_destroy(&options->profile_lock);
 #endif
-    options->magic = 0u;
-    options->runtime = NULL;
-    options->options = NULL;
-    dort_runtime_api(runtime)->ReleaseRunOptions(ort_options);
     free(options);
     dort_runtime_release(runtime);
   }
@@ -1664,6 +1671,19 @@ dort_status_t* DORT_CALL dort_run_options_profiling_finish(
                               "run_options_profiling_finish",
                               "Profiling is not active on these run options.");
   }
+  ort_status = dort_runtime_api(options->runtime)
+                   ->RunOptionsDisableProfiling(options->options);
+  if (ort_status != NULL) {
+    status = dort_status_from_ort(options->runtime, ort_status,
+                                  DORT_ERROR_RUN_FAILED,
+                                  "run_options_profiling_finish");
+    atomic_store_explicit(&options->profile_retirement_failed, 1u,
+                          memory_order_release);
+    dort_profile_unlock(options);
+    return status;
+  }
+  atomic_store_explicit(&options->profile_retirement_failed, 0u,
+                        memory_order_release);
   directory = options->profile_directory;
   prefix = options->profile_prefix;
   options->profile_directory = NULL;
@@ -1674,28 +1694,12 @@ dort_status_t* DORT_CALL dort_run_options_profiling_finish(
   options->profile_root_handle = NULL;
   options->profile_directory_handle = NULL;
 #endif
-  ort_status = dort_runtime_api(options->runtime)
-                   ->RunOptionsDisableProfiling(options->options);
-  if (ort_status != NULL) {
-    status = dort_status_from_ort(options->runtime, ort_status,
-                                  DORT_ERROR_RUN_FAILED,
-                                  "run_options_profiling_finish");
-  }
-  if (status == NULL) {
 #if defined(_WIN32)
-    status = dort_profile_read_and_remove(directory, &root_handle,
-                                          &directory_handle, out_profile_json);
+  status = dort_profile_read_and_remove(directory, &root_handle,
+                                        &directory_handle, out_profile_json);
 #else
-    status = dort_profile_read_and_remove(directory, out_profile_json);
+  status = dort_profile_read_and_remove(directory, out_profile_json);
 #endif
-  } else {
-#if defined(_WIN32)
-    (void)dort_windows_profile_remove_directory(directory, &directory_handle,
-                                                &root_handle);
-#else
-    dort_profile_remove_directory(directory);
-#endif
-  }
   free(directory);
   free(prefix);
   dort_profile_unlock(options);
@@ -1936,6 +1940,14 @@ dort_status_t* DORT_CALL dort_session_run(dort_session_t* session,
         DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_RUNTIME_IDENTITY_MISMATCH, 0,
         "session_run",
         "The run options belong to a different runtime identity.");
+  }
+  if (run_options != NULL &&
+      atomic_load_explicit(&run_options->profile_retirement_failed,
+                           memory_order_acquire) != 0u) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM, DORT_ERROR_RUN_FAILED, 0, "session_run",
+        "The run options have unresolved native profiling state and cannot "
+        "be reused.");
   }
   if (input_count > dort_session_internal_input_count(session) ||
       input_count > DORT_MAX_IO_COUNT ||
@@ -2185,8 +2197,8 @@ dort_status_t* DORT_CALL dort_session_run(dort_session_t* session,
     if (status != NULL) {
       goto cleanup;
     }
-    status = dort_value_validate_supported(result->values[index],
-                                           "session_run_output");
+    status = dort_value_validate_and_set_unpublished_depth(
+        result->values[index], "session_run_output");
     if (status != NULL) {
       goto cleanup;
     }

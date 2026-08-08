@@ -196,6 +196,28 @@ jobs:
           --suite bundled
           --build-dir "$RUNNER_TEMP/fonix-bundled-linux"
 
+  native-linux-x64-tsan:
+    name: Linux x64 full native CTest with TSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = x86_64
+      - name: Build, enumerate, and run the thread-sanitizer suite
+        run: >-
+          python -B tool/ci/run_native_tests.py
+          --suite posix
+          --thread-sanitizer
+          --build-dir "$RUNNER_TEMP/fonix-native-linux-tsan"
+
   native-macos-arm64:
     name: macOS arm64 full native CTest with ASan and UBSan (no LSan)
     runs-on: macos-14

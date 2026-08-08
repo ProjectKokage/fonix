@@ -169,6 +169,10 @@ authoritative command port before fallible native setup, then requires the
 ready message to repeat that exact port. This lets a timed-out or malformed
 startup queue one graceful close without force-killing an isolate while native
 code may own resources; the worker consumes that close if setup returns. If
+an ownership reply is malformed before its command port can be trusted, a
+later syntactically valid ready port is accepted only as a cleanup channel: it
+receives `close`, can never publish a session, and is retired after the
+validated `closed` receipt. If
 the deadline wins before `Isolate.spawn` returns, the controller closes its
 bootstrap ports and kills the late isolate while it is still paused, so an
 abandoned caller cannot start native initialization. A validated `closed`
@@ -340,6 +344,12 @@ String tensors use explicit UTF-8 conversion and copy semantics. Account for:
 - output string-content extraction and offset calculation;
 - release on partial failure.
 
+Both direct and isolate string tensors enforce the native closed limits before
+publication: at most 1,048,576 elements, at most 1 MiB of UTF-8 per element,
+and at most 64 MiB of UTF-8 content. Worker message and aggregate-input budgets
+also charge a fixed 8-byte retained-slot cost for every string, so an
+arbitrarily large list of empty strings cannot bypass byte backpressure.
+
 Sequences, maps, and optionals are closed `OrtValue` implementations. They
 preserve recursive element types and validate/copy ONNX-ML map keys and values
 before exposing application state.
@@ -446,8 +456,10 @@ The shipped protocol accepts only exact, versioned message fields and closed
 `OrtIsolateValue` variants. Numeric payloads are copied into
 `TransferableTypedData`; strings and recursive sequence/map/optional values are
 validated against depth, node, shape, element, and byte limits. In particular,
-Optional None carries its recursive element type. No pointer, native wrapper,
-runtime, session, or run-options handle crosses an isolate message.
+string tensors retain the direct API's element/content limits and consume a
+fixed per-element budget even when every string is empty. Optional None carries
+its recursive element type. No pointer, native wrapper, runtime, session, or
+run-options handle crosses an isolate message.
 
 `startRun` returns an `OrtIsolateRun` whose idempotent `cancel` operation either
 removes a queued request or uses an opaque process-local token to request ORT
@@ -458,7 +470,10 @@ settlement still comes from awaiting `result`. Runs remain serialized per
 worker. `maxPendingRuns` bounds request count, while
 `maxOutstandingInputBytes` bounds the measured bytes reserved by all active and
 queued inputs; it defaults to `maxMessageBytes` and is independently capped at
-1 GiB. A request larger than that aggregate limit can never fit and raises
+1 GiB. The per-message bound includes input names and values, every retained
+string slot, and requested output names; output-name bytes are not charged to
+the aggregate input reservation. A request larger than that aggregate limit
+can never fit and raises
 `OrtWorkerMessageTooLargeException`; temporary aggregate exhaustion raises
 `OrtWorkerQueueFullException` with the bound, current reservation, and request
 size. Dispatch drops the controller's input references, but its reservation is

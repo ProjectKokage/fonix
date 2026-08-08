@@ -94,6 +94,19 @@ contract. A matching record exposes declaration drift for review; it neither
 classifies compatibility nor supplies the detached API/ABI approval or any
 target-execution evidence.
 
+The current shared-runtime hardening checkpoint bounds isolate string tensors
+to the native element/content limits, charges empty-string retention and
+requested output names against worker messages, and uses a later valid ready
+port only for acknowledged cleanup after malformed startup ownership. Native
+value-graph validation is read-only once a value is published; an unconditional
+two-thread fake-runtime regression now runs in normal, Address/UndefinedBehavior,
+and dedicated ThreadSanitizer modes, with a separate Linux x64 TSan workflow.
+If native profiling disable fails, run-options reuse is rejected before another
+native `Run`; finish may be retried, and disposal releases the native owner
+before removing the retained private directory. The Linux TSan workflow was
+not executed from this macOS host; the same 15-test TSan suite passed locally
+with AppleClang and the exact pinned ORT.
+
 ## Implemented boundary
 
 The checked source contains the complete app-owned wrapper layer described by
@@ -101,7 +114,8 @@ the active documentation:
 
 - a stable 67-export C ABI over ONNX Runtime API 27 with closed status,
   runtime, session, value, composite-value, run, cancellation, profiling, and
-  data-lease ownership;
+  data-lease ownership, including read-only published-value validation and
+  fail-closed retirement of unresolved native profiling state;
 - a typed Dart API for trusted runtime sources, file/byte/external-data models,
   dense tensors, strings, float16/bfloat16 storage, sequences, maps, optionals,
   copied metadata, native-backed leases, and named synchronous inference;
@@ -112,7 +126,8 @@ the active documentation:
 - bounded worker-isolate sessions and pools using wire protocol version 4,
   paused-spawn parent ownership, early authoritative command-port transfer,
   correlated readiness, cooperative cancellation, graceful timeout cleanup,
-  stale-result suppression, backpressure, and idempotent shutdown;
+  malformed-ownership cleanup-only recovery, stale-result suppression,
+  string/output-name-aware backpressure, and idempotent shutdown;
 - ordered CPU, XNNPACK, CoreML, legacy NNAPI, QNN, CUDA, TensorRT, DirectML,
   OpenVINO, oneDNN, and MIGraphX configuration with discovery, registration,
   per-run assignment evidence, fallback enforcement, and scoped CoreML cache
@@ -168,18 +183,18 @@ paths.
 | --- | --- |
 | Dart formatting | Full source tree, 0 changes |
 | Dart analysis | No issues with `--fatal-infos` |
-| Ordinary offline Dart suite | 248 passed, 17 explicitly provisioned skips on exact Dart 3.11.5 |
+| Ordinary offline Dart suite | 253 passed, 17 explicitly provisioned skips on exact Dart 3.11.5 |
 | Public Dart API baseline | 38/38 focused tests passed; 101 exports reproduce at contract SHA-256 `0249614ad3ccf9b18492fe2573c09ef06f0bc045f015de4e8db43567d363dba7` and canonical file SHA-256 `3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1` |
-| Native C ABI baseline | 16/16 focused tests and the 12/12 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `376d161ebff9780d6f55b44e4a578fb311760a4225d1a5864ed26e0b7351afc8` and canonical file SHA-256 `a86b60485050028ffba66915d862f84d3a1943d2bec2c74dc74e63f0703a6878` |
+| Native C ABI baseline | 16/16 focused tests and the 13/13 source POSIX CTests passed; 67 functions, 9 constants, 8 enums, and 8 structs reproduce at contract SHA-256 `1845abe296e6ab1f655c4b966c2aa418c4a0e734b5728befd8fcb10e9c29f689` and canonical file SHA-256 `85aa01d63fb858523ef55a24fce08e6dd5a1e6e2be5aedc7bb342c089ad69bb8` |
 | Worker lifecycle with strict fake and exact ORT | 26/26 passed |
 | Native FFI bridge with strict fake runtimes | 11/11 passed |
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 677/677 passed |
+| Python CI-script tests | 679/679 passed |
 | Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `38b298fcb36e6f0eb5390485f15db6f1bb7c9b8acdb372ad1e3f83cd4878652f` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Scoped candidate approval validator | 26/26 focused tests passed; exact 48 composition and 7 shared evidence records, 5 approval domains, schema parity, hostile Git environment isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 677-test Python suite |
+| POSIX bounded-process helper | 17/17 focused tests passed; native, Phase-3, Linux/desktop audit, binding, macOS runtime, and application-gate integration contracts are included in the 679-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -187,13 +202,14 @@ paths.
 | iOS reference-gate focused tests | 97/97 passed |
 | macOS reference/final-app gate focused tests | 32/32 passed |
 | Standalone Python verifier tests | 54/54 passed |
-| C source quality | 34/34 files passed the closed byte/style gate |
+| C source quality | 35/35 files passed the closed byte/style gate |
 | FFI binding regeneration | Both generated bindings reproduced exactly |
 | Deterministic fixture inventory | 23 files and 23 closed model/data paths |
 | Deterministic XNNPACK MatMul fixture | Generator check and exact-ORT packaged-asset identity/inference test passed |
 | Exact ORT standalone fixture CTests | 2/2 passed |
-| Native POSIX CTests with exact ORT | 14/14 passed |
-| Native POSIX ASan+UBSan CTests with exact ORT | 14/14 passed; Apple LeakSanitizer unavailable |
+| Native POSIX CTests with exact ORT | 15/15 passed |
+| Native POSIX ASan+UBSan CTests with exact ORT | 15/15 passed; Apple LeakSanitizer unavailable |
+| Native POSIX ThreadSanitizer CTests with exact ORT | 15/15 passed locally with AppleClang; the new required Linux x64 TSan workflow remains pending CI-host execution |
 | Adjacent/bundled-loader CTests | 5/5 passed, including Android arm64/x86_64 APK namespace paths and desktop regressions |
 | Five-artifact offline audit | 8/8 passed |
 | macOS/iOS build-hook suite with exact archives | 28/28 passed |
@@ -234,11 +250,12 @@ entries, missing paths, and bounded-walk violations.
 ## Native and packaged evidence
 
 Native compilation used Apple Clang 21.0.0, CMake 4.4.2, and warnings as
-errors. The normal and ASan+UBSan suites each passed all 14 CTests against the
-exact runtime; Apple Clang does not provide LeakSanitizer on this host. The
-bundled loader passed adjacency, Flutter-framework, unexpected-layout, and
-closed Android arm64/x86_64 APK-namespace tests, including malformed paths and
-missing runtime/symbol failures.
+errors. The normal, ASan+UBSan, and TSan suites each passed all 15 CTests
+against the exact runtime; Apple Clang does not provide LeakSanitizer on this
+host. The dedicated Linux x64 TSan job is checked in but was not executed from
+this macOS validation. The bundled loader passed adjacency, Flutter-framework,
+unexpected-layout, and closed Android arm64/x86_64 APK-namespace tests,
+including malformed paths and missing runtime/symbol failures.
 
 The bounded-command changes were verified at the Python helper, auditor, and
 runner-contract levels. The first native-runner slice was also exercised on a
@@ -665,7 +682,8 @@ final-package, installer, and clean-machine work remain deferred.
 The checked workflow requires minimum/stable Dart format-analysis-tests,
 isolated binding regeneration, both Python verifier collections, the C source
 gate, release/source evidence, deterministic fixture bytes on Linux/macOS/
-Windows, Linux/macOS native sanitizer jobs, the Windows shim/security
+Windows, Linux/macOS Address/UndefinedBehavior sanitizer jobs, the separate
+Linux x64 ThreadSanitizer job, the Windows shim/security
 contract, exact macOS ORT native/Dart/worker/provider tests, and the fresh
 macOS final-application gate. The exact macOS lane now runs both production
 native-asset bindings and the explicit dynamic-adapter seam against the same

@@ -166,6 +166,25 @@ void main() {
       expect(() => OrtIsolateSequence(endlessElements()), throwsRangeError);
       expect(observations, 1025);
     });
+
+    test('rejects oversized string shapes before reading a lazy generator', () {
+      var observations = 0;
+      Iterable<String> unreadableStrings() sync* {
+        while (true) {
+          observations += 1;
+          yield '';
+        }
+      }
+
+      expect(
+        () => OrtIsolateTensor.fromStrings(
+          values: unreadableStrings(),
+          shape: const <int>[1024 * 1024 + 1],
+        ),
+        throwsRangeError,
+      );
+      expect(observations, 0);
+    });
   });
 
   group('real isolate protocol controller', () {
@@ -319,6 +338,95 @@ void main() {
         expect(pool.outstandingRuns, 0);
       } finally {
         await pool.close();
+      }
+    });
+
+    test('charges empty string slots against the message byte bound', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(maxMessageBytes: 16);
+      try {
+        expect(
+          () => worker.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': OrtIsolateTensor.fromStrings(
+                values: const <String>[''],
+                shape: const <int>[1],
+              ),
+            },
+          ),
+          throwsA(isA<OrtWorkerMessageTooLargeException>()),
+        );
+        expect(worker.outstandingRuns, 0);
+        expect(worker.outstandingInputBytes, 0);
+      } finally {
+        await worker.close();
+      }
+    });
+
+    test('charges requested output names against the message bound', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(maxMessageBytes: 9);
+      try {
+        expect(
+          () => worker.startRun(
+            inputs: <String, OrtIsolateValue>{
+              'X': OrtIsolateTensor.fromStrings(
+                values: const <String>[''],
+                shape: const <int>[],
+              ),
+            },
+            outputNames: const <String>['Y'],
+          ),
+          throwsA(isA<OrtWorkerMessageTooLargeException>()),
+        );
+        expect(worker.outstandingRuns, 0);
+        expect(worker.outstandingInputBytes, 0);
+      } finally {
+        await worker.close();
+      }
+    });
+
+    test('charges empty string slots against aggregate input bytes', () async {
+      final OrtIsolateSession worker =
+          await spawnOrtIsolateProtocolHarnessForTesting(
+            scenario: 'delay',
+            maxPendingRuns: 3,
+            maxMessageBytes: 1024,
+            maxOutstandingInputBytes: 33,
+          );
+      final OrtIsolateTensor emptyString = OrtIsolateTensor.fromStrings(
+        values: const <String>[''],
+        shape: const <int>[1],
+      );
+      try {
+        final OrtIsolateRun active = worker.startRun(
+          inputs: <String, OrtIsolateValue>{'X': emptyString},
+        );
+        expect(worker.outstandingInputBytes, 17);
+        expect(
+          () => worker.startRun(
+            inputs: <String, OrtIsolateValue>{'X': emptyString},
+          ),
+          throwsA(
+            isA<OrtWorkerQueueFullException>()
+                .having(
+                  (OrtWorkerQueueFullException error) =>
+                      error.context['outstandingInputBytes'],
+                  'reserved bytes',
+                  17,
+                )
+                .having(
+                  (OrtWorkerQueueFullException error) =>
+                      error.context['requestedInputBytes'],
+                  'requested bytes',
+                  17,
+                ),
+          ),
+        );
+        expect((await active.result).tensor('Y').copyStrings(), <String>['']);
+        expect(worker.outstandingInputBytes, 0);
+      } finally {
+        await worker.close();
       }
     });
 
@@ -1513,6 +1621,64 @@ void main() {
         },
       );
     }
+
+    test(
+      'malformed ownership uses a later ready port only for cleanup',
+      () async {
+        final ReceivePort lifecyclePort = ReceivePort();
+        final Completer<void> workerDisposed = Completer<void>();
+        final Completer<void> controllerClosed = Completer<void>();
+        final List<String> workerEvents = <String>[];
+        final List<String> controllerEvents = <String>[];
+        final StreamSubscription<Object?> lifecycleSubscription = lifecyclePort
+            .listen((Object? event) {
+              if (event is String) {
+                workerEvents.add(event);
+                if (event == 'disposed' && !workerDisposed.isCompleted) {
+                  workerDisposed.complete();
+                }
+              }
+            });
+        void observeController(String event) {
+          controllerEvents.add(event);
+          if (event == 'connectionsClosed' && !controllerClosed.isCompleted) {
+            controllerClosed.complete();
+          }
+        }
+
+        try {
+          await expectLater(
+            spawnOrtIsolateProtocolHarnessForTesting(
+              scenario: 'startupMalformedOwnershipThenReady',
+              startupLifecyclePort: lifecyclePort.sendPort,
+              onControllerEvent: observeController,
+            ),
+            throwsA(isA<OrtWorkerProtocolException>()),
+          );
+          await Future.wait<void>(<Future<void>>[
+            workerDisposed.future,
+            controllerClosed.future,
+          ]).timeout(const Duration(seconds: 2));
+
+          expect(workerEvents, <String>['closeReceived', 'disposed']);
+          expect(controllerEvents, <String>[
+            'callerAbandoned',
+            'lateReady',
+            'gracefulCloseSent',
+            'connectionsClosed',
+          ]);
+          expect(
+            controllerEvents.where(
+              (String event) => event == 'connectionsClosed',
+            ),
+            hasLength(1),
+          );
+        } finally {
+          await lifecycleSubscription.cancel();
+          lifecyclePort.close();
+        }
+      },
+    );
 
     test(
       'close is graceful, idempotent, and races an active run safely',

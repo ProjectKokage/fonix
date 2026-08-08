@@ -7,6 +7,9 @@ const int _maximumOutstandingWorkerInputBytes = 1024 * 1024 * 1024;
 const int _maximumPendingWorkerRuns = 1024;
 const int _maximumSessionPoolSize = 32;
 const int _maximumWorkerCompositeChildren = 1024;
+// Account for one retained list/reference slot per string in addition to its
+// UTF-8 content. Empty strings must still consume bounded worker capacity.
+const int _workerStringRetentionBytes = 8;
 
 typedef _OrtWorkerEntrypoint = void Function(Map<String, Object?> message);
 
@@ -230,6 +233,11 @@ final class OrtIsolateSession {
       supplied: outputNames,
       knownNames: this.outputNames,
     );
+    _validateWorkerRequestMessageBytes(
+      inputBytes: checkedInputs.bytes,
+      outputNames: checkedOutputs,
+      maxMessageBytes: maxMessageBytes,
+    );
     return _enqueueValidatedRun(checkedInputs, checkedOutputs);
   }
 
@@ -432,6 +440,9 @@ final class OrtIsolateSession {
           budget: budget,
           depth: 0,
         );
+      }
+      for (final String outputName in request.outputNames) {
+        budget.addUtf8(outputName);
       }
       _commandPort.send(<String, Object?>{
         'version': _ortWorkerProtocolVersion,
@@ -903,6 +914,11 @@ final class OrtSessionPool {
       supplied: outputNames,
       knownNames: contractWorker.outputNames,
     );
+    _validateWorkerRequestMessageBytes(
+      inputBytes: checkedInputs.bytes,
+      outputNames: checkedOutputs,
+      maxMessageBytes: contractWorker.maxMessageBytes,
+    );
     if (!_workers.any(
       (OrtIsolateSession worker) =>
           checkedInputs.bytes <= worker.maxOutstandingInputBytes,
@@ -1030,6 +1046,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   Isolate? isolate;
   OrtIsolateSession? session;
   SendPort? ownershipCommandPort;
+  SendPort? cleanupOnlyReadyCommandPort;
   Timer? startupTimer;
   var callerAbandoned = false;
   var bootstrapCloseCommandSent = false;
@@ -1107,10 +1124,12 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       }
       if (bootstrapCloseCommandSent && type == 'closed') {
         _requireWorkerReplyKeys(message, type);
-        ownershipCommandPort?.send(<String, Object?>{
-          'version': _ortWorkerProtocolVersion,
-          'type': 'retire',
-        });
+        (ownershipCommandPort ?? cleanupOnlyReadyCommandPort)?.send(
+          <String, Object?>{
+            'version': _ortWorkerProtocolVersion,
+            'type': 'retire',
+          },
+        );
         closeBootstrapConnections();
         return;
       }
@@ -1137,6 +1156,21 @@ Future<OrtIsolateSession> _spawnOrtWorker({
         throw const FormatException('Worker ready command port is malformed.');
       }
       final SendPort commandPort = rawCommandPort;
+      if (callerAbandoned && ownershipCommandPort == null) {
+        // A malformed ownership message has already failed startup. A later
+        // valid ready port is useful only for orderly cleanup; it must never
+        // establish a usable session or replace authoritative ownership.
+        final SendPort? existingCleanupPort = cleanupOnlyReadyCommandPort;
+        if (existingCleanupPort != null && commandPort != existingCleanupPort) {
+          throw const FormatException(
+            'Worker sent conflicting cleanup-only ready ports.',
+          );
+        }
+        cleanupOnlyReadyCommandPort = commandPort;
+        emitControllerEvent('lateReady');
+        sendBootstrapClose(commandPort);
+        return;
+      }
       final SendPort authoritativeCommandPort =
           ownershipCommandPort ??
           (throw const FormatException(
@@ -1200,9 +1234,10 @@ Future<OrtIsolateSession> _spawnOrtWorker({
         ),
         stackTrace,
       );
-      // Cleanup never depends on trusting the malformed ready payload. The
-      // worker published this authoritative port before fallible native setup.
-      final SendPort? commandPort = ownershipCommandPort;
+      // Cleanup uses either the authoritative ownership port or the sole valid
+      // ready port accepted after startup had already been abandoned.
+      final SendPort? commandPort =
+          ownershipCommandPort ?? cleanupOnlyReadyCommandPort;
       if (commandPort != null) {
         sendBootstrapClose(commandPort);
       }
@@ -2119,6 +2154,19 @@ List<String> _validateWorkerOutputNames({
   return List<String>.unmodifiable(selected);
 }
 
+void _validateWorkerRequestMessageBytes({
+  required int inputBytes,
+  required List<String> outputNames,
+  required int maxMessageBytes,
+}) {
+  final _WorkerMessageBudget budget = _WorkerMessageBudget(
+    maxBytes: maxMessageBytes,
+  )..addBytes(inputBytes);
+  for (final String outputName in outputNames) {
+    budget.addUtf8(outputName);
+  }
+}
+
 final class _WorkerMessageBudget {
   _WorkerMessageBudget({required this.maxBytes});
 
@@ -2150,6 +2198,10 @@ final class _WorkerMessageBudget {
   void addUtf8(String value) => addBytes(utf8.encode(value).length);
 }
 
+void _addWorkerStringRetention(_WorkerMessageBudget budget, int count) {
+  budget.addBytes(count * _workerStringRetentionBytes);
+}
+
 void _measureIsolateValue(
   OrtIsolateValue value, {
   required _WorkerMessageBudget budget,
@@ -2160,7 +2212,9 @@ void _measureIsolateValue(
     case OrtIsolateTensor():
       budget.addBytes(value.shape.rank * 8);
       if (value.isString) {
-        for (final String string in value.copyStrings()) {
+        final List<String> strings = value.copyStrings();
+        _addWorkerStringRetention(budget, strings.length);
+        for (final String string in strings) {
           budget.addUtf8(string);
         }
       } else {
@@ -2243,6 +2297,7 @@ List<String> _workerStringsForTransfer(
   _WorkerMessageBudget budget,
 ) {
   final List<String> strings = value.copyStrings();
+  _addWorkerStringRetention(budget, strings.length);
   for (final String string in strings) {
     budget.addUtf8(string);
   }
@@ -2471,7 +2526,9 @@ OrtIsolateValue _decodeIsolateValue(
         );
         final List<String> strings = _workerStringListAllowEmpty(
           value['strings'],
-          maximum: limits.maxTensorElements,
+          maximum: limits.maxTensorElements < _maximumStringTensorElements
+              ? limits.maxTensorElements
+              : _maximumStringTensorElements,
           budget: budget,
         );
         return OrtIsolateTensor.fromStrings(
@@ -2583,6 +2640,7 @@ List<String> _workerStringListAllowEmpty(
   if (raw is! List<Object?> || raw.length > maximum) {
     throw const FormatException('Worker string tensor list is invalid.');
   }
+  _addWorkerStringRetention(budget, raw.length);
   final List<String> result = <String>[];
   for (final Object? value in raw) {
     if (value is! String ||
@@ -2958,6 +3016,7 @@ void _preflightNativeWorkerValue(
     case OrtStringTensor():
       budget.addBytes(value.shape.rank * 8);
       budget.addBytes(value.info.byteLength);
+      _addWorkerStringRetention(budget, value.shape.elementCount);
     case OrtSequence():
       for (final OrtValue child in value.elements) {
         _preflightNativeWorkerValue(child, budget: budget, depth: depth + 1);
@@ -3003,6 +3062,7 @@ Map<String, Object?> _encodeNativeWorkerValue(
     case OrtStringTensor():
       budget.addBytes(value.shape.rank * 8);
       budget.addBytes(value.info.byteLength);
+      _addWorkerStringRetention(budget, value.shape.elementCount);
       return <String, Object?>{
         'kind': 'tensor',
         'elementType': OrtTensorElementType.string.nativeValue,
@@ -3434,6 +3494,13 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
     final _WorkerMessageBudget decodeBudget = _WorkerMessageBudget(
       maxBytes: maxMessageBytes,
     );
+    final List<String> outputNames = _workerStringList(
+      command['outputNames'],
+      maximum: session.outputs.length,
+    );
+    for (final String outputName in outputNames) {
+      decodeBudget.addUtf8(outputName);
+    }
     final Map<String, OrtValue> inputs = <String, OrtValue>{};
     for (final MapEntry<Object?, Object?> entry in encodedInputs.entries) {
       if (entry.key is! String || !knownInputNames.contains(entry.key)) {
@@ -3455,11 +3522,6 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
       nativeInputs.add(nativeValue);
       inputs[name] = nativeValue;
     }
-    final List<String> outputNames = _workerStringList(
-      command['outputNames'],
-      maximum: session.outputs.length,
-    );
-
     runOptions = OrtRunOptions(runtime: runtime);
     cancelToken = runOptions._nativeApi.registerCancelToken(
       runOptions._nativeHandle,
@@ -3678,6 +3740,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     'startupGateError',
     'startupGateExit',
     'startupMalformedReady',
+    'startupMalformedOwnershipThenReady',
     'startupReadyMissingCommandPort',
     'startupReadyWrongCommandPort',
     'malformed',
@@ -3707,6 +3770,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
         'startupGateError',
         'startupGateExit',
         'startupMalformedReady',
+        'startupMalformedOwnershipThenReady',
         'startupReadyMissingCommandPort',
         'startupReadyWrongCommandPort',
         'malformedWhileOwned',
@@ -3786,7 +3850,9 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
   responsePort.send(<String, Object?>{
     'version': _ortWorkerProtocolVersion,
     'type': 'ownership',
-    'commandPort': commands.sendPort,
+    'commandPort': scenario == 'startupMalformedOwnershipThenReady'
+        ? 'malformed-command-port'
+        : commands.sendPort,
   });
   if (scenario == 'startupExit') {
     commands.close();

@@ -74,10 +74,19 @@ Cover:
   finish/request races;
 - a blocking shim `Run` cancelled from another thread, including proof that
   termination is unset only after `Run` returns;
+- concurrent runs in separate sessions sharing one published input value,
+  proving recursive validation remains read-only;
+- profiling-disable fault injection, including no partial bytes, fail-closed
+  run-options reuse, successful retry, and native-owner release before private
+  directory cleanup;
 - exported symbol allowlist;
 - process mode without link-time ORT dependency.
 
-Use fault injection for allocation and loader failures. Compile sanitizer variants where toolchains/providers permit.
+Use fault injection for allocation and loader failures. Compile separate
+Address/UndefinedBehavior and ThreadSanitizer variants where
+toolchains/providers permit. The required Linux x64 TSan lane always runs the
+fake-backed shared-value test; real-ORT concurrency remains an additional
+integration gate when that exact runtime is provisioned.
 
 ## 8.5 FFI integration tests
 
@@ -100,7 +109,11 @@ unknown protocol fields, verify queue cancellation/backpressure, distinguish
 startup/crash/protocol/ORT failures, drain close races, preserve recursive
 Optional None types, prove the startup timeout covers a delayed isolate-spawn
 future without resuming a late paused isolate, preserve that timeout across a
-late spawn failure, reject exit without the required cleanup receipt, retain a
+late spawn failure, use a valid ready port received after malformed ownership
+only for acknowledged cleanup, reject exit without the required cleanup receipt,
+charge retained slots for empty string tensors in both per-message and
+aggregate input bounds, include requested output names in the request-message
+bound without inflating aggregate input reservations, retain a
 malformed worker and its input reservation until gated run-state cleanup
 completes, require controller acknowledgement before worker-authored fatal
 protocol/cleanup replies may exit, reject mismatched fatal request IDs instead
@@ -489,8 +502,9 @@ The checked-in pull-request/push workflow currently runs:
   release-evidence checks, and the closed source checksum;
 - deterministic Phase-3 fixture-byte checks on Linux, macOS, and Windows;
 - warning-as-error native CTests on Linux x64 and macOS arm64 with the
-  documented sanitizers, plus the Windows x64 shim/security contract without
-  real ORT inference; and
+  documented Address/UndefinedBehavior sanitizers, a separate Linux x64 TSan
+  lane, plus the Windows x64 shim/security contract without real ORT inference;
+  and
 - the exact ORT 1.27.1 macOS arm64 runtime, native bridge, worker lifecycle,
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
@@ -692,6 +706,7 @@ detached API/ABI approval or any target-execution record.
 lint-dart
 bindings-regenerate
 native-linux-x64-asan
+native-linux-x64-tsan
 native-macos-arm64
 native-windows-x64
 flutter-android-x64-emulator

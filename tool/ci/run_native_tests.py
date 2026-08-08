@@ -33,6 +33,7 @@ REQUIRED_TESTS: Mapping[str, frozenset[str]] = {
             "owned-string-and-status-limits",
             "runtime-loader-and-abi",
             "phase2-native-guards",
+            "phase2-shared-value-thread-safety",
             "phase5-cancel-registry",
             "phase5-cancel-during-run",
             "exported-symbol-allowlist",
@@ -290,6 +291,18 @@ def sanitizer_environment(
     return environment
 
 
+def thread_sanitizer_environment(
+    system: str, base: Mapping[str, str]
+) -> dict[str, str]:
+    if system not in {"Darwin", "Linux"}:
+        raise NativeTestError(
+            f"ThreadSanitizer environment is unsupported on {system}"
+        )
+    environment = dict(base)
+    environment["TSAN_OPTIONS"] = "halt_on_error=1"
+    return environment
+
+
 def _find_built_shim(build_directory: Path, system: str) -> Path:
     library_name = {
         "Darwin": "libfonix_shim.dylib",
@@ -320,14 +333,21 @@ def run_native_tests(
     build_directory: Path,
     suite: str,
     sanitizers: bool,
+    thread_sanitizer: bool,
     real_ort: Path | None,
     real_model: Path | None,
     system: str | None = None,
 ) -> Path:
     host_system = system or platform.system()
     validate_suite_for_host(suite, host_system)
+    if sanitizers and thread_sanitizer:
+        raise NativeTestError(
+            "ThreadSanitizer cannot be combined with AddressSanitizer/UndefinedBehaviorSanitizer"
+        )
     if sanitizers and suite != "posix":
         raise NativeTestError("sanitizers are enabled only for the POSIX suite")
+    if thread_sanitizer and suite != "posix":
+        raise NativeTestError("ThreadSanitizer is enabled only for the POSIX suite")
     if (real_ort is None) != (real_model is None):
         raise NativeTestError("--real-ort and --real-model must be supplied together")
     if real_ort is not None and suite != "posix":
@@ -358,6 +378,8 @@ def run_native_tests(
                 "UBSan without detect_leaks.",
                 flush=True,
             )
+    elif thread_sanitizer:
+        environment = thread_sanitizer_environment(host_system, environment)
 
     configure_command = [
         cmake,
@@ -368,8 +390,12 @@ def run_native_tests(
         f"-DCMAKE_BUILD_TYPE={BUILD_CONFIGURATION}",
     ]
     if suite == "posix":
-        configure_command.append(
-            f"-DFONIX_TEST_SANITIZERS={'ON' if sanitizers else 'OFF'}"
+        configure_command.extend(
+            [
+                f"-DFONIX_TEST_SANITIZERS={'ON' if sanitizers else 'OFF'}",
+                "-DFONIX_TEST_THREAD_SANITIZER="
+                f"{'ON' if thread_sanitizer else 'OFF'}",
+            ]
         )
     if real_ort is not None and real_model is not None:
         resolved_ort = _regular_input(real_ort, "real ORT library")
@@ -438,7 +464,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--suite", choices=tuple(REQUIRED_TESTS), required=True)
-    parser.add_argument("--sanitizers", action="store_true")
+    sanitizer_mode = parser.add_mutually_exclusive_group()
+    sanitizer_mode.add_argument("--sanitizers", action="store_true")
+    sanitizer_mode.add_argument("--thread-sanitizer", action="store_true")
     parser.add_argument("--real-ort", type=Path)
     parser.add_argument("--real-model", type=Path)
     return parser
@@ -452,6 +480,7 @@ def main(argv: list[str] | None = None) -> int:
             build_directory=arguments.build_dir,
             suite=arguments.suite,
             sanitizers=arguments.sanitizers,
+            thread_sanitizer=arguments.thread_sanitizer,
             real_ort=arguments.real_ort,
             real_model=arguments.real_model,
         )

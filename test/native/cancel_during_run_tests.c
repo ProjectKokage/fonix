@@ -53,6 +53,9 @@ static uint32_t unset_count = 0u;
 static uint32_t unset_while_active = 0u;
 static uint32_t profile_extra_file = 0u;
 static uint32_t profile_invalid_utf8 = 0u;
+static uint32_t profile_disable_failures = 0u;
+static uint32_t release_saw_profile_directory = 0u;
+static uint32_t run_call_count = 0u;
 
 static OrtStatus* ORT_API_CALL
 fake_create_run_options(OrtRunOptions** out_options) NO_EXCEPTION {
@@ -65,8 +68,28 @@ fake_create_run_options(OrtRunOptions** out_options) NO_EXCEPTION {
 
 static void ORT_API_CALL fake_release_run_options(OrtRunOptions* options)
     NO_EXCEPTION {
-  free(((fake_run_options_t*)options)->profile_prefix);
+  fake_run_options_t* fake = (fake_run_options_t*)options;
+  if (fake->profile_prefix != NULL) {
+    char directory[4096];
+    char* separator = NULL;
+    size_t length = strlen(fake->profile_prefix);
+    if (length < sizeof(directory)) {
+      memcpy(directory, fake->profile_prefix, length + 1u);
+      separator = strrchr(directory, '/');
+      if (separator != NULL) {
+        *separator = '\0';
+        if (access(directory, F_OK) == 0) {
+          release_saw_profile_directory = 1u;
+        }
+      }
+    }
+  }
+  free(fake->profile_prefix);
   free(options);
+}
+
+static void ORT_API_CALL fake_release_status(OrtStatus* status) NO_EXCEPTION {
+  free(status);
 }
 
 static OrtStatus* ORT_API_CALL fake_enable_run_profiling(
@@ -86,6 +109,10 @@ fake_disable_run_profiling(OrtRunOptions* options) NO_EXCEPTION {
   fake_run_options_t* fake = (fake_run_options_t*)options;
   char path[4096];
   FILE* output = NULL;
+  if (profile_disable_failures != 0u) {
+    --profile_disable_failures;
+    return (OrtStatus*)malloc(1u);
+  }
   if (fake->profile_prefix == NULL ||
       snprintf(path, sizeof(path), "%s_123.json", fake->profile_prefix) < 0) {
     return (OrtStatus*)malloc(1u);
@@ -161,6 +188,7 @@ fake_run(OrtSession* session, const OrtRunOptions* options,
   const fake_run_options_t* fake = (const fake_run_options_t*)options;
   struct timespec deadline;
   int wait_result = 0;
+  ++run_call_count;
   (void)session;
   (void)input_names;
   (void)inputs;
@@ -192,6 +220,7 @@ static void ORT_API_CALL fake_release_value(OrtValue* value) NO_EXCEPTION {
 }
 
 static const OrtApi test_api = {
+    .ReleaseStatus = fake_release_status,
     .CreateRunOptions = fake_create_run_options,
     .ReleaseRunOptions = fake_release_run_options,
     .RunOptionsSetTerminate = fake_set_terminate,
@@ -321,6 +350,12 @@ dort_status_t* dort_value_validate_supported(const dort_value_t* value,
   (void)value;
   (void)operation;
   return NULL;
+}
+
+dort_status_t* dort_value_validate_and_set_unpublished_depth(
+    dort_value_t* value,
+    const char* operation) {
+  return dort_value_validate_supported(value, operation);
 }
 
 dort_status_t* DORT_CALL dort_value_kind(const dort_value_t* value,
@@ -460,9 +495,44 @@ int main(void) {
 
   profile_extra_file = 0u;
   status = dort_run_options_profiling_start(options, profile_root);
+  CHECK(status == NULL, "could not start profiling before disable failure");
+  profile_disable_failures = 1u;
+  memset(&profile_json, 0xff, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status != NULL, "profiling disable failure was swallowed");
+  CHECK(profile_json.data == NULL && profile_json.length == 0u &&
+            profile_json.private_owner == NULL,
+        "profiling disable failure published partial bytes");
+  dort_status_release(status);
+  {
+    uint32_t calls_before_reuse = run_call_count;
+    const char* output_names[] = {"Y"};
+    status = dort_session_run(&test_session, options, NULL, 0u, output_names,
+                              1u, &context.result);
+    CHECK(status != NULL && context.result == NULL,
+          "unsettled profiling state allowed run-options reuse");
+    CHECK(dort_status_code(status) == DORT_ERROR_RUN_FAILED,
+          "unsettled profiling state returned the wrong error");
+    CHECK(run_call_count == calls_before_reuse,
+          "unsettled profiling state reached native Run");
+    dort_status_release(status);
+  }
+  memset(&profile_json, 0, sizeof(profile_json));
+  status = dort_run_options_profiling_finish(options, &profile_json);
+  CHECK(status == NULL, "profiling disable retry did not recover");
+  CHECK(profile_json.length == 2u &&
+            memcmp(profile_json.data, "[]", profile_json.length) == 0,
+        "profiling disable retry returned unexpected bytes");
+  free(profile_json.private_owner);
+
+  status = dort_run_options_profiling_start(options, profile_root);
   CHECK(status == NULL, "could not start profiling before release");
+  profile_disable_failures = 1u;
+  release_saw_profile_directory = 0u;
   dort_run_options_release(options);
   options = NULL;
+  CHECK(release_saw_profile_directory == 1u,
+        "native run-options release happened after profile cleanup");
   CHECK(rmdir(profile_root) == 0,
         "release did not clean the active private profile directory");
 

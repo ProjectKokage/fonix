@@ -167,6 +167,10 @@ dort_status_t* dort_value_validate_fixed_tensor(
 dort_status_t* dort_value_validate_supported(
     const dort_value_t* value,
     const char* operation);
+/* The caller must exclusively own value until this call returns. */
+dort_status_t* dort_value_validate_and_set_unpublished_depth(
+    dort_value_t* value,
+    const char* operation);
 OrtValue* dort_value_ort_for_run(const dort_value_t* value);
 int dort_value_is_optional_none(const dort_value_t* value);
 

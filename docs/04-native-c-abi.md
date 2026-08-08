@@ -149,6 +149,12 @@ Release functions accept null. A non-null retained reference must be released ex
 
 Do not expose the raw `Ort*` pointer to Dart.
 
+Validation of a published value graph is read-only. When ONNX Runtime returns
+a new value, the shim validates the complete graph and stores its computed
+nesting depth only while that wrapper is still exclusively owned and
+unpublished. Concurrent runs may therefore share one published input value
+across sessions without a validation-time write race.
+
 ## 4.7 Environment and session functions
 
 The shim should expose focused functions rather than one function per ORT setter. A session configuration can carry normalized fields and provider arrays. However, avoid one monolithic structure that cannot evolve.
@@ -320,8 +326,13 @@ private child directory under an existing caller-owned artifact root and calls
 ORT 1.25+ `RunOptionsEnableProfiling` with a shim-owned prefix.
 `dort_run_options_profiling_finish` disables profiling, accepts exactly one
 non-empty regular non-link profile up to 8 MiB, copies it into an owned
-`dort_string_t`, and removes the temporary file/directory on every path. A
-failed finish publishes no bytes. The run-options retain used by synchronous
+`dort_string_t`, and removes the temporary file/directory after profiling has
+been authoritatively disabled. A failed finish publishes no bytes. If native
+disable itself fails, the shim retains the private directory and profiling
+state, rejects reuse of those run options before another native `Run`, and
+allows an explicit finish retry. Final disposal releases the native run-options
+owner before removing the retained directory, so a late native artifact cannot
+be recreated after cleanup. The run-options retain used by synchronous
 Run/cancellation prevents cleanup before Run returns.
 
 ## 4.13 Symbol visibility
@@ -351,7 +362,7 @@ Where supported:
 - non-executable stack;
 - hidden visibility;
 - control-flow/security flags appropriate to the platform toolchain;
-- sanitizers in test builds;
+- separate Address/UndefinedBehavior and ThreadSanitizer test builds;
 - checked integer arithmetic helpers;
 - no undefined signed overflow.
 

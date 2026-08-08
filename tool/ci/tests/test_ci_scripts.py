@@ -170,6 +170,31 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("-s tool/tests -p 'test_*.py' -v", verifier_job)
         self.assertNotIn("-p 'test_verify_native_libs.py'", verifier_job)
 
+    def test_linux_thread_sanitizer_lane_is_required_and_separate(self) -> None:
+        source = (REPOSITORY / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        job = self._job(source, "native-linux-x64-tsan")
+        cmake = (REPOSITORY / "test/native/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("runs-on: ubuntu-24.04", job)
+        self.assertIn('test "$(uname -m)" = x86_64', job)
+        self.assertIn("--suite posix", job)
+        self.assertIn("--thread-sanitizer", job)
+        self.assertNotIn("--sanitizers", job)
+        self.assertIn("FONIX_TEST_THREAD_SANITIZER", cmake)
+        self.assertIn("-fsanitize=thread", cmake)
+        self.assertIn(
+            "FONIX_TEST_SANITIZERS AND FONIX_TEST_THREAD_SANITIZER",
+            cmake,
+        )
+        self.assertIn(
+            "phase2-shared-value-thread-safety",
+            run_native_tests.REQUIRED_TESTS["posix"],
+        )
+
     def test_reviewed_api_and_abi_baselines_use_the_minimum_sdk_job(self) -> None:
         source = (REPOSITORY / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"
@@ -574,6 +599,63 @@ class NativeRunnerTest(unittest.TestCase):
         self.assertIn("detect_leaks=1", linux["ASAN_OPTIONS"])
         self.assertEqual(darwin["ASAN_OPTIONS"], "halt_on_error=1")
         self.assertIn("halt_on_error=1", darwin["UBSAN_OPTIONS"])
+
+    def test_thread_sanitizer_mode_is_mutually_exclusive_and_strict(self) -> None:
+        parser = run_native_tests._parser()
+        arguments = parser.parse_args(
+            [
+                "--suite",
+                "posix",
+                "--build-dir",
+                "/tmp/fonix-tsan-parser",
+                "--thread-sanitizer",
+            ]
+        )
+        self.assertTrue(arguments.thread_sanitizer)
+        self.assertFalse(arguments.sanitizers)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--suite",
+                    "posix",
+                    "--build-dir",
+                    "/tmp/fonix-tsan-parser",
+                    "--sanitizers",
+                    "--thread-sanitizer",
+                ]
+            )
+        with self.assertRaises(run_native_tests.NativeTestError):
+            run_native_tests.run_native_tests(
+                repository=Path("/missing"),
+                build_directory=Path("/missing-build"),
+                suite="posix",
+                sanitizers=True,
+                thread_sanitizer=True,
+                real_ort=None,
+                real_model=None,
+                system="Linux",
+            )
+        with self.assertRaises(run_native_tests.NativeTestError):
+            run_native_tests.run_native_tests(
+                repository=Path("/missing"),
+                build_directory=Path("/missing-build"),
+                suite="bundled",
+                sanitizers=False,
+                thread_sanitizer=True,
+                real_ort=None,
+                real_model=None,
+                system="Linux",
+            )
+
+        base = {"KEEP": "yes", "TSAN_OPTIONS": "halt_on_error=0"}
+        linux = run_native_tests.thread_sanitizer_environment("Linux", base)
+        darwin = run_native_tests.thread_sanitizer_environment("Darwin", base)
+        self.assertEqual(base["TSAN_OPTIONS"], "halt_on_error=0")
+        self.assertEqual(linux["TSAN_OPTIONS"], "halt_on_error=1")
+        self.assertEqual(darwin["TSAN_OPTIONS"], "halt_on_error=1")
+        self.assertEqual(linux["KEEP"], "yes")
+        with self.assertRaises(run_native_tests.NativeTestError):
+            run_native_tests.thread_sanitizer_environment("Windows", {})
 
 
 class Phase3FixtureRunnerTest(unittest.TestCase):

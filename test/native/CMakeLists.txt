@@ -16,6 +16,14 @@ if(NOT APPLE AND NOT UNIX)
 endif()
 
 option(FONIX_TEST_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(FONIX_TEST_THREAD_SANITIZER "Enable ThreadSanitizer" OFF)
+
+if(FONIX_TEST_SANITIZERS AND FONIX_TEST_THREAD_SANITIZER)
+  message(FATAL_ERROR "ThreadSanitizer cannot be combined with AddressSanitizer/UndefinedBehaviorSanitizer")
+endif()
+if(FONIX_TEST_THREAD_SANITIZER AND (NOT UNIX OR MSVC))
+  message(FATAL_ERROR "ThreadSanitizer native tests require a POSIX toolchain")
+endif()
 
 find_package(Threads REQUIRED)
 
@@ -41,6 +49,9 @@ function(fonix_strict_target target)
     if(FONIX_TEST_SANITIZERS)
       target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
       target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+    elseif(FONIX_TEST_THREAD_SANITIZER)
+      target_compile_options(${target} PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+      target_link_options(${target} PRIVATE -fsanitize=thread)
     endif()
   endif()
 endfunction()
@@ -48,6 +59,9 @@ endfunction()
 if(FONIX_TEST_SANITIZERS AND NOT MSVC)
   target_compile_options(fonix_shim PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(fonix_shim PRIVATE -fsanitize=address,undefined)
+elseif(FONIX_TEST_THREAD_SANITIZER AND NOT MSVC)
+  target_compile_options(fonix_shim PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+  target_link_options(fonix_shim PRIVATE -fsanitize=thread)
 endif()
 
 function(add_fake_ort target behavior output_directory)
@@ -244,6 +258,23 @@ fonix_strict_target(fonix_phase3_null_metadata_guard)
 add_test(
   NAME phase3-null-metadata-guard
   COMMAND fonix_phase3_null_metadata_guard
+    "$<TARGET_FILE:fake_ort_null_metadata>"
+    "$<TARGET_FILE_DIR:fake_ort_null_metadata>"
+)
+
+add_executable(fonix_shared_value_thread_tests shared_value_thread_tests.c)
+target_link_libraries(
+  fonix_shared_value_thread_tests
+  PRIVATE fonix_shim Threads::Threads ${CMAKE_DL_LIBS}
+)
+target_include_directories(
+  fonix_shared_value_thread_tests
+  PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src"
+)
+fonix_strict_target(fonix_shared_value_thread_tests)
+add_test(
+  NAME phase2-shared-value-thread-safety
+  COMMAND fonix_shared_value_thread_tests
     "$<TARGET_FILE:fake_ort_null_metadata>"
     "$<TARGET_FILE_DIR:fake_ort_null_metadata>"
 )

@@ -902,7 +902,11 @@ dort_status_t* dort_value_wrap_optional_output(
     dort_runtime_api(runtime)->ReleaseValue(ort_value);
     return status;
   }
-  status = dort_optional_some_create(contained, out_value);
+  status = dort_value_validate_and_set_unpublished_depth(
+      contained, "value_wrap_optional");
+  if (status == NULL) {
+    status = dort_optional_some_create(contained, out_value);
+  }
   dort_value_release(contained);
   return status;
 }
@@ -1837,6 +1841,7 @@ dort_status_t* DORT_CALL dort_value_child_get(
   const OrtApi* api = NULL;
   OrtAllocator* allocator = NULL;
   OrtValue* ort_child = NULL;
+  dort_value_t* child = NULL;
   OrtStatus* ort_status = NULL;
   dort_status_t* status = NULL;
   size_t count = 0u;
@@ -1896,17 +1901,19 @@ dort_status_t* DORT_CALL dort_value_child_get(
                      DORT_ERROR_VALUE_KIND_UNSUPPORTED,
                      "value_child_get");
   }
-  status = dort_value_wrap_owned(value->runtime, ort_child, out_child);
+  status = dort_value_wrap_owned(value->runtime, ort_child, &child);
   if (status == NULL) {
-    status = dort_value_validate_supported(*out_child, "value_child_get");
+    status = dort_value_validate_and_set_unpublished_depth(
+        child, "value_child_get");
   }
   if (status != NULL) {
-    if (*out_child != NULL) {
-      dort_value_release(*out_child);
-      *out_child = NULL;
+    if (child != NULL) {
+      dort_value_release(child);
     } else {
       api->ReleaseValue(ort_child);
     }
+  } else {
+    *out_child = child;
   }
   return status;
 }
@@ -2408,7 +2415,6 @@ static dort_status_t* dort_validate_value_recursive(
   if (value->kind == DORT_VALUE_KIND_OPTIONAL) {
     if (value->optional_contained == NULL) {
       *out_tree_depth = 1u;
-      ((dort_value_t*)value)->nesting_depth = 1u;
       return NULL;
     }
     status = dort_validate_value_recursive(
@@ -2421,7 +2427,6 @@ static dort_status_t* dort_validate_value_recursive(
       return status;
     }
     *out_tree_depth = maximum_child_depth + 1u;
-    ((dort_value_t*)value)->nesting_depth = *out_tree_depth;
     return NULL;
   }
   if (value->kind == DORT_VALUE_KIND_TENSOR) {
@@ -2445,7 +2450,6 @@ static dort_status_t* dort_validate_value_recursive(
     }
     if (status == NULL) {
       *out_tree_depth = 1u;
-      ((dort_value_t*)value)->nesting_depth = 1u;
     }
     return status;
   }
@@ -2538,7 +2542,6 @@ static dort_status_t* dort_validate_value_recursive(
     }
   }
   *out_tree_depth = maximum_child_depth + 1u;
-  ((dort_value_t*)value)->nesting_depth = *out_tree_depth;
   return NULL;
 }
 
@@ -2549,6 +2552,19 @@ dort_status_t* dort_value_validate_supported(
   uint32_t tree_depth = 0u;
   return dort_validate_value_recursive(
       value, 1u, &nodes, &tree_depth, operation);
+}
+
+dort_status_t* dort_value_validate_and_set_unpublished_depth(
+    dort_value_t* value,
+    const char* operation) {
+  size_t nodes = 0u;
+  uint32_t tree_depth = 0u;
+  dort_status_t* status = dort_validate_value_recursive(
+      value, 1u, &nodes, &tree_depth, operation);
+  if (status == NULL) {
+    value->nesting_depth = tree_depth;
+  }
+  return status;
 }
 
 dort_status_t* DORT_CALL dort_tensor_info_json(

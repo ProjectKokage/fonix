@@ -6,7 +6,9 @@ import 'resource_limits.dart';
 import 'tensor_type.dart';
 
 const int _isolateMaximumCompositeChildren = 1024;
+const int _isolateMaximumStringTensorElements = 1024 * 1024;
 const int _isolateMaximumStringElementBytes = 1024 * 1024;
+const int _isolateMaximumStringTensorBytes = 64 * 1024 * 1024;
 
 /// A closed, pointer-free ONNX value that can cross a Dart isolate boundary.
 ///
@@ -219,6 +221,9 @@ final class OrtIsolateTensor extends OrtIsolateValue {
     OrtResourceLimits limits = OrtResourceLimits.defaults,
   }) {
     final OrtShape checkedShape = OrtShape(shape, limits: limits);
+    if (checkedShape.elementCount > _isolateMaximumStringTensorElements) {
+      throw RangeError('String tensor exceeds the native element limit.');
+    }
     final List<String> copied = <String>[];
     final Iterator<String> iterator = values.iterator;
     var totalBytes = 0;
@@ -234,7 +239,8 @@ final class OrtIsolateTensor extends OrtIsolateValue {
       }
       final int byteLength = utf8.encode(value).length;
       if (byteLength > _isolateMaximumStringElementBytes ||
-          byteLength > limits.maxTensorBytes - totalBytes) {
+          byteLength > limits.maxTensorBytes - totalBytes ||
+          byteLength > _isolateMaximumStringTensorBytes - totalBytes) {
         throw RangeError('String tensor exceeds its configured byte limit.');
       }
       totalBytes += byteLength;
