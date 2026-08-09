@@ -28,8 +28,8 @@
     "onnxruntime": { "$ref": "#/$defs/onnxruntime" },
     "release_targets": {
       "type": "array",
-      "minItems": 8,
-      "maxItems": 8,
+      "minItems": 9,
+      "maxItems": 9,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/releaseTarget" }
     },
@@ -55,7 +55,7 @@
               }
             }
           },
-          "artifacts": { "minItems": 8 }
+          "artifacts": { "minItems": 9 }
         }
       }
     }
@@ -230,6 +230,7 @@
       "enum": [
         { "os": "ios", "architecture": "arm64", "variant": "device", "flavor": "cpu" },
         { "os": "ios", "architecture": "arm64", "variant": "simulator", "flavor": "cpu" },
+        { "os": "ios", "architecture": "x86_64", "variant": "simulator", "flavor": "cpu" },
         { "os": "macos", "architecture": "arm64", "variant": "default", "flavor": "cpu" },
         { "os": "android", "architecture": "arm64-v8a", "variant": "default", "flavor": "cpu" },
         { "os": "android", "architecture": "x86_64", "variant": "default", "flavor": "cpu" },

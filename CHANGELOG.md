@@ -1,5 +1,8 @@
 ## 0.1.0-dev.1
 
+- Added the exact iOS x86_64 simulator linked tuple required by Flutter's
+  simulator build, backed by the pinned universal ORT XCFramework member;
+  x86_64 device and Mac Catalyst remain rejected.
 - Added the project-owned C shim, API-27 negotiation, typed errors, runtime
   identity enforcement, and deterministic disposal.
 - Added dense and string tensors, reduced-precision storage, composite ONNX

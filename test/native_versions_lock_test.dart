@@ -21,20 +21,43 @@ void main() {
       expect(lock.onnxRuntime.compatibilityHeader.sizeBytes, 392401);
       expect(lock.onnxRuntime.epHeader.sizeBytes, 149810);
       expect(lock.onnxRuntime.license.sizeBytes, 1073);
-      expect(lock.artifacts, hasLength(8));
+      expect(lock.artifacts, hasLength(9));
       expect(
         lock.artifacts.map(_artifactIdentity).toSet(),
         lock.releaseTargets.map((target) => target.identity).toSet(),
       );
       expect(
         lock.artifacts.where((artifact) => artifact.containers.isNotEmpty),
-        hasLength(4),
+        hasLength(5),
       );
       expect(
         lock.artifacts.expand((artifact) => artifact.notices),
-        hasLength(16),
+        hasLength(18),
       );
-      expect(lock.releaseTargets, hasLength(8));
+      expect(lock.releaseTargets, hasLength(9));
+
+      final iosSimulatorArtifacts = lock.artifacts
+          .where(
+            (artifact) =>
+                artifact.target.operatingSystem == 'ios' &&
+                artifact.target.variant == 'simulator',
+          )
+          .toList(growable: false);
+      expect(iosSimulatorArtifacts, hasLength(2));
+      expect(
+        iosSimulatorArtifacts
+            .map((artifact) => artifact.target.architecture)
+            .toSet(),
+        <String>{'arm64', 'x86_64'},
+      );
+      expect(
+        iosSimulatorArtifacts
+            .map((artifact) => artifact.expectedFiles.first.sha256)
+            .toSet(),
+        <String>{
+          'c89260dbff67795fc3a96e40e389a38e52e29f0e2f5660ae202f670b9c79af0f',
+        },
+      );
 
       lock.verifyVendoredInputs(Directory.current);
     });
@@ -121,7 +144,7 @@ void main() {
         mode: NativeVersionsLockValidationMode.release,
       );
 
-      expect(lock.artifacts, hasLength(8));
+      expect(lock.artifacts, hasLength(9));
       expect(lock.releaseState, 'release');
     });
   });

@@ -74,6 +74,7 @@ _REQUIRED_RELEASE_TARGETS = frozenset(
     {
         ("ios", "arm64", "device", "cpu"),
         ("ios", "arm64", "simulator", "cpu"),
+        ("ios", "x86_64", "simulator", "cpu"),
         ("macos", "arm64", "default", "cpu"),
         ("android", "arm64-v8a", "default", "cpu"),
         ("android", "x86_64", "default", "cpu"),
@@ -584,7 +585,7 @@ def _validate_lock(lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
         )
 
     release_targets = _array(
-        lock["release_targets"], "native lock release_targets", minimum=8, maximum=8
+        lock["release_targets"], "native lock release_targets", minimum=9, maximum=9
     )
     release_target_keys: set[tuple[str, str, str, str]] = set()
     for index, raw_target in enumerate(release_targets):

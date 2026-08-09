@@ -607,6 +607,7 @@ final class _NativeLockDecoder {
   static const Set<String> _requiredReleaseTargetIdentities = {
     'ios/arm64/device/cpu',
     'ios/arm64/simulator/cpu',
+    'ios/x86_64/simulator/cpu',
     'macos/arm64/default/cpu',
     'android/arm64-v8a/default/cpu',
     'android/x86_64/default/cpu',

@@ -733,8 +733,8 @@ collector, and 32 independent replay-validator tests. These cases cover the
 three-schema reference graph, rejection of non-V1 identities, raw preservation,
 process-lifetime peak RSS, two-worker assignment parity, authentic second
 admission, occupancy-drain settlement, environment derivation, and hostile
-publication/replay inputs. The complete Python suite passes 827/827, the
-current Flutter SDK root suite passes 225 tests with 54 explicit
+publication/replay inputs. The complete Python suite passes 829/829, the
+current Flutter SDK root suite passes 226 tests with 54 explicit
 environment-gated skips, and a clean external-copy reference app passes
 analysis and 90/90 tests, including all 18 formal-V1 benchmark cases. The exact
 ORT 1.27.1 two-worker integration passes 1/1.

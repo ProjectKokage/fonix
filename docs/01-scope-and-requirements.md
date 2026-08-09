@@ -12,7 +12,7 @@ The wrapper is responsible for the Dart API, C shim, native artifact resolution,
 
 | Platform | Architectures | Baseline native flavor | Required integration evidence |
 |---|---|---|---|
-| iOS | device arm64; simulator arm64 | CPU + XNNPACK + CoreML where included | physical device and simulator app |
+| iOS | device arm64; simulator arm64 and x86_64 | CPU + XNNPACK + CoreML where included | physical device and exact-architecture simulator app |
 | macOS | arm64; x86_64 when the selected ORT build supports it | CPU; optional XNNPACK/CoreML | packaged `.app` plus CLI test |
 | Android | arm64-v8a, x86_64 | CPU + XNNPACK; sherpa-owned process mode | APK/AAB inspection and device/emulator tests |
 | Linux | x86_64, arm64 | CPU | ELF/package test on both architectures |

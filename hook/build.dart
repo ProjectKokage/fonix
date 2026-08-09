@@ -36,10 +36,6 @@ Future<void> buildFonixShim(BuildInput input, BuildOutputBuilder output) async {
     applicationMinimumOs:
         configuredUserDefines[fonixApplicationMinimumOsUserDefine],
   );
-  validateFonixAndroidOwnershipUserDefines(
-    options,
-    configuredUserDefines: configuredUserDefines,
-  );
   final sources = discoverFonixNativeSources(input.packageRoot);
   final dependencies = validateFonixNativeInputs(input.packageRoot, sources);
   output.dependencies.addAll(dependencies);
@@ -96,14 +92,14 @@ Future<StagedNativeArtifact?> stageFonixNativeRuntime({
   final stagingDirectory = Directory.fromUri(
     input.outputDirectory.resolve(
       'onnxruntime-${_targetOsName(options)}-'
-      '${_targetArchitectureName(options)}-${options.targetVariant}/',
+      '${fonixTargetArchitectureName(options)}-${options.targetVariant}/',
     ),
   );
   _resetOwnedStagingDirectory(stagingDirectory);
 
   final artifactTarget = NativeArtifactTarget(
     operatingSystem: _targetOsName(options),
-    architecture: _targetArchitectureName(options),
+    architecture: fonixTargetArchitectureName(options),
     variant: options.targetVariant,
   );
   final StagedNativeArtifact staged;
@@ -369,7 +365,8 @@ String _targetOsName(FonixBuildOptions options) => switch (options.targetOS) {
   ),
 };
 
-String _targetArchitectureName(FonixBuildOptions options) {
+/// Maps native-assets architecture names to the exact lock vocabulary.
+String fonixTargetArchitectureName(FonixBuildOptions options) {
   if (options.targetOS == OS.android) {
     return switch (options.targetArchitecture) {
       Architecture.arm64 => 'arm64-v8a',
@@ -381,13 +378,13 @@ String _targetArchitectureName(FonixBuildOptions options) {
       ),
     };
   }
-  if (options.targetOS == OS.linux) {
+  if (options.targetOS == OS.iOS || options.targetOS == OS.linux) {
     return switch (options.targetArchitecture) {
       Architecture.arm64 => 'arm64',
       Architecture.x64 => 'x86_64',
       _ => throw BuildError(
         message:
-            'Fonix has no Linux artifact for '
+            'Fonix has no ${options.targetOS.name} artifact for '
             '${options.targetArchitecture.name}.',
       ),
     };

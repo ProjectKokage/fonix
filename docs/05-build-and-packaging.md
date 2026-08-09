@@ -100,7 +100,7 @@ The hook should:
 
 Tests must invoke the hook through normal Dart/Flutter build and test commands, not only by calling helper functions.
 
-### Flutter application contract for Apple floors and notices
+### Flutter application contract for shared settings, Apple floors, and notices
 
 Flutter's native-assets protocol currently forwards a tool-owned integer Apple
 `targetVersion`; it is not authoritative evidence of the consuming
@@ -125,6 +125,28 @@ be at least the declaration. The final application audit checks both its
 app executable and Fonix shim. On a bundled-runtime target it also audits the
 packaged ORT binary; on linked iOS it instead enforces the linked-runtime
 identity contract described below.
+
+One multi-platform workspace may also retain target-specific fields in the
+same package-scoped map. For example, an application using sherpa-owned
+Android and linked iOS can declare:
+
+```yaml
+hooks:
+  user_defines:
+    fonix:
+      android_runtime_owner: sherpa
+      artifact_cache: /absolute/offline/cache
+      application_minimum_os: '15.1'
+```
+
+The hook interprets `android_runtime_owner` only for Android. It resolves
+`artifact_cache` and `artifact_mirror` only for a target/profile that stages a
+pinned runtime, and parses `application_minimum_os` only for linked iOS or
+bundled macOS. A sherpa-owned Android build therefore neither validates nor
+opens the Apple artifact paths and emits only the process-resolving shim. An
+external macOS/Linux/Windows build likewise ignores those inactive values.
+Unknown Fonix fields remain errors. Do not set a global `runtime_mode` when
+the targets intentionally use different defaults.
 
 Code assets cannot carry the generated staging manifest and exact upstream
 notice as ordinary Flutter data on the current supported Flutter toolchain.
@@ -226,8 +248,10 @@ Preferred architecture:
 - build/package ORT and the shim as a correctly signed static framework/XCFramework or equivalent build-hook code assets accepted by Flutter/iOS tooling;
 - use linked runtime mode, not arbitrary `dlopen` paths;
 - keep framework/library names consistent across device/simulator slices;
-- include arm64 device and arm64 simulator slices;
-- add x86_64 simulator only when the selected ORT source/artifact and support policy include it;
+- include arm64 device plus arm64 and x86_64 simulator slices from the exact
+  locked artifacts;
+- reject x86_64 device and Mac Catalyst until separate locked tuples and
+  qualification exist;
 - set deployment target to the maximum required by Flutter/Dart, ORT, and selected EP mode;
 - link required Apple frameworks for CoreML and other selected capabilities;
 - verify no forbidden simulator slice enters the device archive;

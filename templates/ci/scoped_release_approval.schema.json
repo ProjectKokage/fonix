@@ -696,7 +696,7 @@
         "policyId": { "const": "scoped-pre-1.0-cpu-v1" },
         "scopePath": { "const": "release/scoped-pre-1.0-v1.json" },
         "scopeSha256": {
-          "const": "c2e96a0f91036b848a9df50e1aa008c604b5571726a149b925e2e87f0d2eaf78"
+          "const": "cb69eaeac22e92231b2a9437db487af3460cc6b11c4b82599f788f9cc9dac156"
         },
         "validationRecord": {
           "allOf": [
@@ -773,9 +773,9 @@
                 "id": { "const": "native-lock" },
                 "path": { "const": "native/versions.lock.yaml" },
                 "sha256": {
-                  "const": "6a9a8a7b3fcca9c08843b2ebeb51fabfb215ec5693426c2cd23d4c16851f3e83"
+                  "const": "ea0f101c6c901287ef498a3f4b04c0fb9d5e3abd20c8fa796534b8f7e141658b"
                 },
-                "sizeBytes": { "const": 20375 },
+                "sizeBytes": { "const": 22837 },
                 "mediaType": { "const": "application/json" }
               }
             }

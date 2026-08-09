@@ -229,10 +229,12 @@ class ScopedReleaseScopeTests(unittest.TestCase):
     ) -> None:
         first, first_output = self._run()
         self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("selected=4 unsupported=5", first.stdout)
 
         second_fixture = self._copy_fixture(self.root / "different-absolute-root")
         second, second_output = self._run(fixture=second_fixture)
         self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("selected=4 unsupported=5", second.stdout)
         self.assertEqual(first_output.read_bytes(), second_output.read_bytes())
 
         raw = first_output.read_bytes()
@@ -302,6 +304,7 @@ class ScopedReleaseScopeTests(unittest.TestCase):
             record["unsupportedTargetKeys"],
             [
                 "ios/arm64/simulator/cpu",
+                "ios/x86_64/simulator/cpu",
                 "android/x86_64/default/cpu",
                 "linux/arm64/default/cpu",
                 "windows/x64/default/cpu",

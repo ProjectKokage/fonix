@@ -289,8 +289,8 @@ Focused formal-V1 Python coverage passes 104/104 cases: 31 derivation/core, 41
 collector, and 32 independent replay-validator tests. It includes
 process-lifetime peak-RSS, two-worker assignment-parity, authentic
 second-admission, occupancy-drain, schema-graph, non-V1 rejection, and replay
-regressions. The complete Python suite passes 827/827, the current Flutter SDK
-root suite passes 225 tests with 54 explicit environment-gated skips, and a
+regressions. The complete Python suite passes 829/829, the current Flutter SDK
+root suite passes 226 tests with 54 explicit environment-gated skips, and a
 clean external-copy reference app passes analysis and 90/90 tests, including
 18/18 benchmark cases. The exact ORT 1.27.1 two-worker test passes 1/1. The
 collector completed five fresh macOS arm64 Release reference-application

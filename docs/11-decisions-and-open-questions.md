@@ -129,8 +129,8 @@ accepts them; Dart adds typed constructors and repeats option validation.
 ## Resolution 2026-08-06: minimum OS versions
 
 **Decision:** the exact lock tuples own each floor: macOS arm64 14.0, iOS arm64
-device/simulator 15.1, Android API 24, Linux glibc 2.27, and Windows 10 for the
-current baseline. A future artifact recomputes its floor from the maximum
+device plus arm64/x86_64 simulator 15.1, Android API 24, Linux glibc 2.27, and
+Windows 10 for the current baseline. A future artifact recomputes its floor from the maximum
 required by Dart/Flutter, ORT, and its selected providers and records that value
 in the lock and generated manifests. See the support matrix; no lower generic
 package promise overrides an artifact tuple.

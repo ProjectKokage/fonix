@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -409,6 +410,11 @@ class AndroidSherpaTargetGateTest(unittest.TestCase):
                     "committedSha256": "3" * 64,
                     "stagedSha256": _sha256(self.pubspec_lock),
                 },
+                "gradleDependencyVerification": {
+                    "mode": GATE.GRADLE_VERIFICATION_MODE,
+                    "sizeBytes": 4096,
+                    "sha256": "6" * 64,
+                },
                 "sherpaOnnx": {
                     "source": GATE.SHERPA_SOURCE,
                     "revision": GATE.SHERPA_REVISION,
@@ -697,6 +703,89 @@ class AndroidSherpaTargetGateTest(unittest.TestCase):
                 challenge_factory=lambda count: self.challenge,
             )
         self.assertFalse(fake.commands)
+
+    def test_accepts_closed_gradle_dependency_verification_record(self) -> None:
+        report = json.loads(
+            self.static_gate_report.read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            report["gradleDependencyVerification"],
+            {
+                "mode": "strict",
+                "sizeBytes": 4096,
+                "sha256": "6" * 64,
+            },
+        )
+
+        fake = FakeTargetRunner(self)
+        manifest = GATE.run_target_gate(
+            self._arguments("gradle-verification-capture"),
+            command_runner=fake,
+            challenge_factory=lambda count: self.challenge,
+        )
+
+        self.assertEqual(manifest["result"], "passed")
+
+    def test_rejects_gradle_dependency_verification_tamper(self) -> None:
+        baseline = json.loads(
+            self.static_gate_report.read_text(encoding="utf-8")
+        )
+        mutations = (
+            (
+                "mode",
+                lambda record: record.__setitem__("mode", "lenient"),
+                "mode is not strict",
+            ),
+            (
+                "empty-size",
+                lambda record: record.__setitem__("sizeBytes", 0),
+                "sizeBytes must be an integer in range",
+            ),
+            (
+                "oversized",
+                lambda record: record.__setitem__(
+                    "sizeBytes",
+                    GATE.MAX_GRADLE_VERIFICATION_METADATA_BYTES + 1,
+                ),
+                "sizeBytes must be an integer in range",
+            ),
+            (
+                "digest",
+                lambda record: record.__setitem__("sha256", "A" * 64),
+                "sha256 must be a lowercase SHA-256",
+            ),
+            (
+                "extra-field",
+                lambda record: record.__setitem__("unexpected", True),
+                "has an unexpected field set",
+            ),
+            (
+                "missing-field",
+                lambda record: record.pop("mode"),
+                "has an unexpected field set",
+            ),
+        )
+
+        for index, (name, mutate, expected_error) in enumerate(mutations):
+            with self.subTest(name=name):
+                report = copy.deepcopy(baseline)
+                record = report["gradleDependencyVerification"]
+                self.assertIsInstance(record, dict)
+                mutate(record)
+                _write_json(self.static_gate_report, report)
+                fake = FakeTargetRunner(self)
+
+                with self.assertRaisesRegex(
+                    GATE.AndroidSherpaTargetGateError,
+                    expected_error,
+                ):
+                    GATE.run_target_gate(
+                        self._arguments(f"gradle-tamper-{index}"),
+                        command_runner=fake,
+                        challenge_factory=lambda count: self.challenge,
+                    )
+
+                self.assertFalse(fake.commands)
 
     def test_enclosing_static_gate_must_bind_every_runtime_fixture(self) -> None:
         report = json.loads(

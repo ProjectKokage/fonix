@@ -9,8 +9,8 @@
 The declared development API and locally controllable package boundary pass
 the completed validation recorded below. The formal CPU benchmark V1 focused
 Python suites pass 104/104 cases (31 derivation/core, 41 collector, and 32
-independent replay-validator). The complete Python CI suite passes 827/827,
-the current Flutter SDK root suite passes 225 tests with 54 explicit
+independent replay-validator). The complete Python CI suite passes 829/829,
+the current Flutter SDK root suite passes 226 tests with 54 explicit
 environment-gated skips, and a clean external-copy reference app passes
 analysis and 90/90 tests. The first formal V1 five-launch collection and
 independent replay used the macOS arm64 Release reference application and the
@@ -308,7 +308,7 @@ derivation/core, 41 collector, and 32 independent replay-validator cases. The
 suite covers the exact three-schema graph, rejection of non-V1 identities,
 process-lifetime peak RSS, two-worker assignment parity, authentic second
 admission, occupancy-drain settlement, and hostile collection/replay inputs.
-The current Flutter SDK root suite passes 225 tests with 54 explicit
+The current Flutter SDK root suite passes 226 tests with 54 explicit
 environment-gated skips; clean external-copy analysis and all 90 app tests
 pass, including 18 formal-V1 benchmark tests; and the exact ORT 1.27.1
 two-worker integration passes 1/1. The exact macOS application has completed
@@ -406,11 +406,11 @@ paths.
 | Exact ORT core Dart inference | 8/8 passed |
 | Exact ORT generated Phase-3 Dart corpus | 18/18 passed |
 | Exact ORT CPU/CoreML run-evidence suite | 3/3 passed |
-| Python CI-script tests | 827/827 repository-wide tests passed; the formal CPU benchmark V1 focused subset passed 104/104 (31 derivation/core, 41 collector, 32 replay) |
-| Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `77afac75f64af4df4156e7c60b9fd291d32fc51f41bcdc3cff949de070ed5c58` binds 4 selected targets, 5 compositions, 4 unsupported targets, and 2 exact deferrals without asserting readiness |
+| Python CI-script tests | 829/829 repository-wide tests passed; the formal CPU benchmark V1 focused subset passed 104/104 (31 derivation/core, 41 collector, 32 replay) |
+| Scoped pre-1.0 policy validator | 21/21 focused tests passed; canonical path-free scope-only record SHA-256 `4bc209cd8c5a27aa754cbd85b2c4848373cc12e9dc60e94d7bb4333d0b786407` binds scope SHA-256 `cb69eaeac22e92231b2a9437db487af3460cc6b11c4b82599f788f9cc9dac156`, 4 selected targets, 5 compositions, 5 unsupported targets, and 2 exact deferrals without asserting readiness |
 | Source-release archive validator | 25/25 focused tests passed; exact Git-tree and manifest closure, ZIP and gzip/tar structure, revision rebinding, verified-source loading, retained-descriptor ownership, malformed input, tamper, bounds, and deterministic publication are covered without extraction |
 | Scoped candidate approval validator | 37/37 focused tests passed; exact 48 composition and 7 shared evidence records, closed-default-deny semantic classification, the registered macOS CPU-assignment receipt and derived source closure, 5 approval domains, schema parity, same-descriptor source-archive closure, hostile helper isolation, path and identity confinement, publication races, tamper, bounds, and deterministic blockers covered |
-| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 827-test Python suite |
+| POSIX bounded-process helper | 19/19 focused tests passed; direct-child PID observation and observer-failure group retirement are included, and all integration contracts are covered by the 829-test Python suite |
 | macOS runtime checker focused tests | 10/10 passed; exact-ORT inspection also passed under a hostile parent selector environment |
 | Linux final-app auditor/reference-gate focused tests | 39/39 passed, including exact loaded-glibc identity and malformed/unavailable identity rejection; source-side synthetic coverage only |
 | Android reference-gate focused tests | 37/37 passed; source-side orchestration coverage only |
@@ -439,7 +439,7 @@ paths.
 | Fresh final macOS Flutter application gate | Passed, including packaged CPU inference |
 | Committed macOS public-API reference application gate | 72/72 app tests and analysis, Release build, exact full-CPU receipt, double close, and independent final-app audit passed |
 | Committed Android arm64 public-API reference gates | 40 app tests per clean profile build; development-signed R8 Release APK/AAB audits; unchanged CPU receipt; and closed XNNPACK assignment/parity/fallback/recovery receipt on the exact API 35 arm64/4096-byte emulator passed |
-| Current shared public-API reference source | Clean external-copy analysis and 90/90 app tests passed, including 18/18 formal-V1 CPU benchmark tests; the current Flutter SDK root suite passed 225 tests with 54 explicit environment-gated skips |
+| Current shared public-API reference source | Clean external-copy analysis and 90/90 app tests passed, including 18/18 formal-V1 CPU benchmark tests; the current Flutter SDK root suite passed 226 tests with 54 explicit environment-gated skips |
 | Formal CPU benchmark V1 | 104/104 focused Python tests passed: 31 derivation/core, 41 collector, and 32 independent replay-validator cases. Protocol, target fragment, collection, validation, and collector are all V1; exactly four V1 templates and a three-schema replay registry remain active |
 | Current macOS arm64 CPU measurement path | The Release reference app completed five fresh formal-V1 launches against the source snapshot at commit `7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. Collection `139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`, raw bundle `976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`, and independent validation `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc` passed. The source-snapshot binding is not compiled provenance; the record is measurement-only/offline-consistency-only and establishes no baseline or support claim |
 | Committed iOS arm64 public-API reference gate | Frozen source epoch: 72/72 app tests and analysis; unsigned device Release `.app` build/static audit; two consecutive simulator Debug builds; install-transport-bound CPU/full-assignment receipt, process settlement, and uninstall: `PASS (2026-08-07)` |

@@ -4,7 +4,7 @@
   "claimStatus": "scope-only",
   "baseline": {
     "nativeLockPath": "native/versions.lock.yaml",
-    "nativeLockSha256": "6a9a8a7b3fcca9c08843b2ebeb51fabfb215ec5693426c2cd23d4c16851f3e83",
+    "nativeLockSha256": "ea0f101c6c901287ef498a3f4b04c0fb9d5e3abd20c8fa796534b8f7e141658b",
     "sherpaPubspecLockPath": "templates/android/sherpa_reference_app/pubspec.lock",
     "sherpaPubspecLockSha256": "46e348c45c3b5fa7db647f89eb5bdd16aed3cfc15ac61704aca52b423c50bb4a",
     "packageName": "fonix",
@@ -41,6 +41,15 @@
       "minimumOs": "15.1",
       "disposition": "unsupported",
       "reason": "Simulator execution is development-only and does not qualify an iOS distribution target."
+    },
+    {
+      "os": "ios",
+      "architecture": "x86_64",
+      "variant": "simulator",
+      "flavor": "cpu",
+      "minimumOs": "15.1",
+      "disposition": "unsupported",
+      "reason": "The x86_64 simulator tuple is development-only and lacks installed-simulator execution and distribution qualification."
     },
     {
       "os": "macos",

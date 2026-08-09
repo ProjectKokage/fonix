@@ -31,6 +31,8 @@ sys.dont_write_bytecode = True
 from android_gate_common import (
     AndroidGateCommonError,
     CommandOutput,
+    GRADLE_VERIFICATION_MODE,
+    MAX_GRADLE_VERIFICATION_METADATA_BYTES,
     regular_file,
     run_bounded,
     sha256_file,
@@ -1201,6 +1203,7 @@ def _validate_static_gate_report(
             "android",
             "java",
             "pubspecLock",
+            "gradleDependencyVerification",
             "sherpaOnnx",
             "rawFonixShim",
             "releaseApk",
@@ -1311,6 +1314,30 @@ def _validate_static_gate_report(
         raise AndroidSherpaTargetGateError(
             "staged-build gate report is not bound to the supplied pubspec.lock"
         )
+
+    gradle_verification = _object(
+        report["gradleDependencyVerification"],
+        "staged-build Gradle dependency verification",
+    )
+    _exact_keys(
+        gradle_verification,
+        {"mode", "sizeBytes", "sha256"},
+        "staged-build Gradle dependency verification",
+    )
+    if gradle_verification["mode"] != GRADLE_VERIFICATION_MODE:
+        raise AndroidSherpaTargetGateError(
+            "staged-build Gradle dependency verification mode is not strict"
+        )
+    _integer(
+        gradle_verification["sizeBytes"],
+        "staged-build Gradle dependency verification sizeBytes",
+        1,
+        MAX_GRADLE_VERIFICATION_METADATA_BYTES,
+    )
+    _digest(
+        gradle_verification["sha256"],
+        "staged-build Gradle dependency verification sha256",
+    )
 
     sherpa = _object(report["sherpaOnnx"], "staged-build sherpaOnnx")
     _exact_keys(

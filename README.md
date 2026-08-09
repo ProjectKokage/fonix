@@ -93,7 +93,7 @@ Choose one source mode deliberately:
 
 | Source | Intended use |
 | --- | --- |
-| `OrtRuntimeSource.linked()` | Current linked profile: iOS arm64 device/simulator only |
+| `OrtRuntimeSource.linked()` | Current linked profile: iOS arm64 device/simulator and x86_64 simulator; no x86_64 device or Mac Catalyst |
 | `OrtRuntimeSource.bundled()` | A lock-pinned runtime in the shim-owned application bundle |
 | `OrtRuntimeSource.process()` | One application/process-owned runtime, including Android sherpa coexistence |
 | `OrtRuntimeSource.file(...)` | A trusted absolute desktop runtime beneath an optional allow-root |
@@ -102,6 +102,28 @@ The native schema-3 build manifest contains the exact allowed source set. An
 Android build additionally declares either `sherpa` or `application` as the
 single runtime owner; conflicting sources and duplicate packaged ORT libraries
 fail closed.
+
+A multi-platform Flutter workspace may keep target-specific Fonix settings in
+one `pubspec.yaml`. `android_runtime_owner` is interpreted and validated only
+for Android. `artifact_cache` and `artifact_mirror` are resolved only when the
+selected target/profile stages a pinned runtime, and `application_minimum_os`
+is parsed only for linked iOS or bundled macOS. Consequently, an Android
+`sherpa` build remains shim-only even when the shared field set also contains
+iOS artifact settings; Fonix does not read those paths or fall back to a
+wrapper-owned runtime. Unknown Fonix fields still fail closed.
+
+```yaml
+hooks:
+  user_defines:
+    fonix:
+      android_runtime_owner: sherpa
+      artifact_cache: /absolute/offline/cache
+      application_minimum_os: '15.1'
+```
+
+Omit a global `runtime_mode` when targets need different defaults: linked on
+iOS, external on ordinary desktop targets, and process-only on sherpa-owned
+Android.
 
 ## Execution-provider evidence
 

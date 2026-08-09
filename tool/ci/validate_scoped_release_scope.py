@@ -45,10 +45,10 @@ POLICY_ID = "scoped-pre-1.0-cpu-v1"
 CLAIM_STATUS = "scope-only"
 SHERPA_PACKAGE_VERSION = "1.13.4"
 EXPECTED_SCHEMA_SHA256 = (
-    "9d00f5688f17a9f97bed3b0c1748e0d55d3e206276d371727dabfc9426f0fc7e"
+    "24150791c150e1b36ee6347895c8f21cca18268daa696d44b9779020ade12d58"
 )
 EXPECTED_RELEASE_EVIDENCE_HELPER_SHA256 = (
-    "6add4550b18e9733f52e33bd47847c88c49c61b752c5e4720c54ec456710f130"
+    "6445c850dfe10d80691dade567439cf303ac6d49c0d6578ae980baf115bbf590"
 )
 EXPECTED_SHERPA_LOCK_HELPER_SHA256 = (
     "4b1c2087ca7cf204487a591d512cd11268c0731c478bf4aaf13d9ac069425c79"
@@ -190,6 +190,19 @@ TARGET_CONTRACTS = (
         "15.1",
         "unsupported",
         "Simulator execution is development-only and does not qualify an iOS distribution target.",
+        (),
+    ),
+    TargetContract(
+        "ios",
+        "x86_64",
+        "simulator",
+        "cpu",
+        "15.1",
+        "unsupported",
+        (
+            "The x86_64 simulator tuple is development-only and lacks "
+            "installed-simulator execution and distribution qualification."
+        ),
         (),
     ),
     TargetContract(
@@ -696,7 +709,9 @@ def _validate_lock(
         )
 
     release_targets = _array(
-        lock["release_targets"], "native lock release_targets", length=8
+        lock["release_targets"],
+        "native lock release_targets",
+        length=len(TARGET_CONTRACTS),
     )
     for index, (raw_target, contract) in enumerate(zip(release_targets, TARGET_CONTRACTS)):
         label = f"native lock release_targets[{index}]"
@@ -712,7 +727,9 @@ def _validate_lock(
                 "native lock release target inventory or order differs from the closed CPU baseline"
             )
 
-    artifacts = _array(lock["artifacts"], "native lock artifacts", length=8)
+    artifacts = _array(
+        lock["artifacts"], "native lock artifacts", length=len(TARGET_CONTRACTS)
+    )
     artifacts_by_target: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     artifact_ids: set[str] = set()
     for index, raw_artifact in enumerate(artifacts):
@@ -885,7 +902,11 @@ def _validate_scope_document(
             "scoped release policy baseline does not match the current package and native lock"
         )
 
-    targets = _array(scope["targets"], "scoped release policy targets", length=8)
+    targets = _array(
+        scope["targets"],
+        "scoped release policy targets",
+        length=len(TARGET_CONTRACTS),
+    )
     composition_ids: set[str] = set()
     selected_count = 0
     for index, (raw_target, contract) in enumerate(zip(targets, TARGET_CONTRACTS)):
@@ -1197,7 +1218,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         write_validation_record(arguments.output, record)
         print(
             "validated scope-only release policy "
-            f"sha256={record['scopeSha256']} selected=4 unsupported=4"
+            f"sha256={record['scopeSha256']} "
+            f"selected={len(record['selectedTargetKeys'])} "
+            f"unsupported={len(record['unsupportedTargetKeys'])}"
         )
         return 0
     except ScopedReleaseScopeError as error:

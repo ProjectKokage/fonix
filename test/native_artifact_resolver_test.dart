@@ -189,6 +189,11 @@ void main() {
           variant: 'simulator',
         ),
         NativeArtifactTarget(
+          operatingSystem: 'ios',
+          architecture: 'x86_64',
+          variant: 'simulator',
+        ),
+        NativeArtifactTarget(
           operatingSystem: 'macos',
           architecture: 'arm64',
           variant: 'default',
@@ -309,7 +314,12 @@ final class _Fixture {
     final value = _object(
       jsonDecode(File('native/versions.lock.yaml').readAsStringSync()),
     );
-    final artifact = _object(_list(value['artifacts'])[5]);
+    final artifact = _object(
+      _list(value['artifacts']).singleWhere((value) {
+        final target = _object(_object(value)['target']);
+        return target['os'] == 'linux' && target['architecture'] == 'x86_64';
+      }),
+    );
     artifact['id'] = 'fixture-linux-x86-64';
     artifact['source'] = <String, Object?>{
       'url': 'https://artifacts.invalid/fixture.zip',

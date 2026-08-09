@@ -3,7 +3,7 @@
   "artifactId": "onnxruntime-1.27.1-android-arm64-v8a-cpu",
   "lock": {
     "path": "native/versions.lock.yaml",
-    "sha256": "6a9a8a7b3fcca9c08843b2ebeb51fabfb215ec5693426c2cd23d4c16851f3e83",
+    "sha256": "ea0f101c6c901287ef498a3f4b04c0fb9d5e3abd20c8fa796534b8f7e141658b",
     "snapshotDate": "2026-08-06",
     "releaseState": "unreleased-preview"
   },

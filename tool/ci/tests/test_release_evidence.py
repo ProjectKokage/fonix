@@ -38,6 +38,7 @@ class _EvidenceFixture:
     targets = (
         ("ios", "arm64", "device", "linked"),
         ("ios", "arm64", "simulator", "linked"),
+        ("ios", "x86_64", "simulator", "linked"),
         ("macos", "arm64", "default", "bundled"),
         ("android", "arm64-v8a", "default", "bundled"),
         ("android", "x86_64", "default", "bundled"),

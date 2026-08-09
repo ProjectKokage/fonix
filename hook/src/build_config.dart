@@ -218,52 +218,11 @@ void validateFonixUserDefineKeys(Iterable<String> keys) {
   }
 }
 
-/// Validates target-specific ownership inputs after closed key validation.
-void validateFonixAndroidOwnershipUserDefines(
-  FonixBuildOptions options, {
-  required Map<String, Object?> configuredUserDefines,
-}) {
-  if (options.targetOS != OS.android) {
-    return;
-  }
-  if (configuredUserDefines[fonixApplicationMinimumOsUserDefine] != null) {
-    throw BuildError(
-      message:
-          'hooks.user_defines.$fonixPackageName.'
-          '$fonixApplicationMinimumOsUserDefine is an Apple-only input.',
-    );
-  }
-  if (options.androidRuntimeOwner == FonixAndroidRuntimeOwner.sherpa) {
-    final forbidden = <String>[
-      for (final key in <String>[
-        fonixArtifactCacheUserDefine,
-        fonixArtifactMirrorUserDefine,
-      ])
-        if (configuredUserDefines[key] != null) key,
-    ];
-    if (forbidden.isNotEmpty) {
-      throw BuildError(
-        message:
-            'A sherpa-owned Android process runtime is shim-only and forbids '
-            'wrapper artifact inputs: ${forbidden.join(', ')}. Fonix never '
-            'falls back to a bundled ONNX Runtime.',
-      );
-    }
-  }
-}
-
 FonixAndroidRuntimeOwner? _androidRuntimeOwner({
   required OS targetOS,
   required Object? value,
 }) {
   if (targetOS != OS.android) {
-    if (value != null) {
-      throw BuildError(
-        message:
-            'hooks.user_defines.$fonixPackageName.'
-            '$fonixAndroidRuntimeOwnerUserDefine is valid only for Android.',
-      );
-    }
     return null;
   }
   if (value == null) {
@@ -626,10 +585,10 @@ String? _applicationMinimumOs({
   final required =
       (targetOS == OS.iOS && runtimeMode == fonixLinkedRuntimeMode) ||
       (targetOS == OS.macOS && runtimeMode == fonixBundledRuntimeMode);
+  if (!required) {
+    return null;
+  }
   if (value == null) {
-    if (!required) {
-      return null;
-    }
     throw BuildError(
       message:
           'Fonix $runtimeMode mode on ${targetOS.name} requires '
@@ -745,17 +704,30 @@ void _validateLinkedTarget(
   IOSSdk? targetIOSSdk,
   int? targetIOSVersion,
 ) {
-  if (targetOS != OS.iOS || targetArchitecture != Architecture.arm64) {
+  if (targetOS != OS.iOS) {
     throw BuildError(
       message:
-          'Fonix linked runtime mode is pinned only for iOS arm64 device and '
-          'arm64 simulator targets.',
+          'Fonix linked runtime mode is pinned only for iOS arm64 device, '
+          'arm64 simulator, and x64 simulator targets. Mac Catalyst is not '
+          'supported.',
     );
   }
   if (targetIOSSdk == null) {
     throw BuildError(
       message:
           'Fonix iOS linked mode requires an explicit device or simulator SDK.',
+    );
+  }
+  final supportedArchitecture =
+      targetArchitecture == Architecture.arm64 ||
+      (targetArchitecture == Architecture.x64 &&
+          targetIOSSdk == IOSSdk.iPhoneSimulator);
+  if (!supportedArchitecture) {
+    throw BuildError(
+      message:
+          'Fonix linked runtime mode is pinned only for iOS arm64 device, '
+          'arm64 simulator, and x64 simulator targets. iOS x64 device and '
+          'Mac Catalyst targets are not supported.',
     );
   }
   if (targetIOSVersion == null || targetIOSVersion <= 0) {

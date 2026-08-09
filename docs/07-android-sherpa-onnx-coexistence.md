@@ -188,8 +188,10 @@ This emits only `libfonix_shim.so`. It compiles the native build identity
 `android-owner-sherpa-source-process`, permits only the process runtime source,
 and requests the fixed C API 27 floor at runtime. The Android owner macro also
 makes the native source/profile gate reject explicit-file, bundled, and linked
-runtime requests. `artifact_cache` and `artifact_mirror` are forbidden in this
-mode, so a misspelled or stale artifact input cannot cause a wrapper-owned ORT
+runtime requests. A shared workspace pubspec may also contain
+`artifact_cache`, `artifact_mirror`, and `application_minimum_os` for linked
+iOS. Those fields are inactive on sherpa-owned Android: the hook does not parse
+or resolve them, stages no runtime artifact, and has no wrapper-owned ORT
 fallback.
 
 The application-owned composition is:
@@ -236,7 +238,9 @@ invent a custom QNN SDK, runtime root, provider library, or qualification
 record.
 
 Non-Android external, bundled, and linked profiles retain their existing
-contracts. `android_runtime_owner` is rejected outside Android.
+contracts. A shared `android_runtime_owner` field is ignored outside Android;
+its type and closed value are validated only when the Android hook owns it.
+Unknown Fonix fields remain build errors on every target.
 
 ## 7.6 Runtime negotiation
 

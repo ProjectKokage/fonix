@@ -121,15 +121,20 @@ void main() {
       }
     }
 
-    test('defaults iOS arm64 device and simulator to linked mode', () {
-      for (final sdk in <IOSSdk>[IOSSdk.iPhoneOS, IOSSdk.iPhoneSimulator]) {
+    test('defaults every locked iOS device and simulator tuple to linked', () {
+      for (final target in <(Architecture, IOSSdk, String)>[
+        (Architecture.arm64, IOSSdk.iPhoneOS, 'device'),
+        (Architecture.arm64, IOSSdk.iPhoneSimulator, 'simulator'),
+        (Architecture.x64, IOSSdk.iPhoneSimulator, 'simulator'),
+      ]) {
         final options = resolveFonixBuildOptions(
           targetOS: OS.iOS,
-          targetArchitecture: Architecture.arm64,
-          targetIOSSdk: sdk,
+          targetArchitecture: target.$1,
+          targetIOSSdk: target.$2,
           // Flutter currently forwards this fixed native-assets value. It is
           // compiler metadata, not the consuming app's deployment floor.
           targetIOSVersion: 13,
+          androidRuntimeOwner: fonixAndroidSherpaRuntimeOwner,
           applicationMinimumOs: '15.1',
         );
         expect(options.runtimeMode, fonixLinkedRuntimeMode);
@@ -138,9 +143,10 @@ void main() {
           options.runtimeSources,
           equals(<FonixRuntimeSource>{FonixRuntimeSource.linked}),
         );
+        expect(options.targetVariant, target.$3);
         expect(
-          options.targetVariant,
-          sdk == IOSSdk.iPhoneSimulator ? 'simulator' : 'device',
+          build_hook.fonixTargetArchitectureName(options),
+          target.$1 == Architecture.x64 ? 'x86_64' : 'arm64',
         );
         expect(
           fonixPinnedAppleDeploymentFlags(options, lockedMinimumOs: '15.1'),
@@ -158,6 +164,22 @@ void main() {
             (error) => error.message,
             'message',
             contains('explicit device or simulator SDK'),
+          ),
+        ),
+      );
+      expect(
+        () => resolveFonixBuildOptions(
+          targetOS: OS.iOS,
+          targetArchitecture: Architecture.x64,
+          targetIOSSdk: IOSSdk.iPhoneOS,
+          targetIOSVersion: 13,
+          applicationMinimumOs: '15.1',
+        ),
+        throwsA(
+          isA<BuildError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('x64 device'), contains('not supported')),
           ),
         ),
       );
@@ -317,31 +339,48 @@ void main() {
             ),
           );
         }
-        expect(
-          () => resolveFonixBuildOptions(
-            targetOS: OS.android,
-            targetArchitecture: Architecture.arm64,
-            targetAndroidNdkApi: 24,
-            androidRuntimeOwner: 'wrapper',
-          ),
-          throwsA(isA<BuildError>()),
-        );
-        expect(
-          () => resolveFonixBuildOptions(
-            targetOS: OS.linux,
-            targetArchitecture: Architecture.x64,
-            androidRuntimeOwner: fonixAndroidSherpaRuntimeOwner,
-          ),
-          throwsA(
-            isA<BuildError>().having(
-              (error) => error.message,
-              'message',
-              contains('valid only for Android'),
+        for (final invalidOwner in <Object>['wrapper', true]) {
+          expect(
+            () => resolveFonixBuildOptions(
+              targetOS: OS.android,
+              targetArchitecture: Architecture.arm64,
+              targetAndroidNdkApi: 24,
+              androidRuntimeOwner: invalidOwner,
             ),
-          ),
-        );
+            throwsA(isA<BuildError>()),
+          );
+        }
       },
     );
+
+    test('ignores target-specific shared values outside their owners', () {
+      for (final androidOwner in <Object>[
+        fonixAndroidSherpaRuntimeOwner,
+        'not-an-android-owner',
+        true,
+      ]) {
+        final options = resolveFonixBuildOptions(
+          targetOS: OS.linux,
+          targetArchitecture: Architecture.x64,
+          androidRuntimeOwner: androidOwner,
+          applicationMinimumOs: 15.1,
+        );
+
+        expect(options.androidRuntimeOwner, isNull);
+        expect(options.applicationMinimumOs, isNull);
+        expect(options.runtimeMode, fonixExternalRuntimeMode);
+      }
+
+      final macosOptions = resolveFonixBuildOptions(
+        targetOS: OS.macOS,
+        targetArchitecture: Architecture.arm64,
+        androidRuntimeOwner: false,
+        applicationMinimumOs: 'not-a-version',
+      );
+      expect(macosOptions.androidRuntimeOwner, isNull);
+      expect(macosOptions.applicationMinimumOs, isNull);
+      expect(macosOptions.runtimeMode, fonixExternalRuntimeMode);
+    });
 
     test('rejects unknown package-scoped user-define fields', () {
       expect(
@@ -377,7 +416,7 @@ void main() {
           isA<BuildError>().having(
             (error) => error.message,
             'message',
-            allOf(contains('linked'), contains('only for iOS arm64')),
+            allOf(contains('linked'), contains('Mac Catalyst')),
           ),
         ),
       );
@@ -943,7 +982,7 @@ void main() {
   );
 
   test(
-    'linked hook builds iOS device and simulator shims from pinned ORT',
+    'linked hook builds every locked iOS shim from pinned ORT',
     () async {
       final cacheDirectory = Directory(officialArtifactCache!);
       final userDefines = PackageUserDefines(
@@ -956,12 +995,28 @@ void main() {
         ),
       );
 
-      for (final sdk in <IOSSdk>[IOSSdk.iPhoneOS, IOSSdk.iPhoneSimulator]) {
+      for (final target in <(Architecture, IOSSdk, String)>[
+        (
+          Architecture.arm64,
+          IOSSdk.iPhoneOS,
+          'onnxruntime-1.27.1-ios-arm64-device-cpu',
+        ),
+        (
+          Architecture.arm64,
+          IOSSdk.iPhoneSimulator,
+          'onnxruntime-1.27.1-ios-arm64-simulator-cpu',
+        ),
+        (
+          Architecture.x64,
+          IOSSdk.iPhoneSimulator,
+          'onnxruntime-1.27.1-ios-x86_64-simulator-cpu',
+        ),
+      ]) {
         await testCodeBuildHook(
           mainMethod: build_hook.main,
           targetOS: OS.iOS,
-          targetArchitecture: Architecture.arm64,
-          targetIOSSdk: sdk,
+          targetArchitecture: target.$1,
+          targetIOSSdk: target.$2,
           // Reproduce Flutter's current fixed code-assets target value. The
           // emitted shim must still use the exact locked 15.1 floor.
           targetIOSVersion: 13,
@@ -996,14 +1051,7 @@ void main() {
               0,
               reason: '${embeddedIdentity.stderr}',
             );
-            expect(
-              '${embeddedIdentity.stdout}',
-              contains(
-                sdk == IOSSdk.iPhoneSimulator
-                    ? 'onnxruntime-1.27.1-ios-arm64-simulator-cpu'
-                    : 'onnxruntime-1.27.1-ios-arm64-device-cpu',
-              ),
-            );
+            expect('${embeddedIdentity.stdout}', contains(target.$3));
             expect(
               '${embeddedIdentity.stdout}',
               contains(

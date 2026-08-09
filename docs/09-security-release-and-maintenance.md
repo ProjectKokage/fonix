@@ -362,7 +362,10 @@ the exact schema-v2 Tier-1 CPU target set, OS-specific architecture and variant
 combinations, artifact membership in that set, and equality between the shim's
 required ORT API and the compatibility floor. A lock marked `release` must
 cover every Tier-1 target with artifacts and record every provider's reported
-name. Replacing a baseline row, introducing a non-CPU release flavor, or using
+name. The current set includes separate arm64 and x86_64 iOS simulator
+identities even though the pinned XCFramework member is universal; the scoped
+release policy keeps both simulator tuples unsupported for distribution.
+Replacing a baseline row, introducing a non-CPU release flavor, or using
 an architecture or variant from another platform is rejected before audit
 metadata is emitted. Artifact declarations also have a closed selected-member
 set at every archive depth: expected member paths and license IDs are unique,
@@ -399,14 +402,15 @@ python3 -B tool/ci/validate_scoped_release_scope.py \
 ```
 
 The validator binds the policy to the exact native-lock bytes, package version,
-shim ABI, required ORT API, all eight baseline targets, and each selected
+shim ABI, required ORT API, all nine baseline targets, and each selected
 locked artifact. The schema embeds the exact policy as its top-level `const`,
 and the validator pins both the schema bytes and the two helper validators it
 uses for native-lock and sherpa-lock semantics. The target array is canonical
 and closed: iOS device, macOS
 arm64, Android arm64-v8a, and Linux x86_64 are selected CPU candidates; iOS
-simulator, Android x86_64, Linux arm64, and Windows x64 remain explicitly
-unsupported. Android arm64 has distinct application-owned ORT 1.27.1 and
+arm64 and x86_64 simulators, Android x86_64, Linux arm64, and Windows x64
+remain explicitly unsupported. Android arm64 has distinct application-owned
+ORT 1.27.1 and
 sherpa-owned process compositions; the latter binds `sherpa_onnx` 1.13.4 and
 ORT 1.27.0 rather than inheriting the application-owned baseline. Only CPU
 full-assignment may be advertised by this policy version. Android QNN and the

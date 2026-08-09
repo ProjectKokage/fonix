@@ -46,6 +46,11 @@ void main() {
         workspacePubspec: PackageUserDefinesSource(
           defines: const <String, Object?>{
             fonixAndroidRuntimeOwnerUserDefine: fonixAndroidSherpaRuntimeOwner,
+            // These values are deliberately invalid for their owning parsers.
+            // A sherpa-owned Android build must not interpret them.
+            fonixArtifactCacheUserDefine: false,
+            fonixArtifactMirrorUserDefine: 7,
+            fonixApplicationMinimumOsUserDefine: 15.1,
           },
           basePath: Directory.current.uri,
         ),
@@ -116,31 +121,17 @@ void main() {
   );
 
   test(
-    'sherpa ownership rejects wrapper artifact hints and unknown fields',
+    'sherpa ownership ignores shared artifact fields but rejects unknown keys',
     () {
       final options = resolveFonixBuildOptions(
         targetOS: OS.android,
         targetArchitecture: Architecture.arm64,
         targetAndroidNdkApi: fonixAndroidLockedMinimumNdkApi,
         androidRuntimeOwner: fonixAndroidSherpaRuntimeOwner,
+        applicationMinimumOs: 15.1,
       );
-      final artifactHint = <String, Object?>{
-        fonixAndroidRuntimeOwnerUserDefine: fonixAndroidSherpaRuntimeOwner,
-        fonixArtifactCacheUserDefine: '/must-not-be-read',
-      };
-      expect(
-        () => validateFonixAndroidOwnershipUserDefines(
-          options,
-          configuredUserDefines: artifactHint,
-        ),
-        throwsA(
-          isA<BuildError>().having(
-            (error) => error.message,
-            'message',
-            allOf(contains('shim-only'), contains('never falls back')),
-          ),
-        ),
-      );
+      expect(options.runtimeMode, fonixExternalRuntimeMode);
+      expect(options.applicationMinimumOs, isNull);
       expect(
         () => validateFonixUserDefineKeys(<String>{
           fonixAndroidRuntimeOwnerUserDefine,

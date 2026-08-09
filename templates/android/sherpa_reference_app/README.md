@@ -440,15 +440,15 @@ trusted-runner capture is an additional requirement.
 
 ## Development checks
 
-`flutter analyze` runs directly after locked package resolution. Normal host
-`flutter test` cannot use the committed Android-only
-`android_runtime_owner: sherpa` setting. The repository gate therefore copies
-this source outside the checkout, rewrites only the Fonix path to the exact
-repository, temporarily selects Fonix `runtime_mode: external` without an
-Android owner, and preserves the locked Fonix and sherpa dependencies. It runs
-locked offline resolution, analysis, and the fake/contract tests there, then
-restores the exact Android sherpa-owner hook before the Release builds. The
-committed dependency and Android hook contract are never weakened in place.
+`flutter analyze` runs directly after locked package resolution. Fonix now
+ignores `android_runtime_owner` on a non-Android host, so an application may
+retain that field in a shared pubspec. The repository gate still copies this
+source outside the checkout and temporarily selects the Fonix external runtime
+without an Android owner as a frozen host-test fixture. It preserves the locked
+Fonix and sherpa dependencies, runs locked offline resolution, analysis, and
+the fake/contract tests there, then restores the exact Android sherpa-owner
+hook before the Release builds. The committed dependency and Android hook
+contract are never weakened in place.
 
 Release build outputs are the standard:
 
