@@ -1,5 +1,8 @@
 ## 0.1.0-dev.1
 
+- Added version 3 of the GNU General Public License as Fonix's project-level
+  license. Signing, publication authority, and target-specific release gates
+  remain separate requirements.
 - Added the exact iOS x86_64 simulator linked tuple required by Flutter's
   simulator build, backed by the pinned universal ORT XCFramework member;
   x86_64 device and Mac Catalyst remain rejected.

@@ -1003,8 +1003,9 @@ validation because it has no authorized Team ID shared with FlutterMacOS. That
 explicit development entitlement is executable gate evidence, not a
 distribution security/signing decision.
 
-The repository also has no project-level `LICENSE`, approved private security
-contact, signing identity, or publication authority. Those are product/legal/
-release decisions and cannot be inferred from passing source tests or from the
-vendored ONNX Runtime license and notices. They remain the blockers to changing
+The repository now carries version 3 of the GNU General Public License as its
+project-level `LICENSE`. It still has no approved private security contact,
+signing identity, or publication authority. Those product/legal/release
+decisions cannot be inferred from passing source tests or from the project and
+vendored ONNX Runtime licenses and notices. They remain blockers to changing
 `publish_to: none` or promoting any unqualified support row.

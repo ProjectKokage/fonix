@@ -320,8 +320,9 @@ or not their target row is advertised. Windows x64 remains Tier-1 throughout
 the deferral; the deferral changes the development schedule, not the global
 release definition.
 
-- The repository has no project-level `LICENSE`; the ONNX Runtime license and
-  third-party notices do not authorize Fonix distribution by themselves.
+- The repository carries version 3 of the GNU General Public License as its
+  project-level `LICENSE`; that decision does not supply the remaining
+  security, signing, publication, or target-specific release approvals.
 - No approved private security-reporting contact, signing identity, or
   publication authority is recorded.
 - The iOS baseline gate result is `PASS (2026-08-07)`. Even with that exact

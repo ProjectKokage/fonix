@@ -6,13 +6,14 @@ ownership visible, and reports execution-provider discovery, registration, and
 per-run assignment separately.
 
 The package is currently `0.1.0-dev.1` and is intentionally marked
-`publish_to: none`. The source implementation is usable for development, but
-the repository does not yet contain the project-level licensing and signing
-decisions needed for redistribution. The planned first publication is a scoped
-pre-1.0 release over only exact, explicitly advertised target/provider tuples
-that pass their own gates. It is not five-platform, unqualified
-`Release-ready`, or 1.0 approval; those claims still require the complete Tier-1
-matrix, including the deferred Windows target-host lane.
+`publish_to: none`. The source implementation is usable for development and is
+licensed under version 3 of the GNU General Public License, but the repository
+does not yet contain the signing and publication decisions needed for
+redistribution. The planned first publication is a scoped pre-1.0 release over
+only exact, explicitly advertised target/provider tuples that pass their own
+gates. It is not five-platform, unqualified `Release-ready`, or 1.0 approval;
+those claims still require the complete Tier-1 matrix, including the deferred
+Windows target-host lane.
 
 ## What is implemented
 
