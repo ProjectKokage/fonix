@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:fonix/fonix.dart';
+import 'package:fonix/src/build/native_versions_lock.dart';
 import 'package:fonix/src/ffi/native_api.dart';
 import 'package:fonix/src/runtime.dart' as runtime_testing;
 import 'package:fonix/src/runtime_info.dart' as runtime_info_testing;
@@ -14,7 +15,7 @@ import 'package:test/test.dart';
 
 import '../hook/build.dart' as build_hook;
 import '../hook/src/build_config.dart';
-import '../hook/src/macos_ort_artifact_resolver.dart';
+import '../hook/src/native_artifact_resolver.dart';
 
 void main() {
   final realMacosOrtMirror =
@@ -41,6 +42,162 @@ void main() {
       expect(fonixRequiredOrtApiVersion, 27);
       expect(fonixShimAssetId, 'package:fonix/fonix_shim');
       expect(fonixOrtRuntimeAssetId, 'package:fonix/onnxruntime');
+      expect(options.processRuntimeBasename, isNull);
+      expect(fonixProcessRuntimeDefines(options), isEmpty);
+    });
+
+    test(
+      'binds exact process basenames to their desktop target and build ID',
+      () {
+        const basenames = <String, Object?>{
+          'macos': 'libonnxruntime.1.27.0.dylib',
+          'linux': 'libonnxruntime.so',
+          'windows': 'onnxruntime.dll',
+        };
+        for (final target in <(OS, Architecture, String, String)>[
+          (
+            OS.macOS,
+            Architecture.arm64,
+            'macos',
+            'libonnxruntime.1.27.0.dylib',
+          ),
+          (OS.linux, Architecture.x64, 'linux', 'libonnxruntime.so'),
+          (OS.windows, Architecture.x64, 'windows', 'onnxruntime.dll'),
+        ]) {
+          final options = resolveFonixBuildOptions(
+            targetOS: target.$1,
+            targetArchitecture: target.$2,
+            processRuntimeBasenames: basenames,
+          );
+          final defines = fonixProcessRuntimeDefines(options);
+          expect(options.processRuntimeBasename, target.$4);
+          expect(defines['FONIX_PROCESS_RUNTIME_BASENAME'], '"${target.$4}"');
+          expect(
+            defines['FONIX_PROCESS_RUNTIME_TARGET_${target.$3.toUpperCase()}'],
+            '1',
+          );
+          expect(
+            defines['FONIX_SHIM_BUILD_ID'],
+            '"process-${target.$3}-${target.$4}"',
+          );
+        }
+      },
+    );
+
+    test('binds exact build information and narrows the shim to process', () {
+      const expectedBuildInfo = 'fonix-test-build-info-v1';
+      final options = resolveFonixBuildOptions(
+        targetOS: OS.macOS,
+        targetArchitecture: Architecture.arm64,
+        processRuntimeBasenames: const <String, Object?>{
+          'macos': 'libonnxruntime.1.27.0.dylib',
+        },
+        processRuntimeBuildInfo: const <String, Object?>{
+          'macos': expectedBuildInfo,
+        },
+      );
+      final digest = fonixProcessRuntimeBuildInfoSha256(expectedBuildInfo);
+      expect(options.processRuntimeExpectedBuildInfo, expectedBuildInfo);
+      expect(options.runtimeSources, const <FonixRuntimeSource>{
+        FonixRuntimeSource.process,
+      });
+      expect(
+        fonixProcessRuntimeDefines(options),
+        containsPair('FONIX_PROCESS_RUNTIME_IDENTITY_HEADER', '1'),
+      );
+      expect(
+        fonixProcessRuntimeDefines(options)['FONIX_SHIM_BUILD_ID'],
+        '"process-macos-libonnxruntime.1.27.0.dylib-buildinfo-$digest"',
+      );
+    });
+
+    test('keeps Android fixed and rejects malformed desktop basename maps', () {
+      final android = resolveFonixBuildOptions(
+        targetOS: OS.android,
+        targetArchitecture: Architecture.arm64,
+        targetAndroidNdkApi: 24,
+        androidRuntimeOwner: fonixAndroidSherpaRuntimeOwner,
+        processRuntimeBasenames: const <String, Object?>{
+          'macos': 'libonnxruntime.1.27.0.dylib',
+        },
+      );
+      expect(android.processRuntimeBasename, isNull);
+      expect(fonixProcessRuntimeDefines(android), isEmpty);
+      expect(
+        fonixAndroidOwnershipDefines(android)['FONIX_SHIM_BUILD_ID'],
+        '"android-owner-sherpa-source-process"',
+      );
+
+      for (final invalid in <Object>[
+        const <String, Object?>{},
+        const <String, Object?>{'android': 'libonnxruntime.so'},
+        const <String, Object?>{'macos': '../libonnxruntime.dylib'},
+        const <String, Object?>{'linux': 'onnxruntime.so'},
+        const <String, Object?>{'windows': 'libonnxruntime.so'},
+        const <String, Object?>{'macos': true},
+        'libonnxruntime.1.27.0.dylib',
+      ]) {
+        expect(
+          () => resolveFonixBuildOptions(
+            targetOS: OS.macOS,
+            targetArchitecture: Architecture.arm64,
+            processRuntimeBasenames: invalid,
+          ),
+          throwsA(isA<BuildError>()),
+        );
+      }
+      expect(
+        () => resolveFonixBuildOptions(
+          targetOS: OS.macOS,
+          targetArchitecture: Architecture.arm64,
+          runtimeMode: fonixBundledRuntimeMode,
+          applicationMinimumOs: '14.0',
+          processRuntimeBasenames: const <String, Object?>{
+            'macos': 'libonnxruntime.1.27.0.dylib',
+          },
+        ),
+        throwsA(
+          isA<BuildError>().having(
+            (error) => error.message,
+            'message',
+            contains('valid only with runtime_mode "external"'),
+          ),
+        ),
+      );
+      for (final invalidBuildInfo in <Object>[
+        const <String, Object?>{},
+        const <String, Object?>{'android': 'fonix-test-build-info-v1'},
+        const <String, Object?>{'macos': true},
+        const <String, Object?>{'macos': ''},
+        const <String, Object?>{'macos': 'contains;separator'},
+        const <String, Object?>{'macos': 'contains"quote'},
+        const <String, Object?>{'macos': 'contains\\escape'},
+        const <String, Object?>{'macos': 'non-ascii-声'},
+        <String, Object?>{'macos': 'a' * 1025},
+        'fonix-test-build-info-v1',
+      ]) {
+        expect(
+          () => resolveFonixBuildOptions(
+            targetOS: OS.macOS,
+            targetArchitecture: Architecture.arm64,
+            processRuntimeBasenames: const <String, Object?>{
+              'macos': 'libonnxruntime.1.27.0.dylib',
+            },
+            processRuntimeBuildInfo: invalidBuildInfo,
+          ),
+          throwsA(isA<BuildError>()),
+        );
+      }
+      expect(
+        () => resolveFonixBuildOptions(
+          targetOS: OS.macOS,
+          targetArchitecture: Architecture.arm64,
+          processRuntimeBuildInfo: const <String, Object?>{
+            'macos': 'fonix-test-build-info-v1',
+          },
+        ),
+        throwsA(isA<BuildError>()),
+      );
     });
 
     test('accepts every locked dynamic baseline tuple', () {
@@ -518,6 +675,11 @@ void main() {
         temporaryDirectory.uri.resolve('src/fonix_exports.apple'),
       ).writeAsStringSync('');
       File.fromUri(
+        temporaryDirectory.uri.resolve(
+          fonixProcessRuntimeIdentityHeaderTemplatePath,
+        ),
+      ).writeAsStringSync('');
+      File.fromUri(
         temporaryDirectory.uri.resolve(fonixElfExportMapPath),
       ).writeAsStringSync('$fonixElfExportVersion { local: *; };\n');
       File.fromUri(
@@ -557,7 +719,7 @@ void main() {
         validateFonixNativeInputs(temporaryDirectory.uri, <String>[
           'src/dort_core.c',
         ]),
-        hasLength(6),
+        hasLength(7),
       );
     });
 
@@ -825,8 +987,56 @@ void main() {
   });
 
   test(
+    'build hook embeds the app-supplied exact macOS process identity',
+    () async {
+      final userDefines = PackageUserDefines(
+        workspacePubspec: PackageUserDefinesSource(
+          defines: const <String, Object?>{
+            fonixProcessRuntimeBasenamesUserDefine: <String, Object?>{
+              'macos': 'libonnxruntime.1.27.0.dylib',
+            },
+            fonixProcessRuntimeBuildInfoUserDefine: <String, Object?>{
+              'macos': 'fonix-test-build-info-v1',
+            },
+          },
+          basePath: Directory.current.uri,
+        ),
+      );
+      await testCodeBuildHook(
+        mainMethod: build_hook.main,
+        targetOS: OS.macOS,
+        targetArchitecture: Architecture.arm64,
+        userDefines: userDefines,
+        check: (input, output) {
+          final shim = output.assets.code.single;
+          final nativeApi = FonixNativeApi.dynamicLibrary(
+            DynamicLibrary.open(File.fromUri(shim.file!).path),
+          );
+          final buildInfo = runtime_info_testing.parseOrtNativeBuildInfo(
+            nativeApi.getBuildManifestJson(),
+          );
+          expect(buildInfo.runtimeProfile, OrtRuntimeProfile.external);
+          expect(
+            buildInfo.buildId,
+            'process-macos-libonnxruntime.1.27.0.dylib-buildinfo-'
+            '${fonixProcessRuntimeBuildInfoSha256('fonix-test-build-info-v1')}',
+          );
+          expect(buildInfo.artifact, isNull);
+        },
+      );
+    },
+  );
+
+  test(
     'bundled hook emits the exact offline macOS ORT code asset',
     () async {
+      final artifact = _macosArtifactLock();
+      final runtimeFileName = artifact.expectedFiles
+          .singleWhere(
+            (file) => file.stagedPath.endsWith('libonnxruntime.1.dylib'),
+          )
+          .stagedPath;
+      final archiveFileName = artifact.source.url.pathSegments.last;
       final mirrorDirectory = Directory(realMacosOrtMirror!);
       final userDefines = PackageUserDefines(
         workspacePubspec: PackageUserDefinesSource(
@@ -862,7 +1072,7 @@ void main() {
           expect(runtimeAsset.file, isNotNull);
           expect(
             File.fromUri(runtimeAsset.file!).uri.pathSegments.last,
-            fonixMacosOrtBundleFileName,
+            runtimeFileName,
           );
           expect(File.fromUri(runtimeAsset.file!).existsSync(), isTrue);
           final shimFile = File.fromUri(assets[fonixShimAssetId]!.file!);
@@ -881,7 +1091,7 @@ void main() {
           );
           expect(
             File.fromUri(
-              runtimeAsset.file!.resolve(fonixMacosOrtManifestFileName),
+              runtimeAsset.file!.resolve(fonixNativeArtifactManifestFileName),
             ).existsSync(),
             isTrue,
           );
@@ -891,7 +1101,7 @@ void main() {
           );
           expect(
             output.dependencies,
-            contains(mirrorDirectory.uri.resolve(fonixMacosOrtArchiveName)),
+            contains(mirrorDirectory.uri.resolve(archiveFileName)),
           );
 
           final adjacent = Directory.systemTemp.createTempSync(
@@ -903,7 +1113,7 @@ void main() {
             ).copySync('${adjacent.path}/libfonix_shim.dylib');
             File.fromUri(
               runtimeAsset.file!,
-            ).copySync('${adjacent.path}/$fonixMacosOrtBundleFileName');
+            ).copySync('${adjacent.path}/$runtimeFileName');
             final nativeApi = FonixNativeApi.dynamicLibrary(
               DynamicLibrary.open(copiedShim.path),
             );
@@ -1095,5 +1305,18 @@ void main() {
         : officialArtifactCache == null
         ? 'Set FONIX_ORT_ARTIFACT_CACHE to the verified archive directory.'
         : false,
+  );
+}
+
+NativeArtifactLock _macosArtifactLock() {
+  final lock = NativeVersionsLock.parse(
+    File('native/versions.lock.yaml').readAsStringSync(),
+  );
+  return lock.artifacts.singleWhere(
+    (artifact) =>
+        artifact.target.operatingSystem == 'macos' &&
+        artifact.target.architecture == 'arm64' &&
+        artifact.target.variant == 'default' &&
+        artifact.flavor == 'cpu',
   );
 }

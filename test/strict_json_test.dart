@@ -93,6 +93,39 @@ void main() {
         );
       }
     });
+
+    test('enforces an optional total value limit', () {
+      expect(
+        () => validateStrictJsonInternal(
+          '[1,2]',
+          label: 'Bounded JSON',
+          maximumValueCount: 3,
+        ),
+        returnsNormally,
+      );
+      expect(
+        () => validateStrictJsonInternal(
+          '[1,2]',
+          label: 'Bounded JSON',
+          maximumValueCount: 2,
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('too many JSON values'),
+          ),
+        ),
+      );
+      expect(
+        () => validateStrictJsonInternal(
+          'null',
+          label: 'Bounded JSON',
+          maximumValueCount: 0,
+        ),
+        throwsRangeError,
+      );
+    });
   });
 }
 

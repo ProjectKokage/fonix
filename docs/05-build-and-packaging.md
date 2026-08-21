@@ -148,6 +148,51 @@ external macOS/Linux/Windows build likewise ignores those inactive values.
 Unknown Fonix fields remain errors. Do not set a global `runtime_mode` when
 the targets intentionally use different defaults.
 
+An application that packages the sole desktop process-owned ORT can compile an
+exact target-keyed basename contract into Fonix's external shim:
+
+```yaml
+hooks:
+  user_defines:
+    fonix:
+      process_runtime_basenames:
+        macos: libonnxruntime.1.27.0.dylib
+        linux: libonnxruntime.so
+        windows: onnxruntime.dll
+      # Populate only from a literally frozen runtime-fork identity:
+      # process_runtime_build_info:
+      #   macos: <complete exact OrtApi GetBuildInfoString value>
+```
+
+The map is closed to `macos`, `linux`, and `windows`; each value must be one
+safe basename with the platform's dynamic-library shape. Fonix validates every
+supplied entry, selects only the active desktop target, requires the `external`
+profile, and binds `process-<target>-<basename>` into the native build manifest.
+The configured loader resolves only the exact regular file adjacent to the
+application-owned shim, canonicalizes its application root and runtime path,
+verifies containment and basename, and verifies the loaded `OrtGetApiBase`
+image against that exact path. A process-visible image is reused only when it
+is the same canonical file; wrong basenames, nonconfigured aliases, symlinks,
+and search-path candidates fail closed. Omit the field to preserve the ordinary
+Fonix loader. Android ignores this desktop map and retains the separate, fixed
+`android_runtime_owner: sherpa` / `libonnxruntime.so` contract.
+
+`process_runtime_build_info` is an optional, target-keyed defense-in-depth
+contract paired with `process_runtime_basenames`. Its value is the complete
+expected `OrtApi::GetBuildInfoString()` string, closed to 1–1024 printable
+ASCII bytes. The hook generates a private native header rather than placing the
+full marker on the compiler command line, hashes the expected marker into the
+shim build ID, and compares the returned bytes exactly after API negotiation
+and before creating an environment. Null, oversized, non-ASCII, stale,
+near-prefix, and suffix values fail without logging the received text.
+
+Neither canonical path nor self-reported build information proves exact fork
+bytes by itself, and macOS path loading cannot make a truthful runtime-hash
+TOCTOU guarantee. Distribution authority remains the consuming application's
+signed and sealed package, its exact contained runtime path and install ID, and
+the package manifest's exact hashes. Unsigned Simulator/local evidence proves
+only the loader behavior and must not be reported as release evidence.
+
 Code assets cannot carry the generated staging manifest and exact upstream
 notice as ordinary Flutter data on the current supported Flutter toolchain.
 Before Flutter collects assets, the application must prepare its app-owned

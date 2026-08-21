@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
@@ -17,6 +19,14 @@ const String fonixAndroidRuntimeOwnerUserDefine = 'android_runtime_owner';
 const String fonixArtifactCacheUserDefine = 'artifact_cache';
 const String fonixArtifactMirrorUserDefine = 'artifact_mirror';
 const String fonixApplicationMinimumOsUserDefine = 'application_minimum_os';
+const String fonixProcessRuntimeBasenamesUserDefine =
+    'process_runtime_basenames';
+const String fonixProcessRuntimeBuildInfoUserDefine =
+    'process_runtime_build_info';
+const String fonixProcessRuntimeIdentityHeaderName =
+    'fonix_process_runtime_identity.h';
+const String fonixProcessRuntimeIdentityHeaderTemplatePath =
+    'src/fonix_process_runtime_identity.h.in';
 const String fonixExternalRuntimeMode = 'external';
 const String fonixBundledRuntimeMode = 'bundled';
 const String fonixLinkedRuntimeMode = 'linked';
@@ -33,6 +43,7 @@ const List<String> fonixRequiredNativeInputPaths = <String>[
   'src/dort.h',
   fonixElfExportMapPath,
   'src/fonix_exports.apple',
+  fonixProcessRuntimeIdentityHeaderTemplatePath,
   'third_party/onnxruntime/include/onnxruntime_c_api.h',
   'third_party/onnxruntime/include/onnxruntime_ep_c_api.h',
 ];
@@ -63,6 +74,14 @@ const Set<String> fonixKnownUserDefineKeys = <String>{
   fonixArtifactCacheUserDefine,
   fonixArtifactMirrorUserDefine,
   fonixApplicationMinimumOsUserDefine,
+  fonixProcessRuntimeBasenamesUserDefine,
+  fonixProcessRuntimeBuildInfoUserDefine,
+};
+
+const Set<String> fonixProcessRuntimeTargetKeys = <String>{
+  'macos',
+  'linux',
+  'windows',
 };
 
 final class FonixBuildOptions {
@@ -74,6 +93,8 @@ final class FonixBuildOptions {
     required this.androidRuntimeOwner,
     required this.applicationMinimumOs,
     required this.targetAndroidNdkApi,
+    required this.processRuntimeBasename,
+    required this.processRuntimeExpectedBuildInfo,
   });
 
   final OS targetOS;
@@ -84,8 +105,21 @@ final class FonixBuildOptions {
   final String? applicationMinimumOs;
   final int? targetAndroidNdkApi;
 
+  /// Exact app-owned process runtime selected for this desktop target.
+  ///
+  /// A null value preserves the ordinary Fonix process-loader contract.
+  final String? processRuntimeBasename;
+
+  /// Exact post-load ORT build marker for this desktop process runtime.
+  ///
+  /// A null value leaves byte authority to the consuming signed-package gate.
+  final String? processRuntimeExpectedBuildInfo;
+
   Set<FonixRuntimeSource> get runtimeSources {
     if (androidRuntimeOwner == FonixAndroidRuntimeOwner.sherpa) {
+      return const <FonixRuntimeSource>{FonixRuntimeSource.process};
+    }
+    if (processRuntimeBasename != null) {
       return const <FonixRuntimeSource>{FonixRuntimeSource.process};
     }
     return switch (runtimeMode) {
@@ -108,6 +142,8 @@ FonixBuildOptions resolveFonixBuildOptions({
   Object? runtimeMode,
   Object? androidRuntimeOwner,
   Object? applicationMinimumOs,
+  Object? processRuntimeBasenames,
+  Object? processRuntimeBuildInfo,
 }) {
   if (runtimeMode != null && runtimeMode is! String) {
     throw BuildError(
@@ -165,6 +201,32 @@ FonixBuildOptions resolveFonixBuildOptions({
     targetOS: targetOS,
     targetAndroidNdkApi: targetAndroidNdkApi,
   );
+  final normalizedProcessRuntimeBasename = _processRuntimeBasename(
+    targetOS: targetOS,
+    runtimeMode: normalizedMode,
+    value: processRuntimeBasenames,
+  );
+  final normalizedProcessRuntimeBuildInfo = _processRuntimeBuildInfo(
+    targetOS: targetOS,
+    basename: normalizedProcessRuntimeBasename,
+    basenames: processRuntimeBasenames,
+    value: processRuntimeBuildInfo,
+  );
+  final targetKey = _processRuntimeTargetKey(targetOS);
+  if (targetKey != null && normalizedProcessRuntimeBasename != null) {
+    final buildId = fonixProcessRuntimeBuildId(
+      targetKey,
+      normalizedProcessRuntimeBasename,
+      expectedBuildInfo: normalizedProcessRuntimeBuildInfo,
+    );
+    if (buildId.length > 128) {
+      throw BuildError(
+        message:
+            'The exact $targetKey process runtime identity makes the native '
+            'build identity exceed its 128-byte limit.',
+      );
+    }
+  }
 
   return FonixBuildOptions(
     targetOS: targetOS,
@@ -174,7 +236,185 @@ FonixBuildOptions resolveFonixBuildOptions({
     androidRuntimeOwner: normalizedAndroidRuntimeOwner,
     applicationMinimumOs: normalizedApplicationMinimumOs,
     targetAndroidNdkApi: targetAndroidNdkApi,
+    processRuntimeBasename: normalizedProcessRuntimeBasename,
+    processRuntimeExpectedBuildInfo: normalizedProcessRuntimeBuildInfo,
   );
+}
+
+String? _processRuntimeTargetKey(OS targetOS) => switch (targetOS) {
+  OS.macOS => 'macos',
+  OS.linux => 'linux',
+  OS.windows => 'windows',
+  _ => null,
+};
+
+String? _processRuntimeBasename({
+  required OS targetOS,
+  required String runtimeMode,
+  required Object? value,
+}) {
+  if (value == null) {
+    return null;
+  }
+  if (value is! Map<Object?, Object?> || value.isEmpty) {
+    throw BuildError(
+      message:
+          'hooks.user_defines.$fonixPackageName.'
+          '$fonixProcessRuntimeBasenamesUserDefine must be a non-empty map '
+          'keyed only by macos, linux, and windows.',
+    );
+  }
+
+  final basenames = <String, String>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    final rawBasename = entry.value;
+    if (key is! String || !fonixProcessRuntimeTargetKeys.contains(key)) {
+      throw BuildError(
+        message:
+            'hooks.user_defines.$fonixPackageName.'
+            '$fonixProcessRuntimeBasenamesUserDefine contains an unsupported '
+            'target key. Accepted keys are macos, linux, and windows.',
+      );
+    }
+    if (rawBasename is! String) {
+      throw BuildError(
+        message:
+            'hooks.user_defines.$fonixPackageName.'
+            '$fonixProcessRuntimeBasenamesUserDefine.$key must be a string.',
+      );
+    }
+    _validateProcessRuntimeBasename(key, rawBasename);
+    basenames[key] = rawBasename;
+  }
+
+  final targetKey = _processRuntimeTargetKey(targetOS);
+  if (targetKey == null) {
+    return null;
+  }
+  final basename = basenames[targetKey];
+  if (basename == null) {
+    return null;
+  }
+  if (runtimeMode != fonixExternalRuntimeMode) {
+    throw BuildError(
+      message:
+          'The exact $targetKey process runtime basename is valid only with '
+          'runtime_mode "$fonixExternalRuntimeMode".',
+    );
+  }
+  return basename;
+}
+
+String? _processRuntimeBuildInfo({
+  required OS targetOS,
+  required String? basename,
+  required Object? basenames,
+  required Object? value,
+}) {
+  if (value == null) {
+    return null;
+  }
+  if (value is! Map<Object?, Object?> || value.isEmpty) {
+    throw BuildError(
+      message:
+          'hooks.user_defines.$fonixPackageName.'
+          '$fonixProcessRuntimeBuildInfoUserDefine must be a non-empty map '
+          'keyed only by macos, linux, and windows.',
+    );
+  }
+
+  final buildInfoByTarget = <String, String>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    final rawBuildInfo = entry.value;
+    if (key is! String || !fonixProcessRuntimeTargetKeys.contains(key)) {
+      throw BuildError(
+        message:
+            'hooks.user_defines.$fonixPackageName.'
+            '$fonixProcessRuntimeBuildInfoUserDefine contains an unsupported '
+            'target key. Accepted keys are macos, linux, and windows.',
+      );
+    }
+    if (rawBuildInfo is! String) {
+      throw BuildError(
+        message:
+            'hooks.user_defines.$fonixPackageName.'
+            '$fonixProcessRuntimeBuildInfoUserDefine.$key must be a string.',
+      );
+    }
+    _validateProcessRuntimeBuildInfo(key, rawBuildInfo);
+    if (basenames is! Map<Object?, Object?> || basenames[key] is! String) {
+      throw BuildError(
+        message:
+            'The exact $key process runtime build information requires a '
+            'matching $fonixProcessRuntimeBasenamesUserDefine entry.',
+      );
+    }
+    buildInfoByTarget[key] = rawBuildInfo;
+  }
+
+  final targetKey = _processRuntimeTargetKey(targetOS);
+  if (targetKey == null) {
+    return null;
+  }
+  final buildInfo = buildInfoByTarget[targetKey];
+  if (buildInfo == null) {
+    return null;
+  }
+  if (basename == null) {
+    throw BuildError(
+      message:
+          'The exact $targetKey process runtime build information requires '
+          'a matching $fonixProcessRuntimeBasenamesUserDefine entry.',
+    );
+  }
+  return buildInfo;
+}
+
+void _validateProcessRuntimeBuildInfo(String targetKey, String buildInfo) {
+  final encoded = utf8.encode(buildInfo);
+  final safeBuildInfo = RegExp(r'^[A-Za-z0-9][A-Za-z0-9 ._:@,=+/\-]*$');
+  if (encoded.length > 1024 || !safeBuildInfo.hasMatch(buildInfo)) {
+    throw BuildError(
+      message:
+          'hooks.user_defines.$fonixPackageName.'
+          '$fonixProcessRuntimeBuildInfoUserDefine.$targetKey must contain '
+          '1 to 1024 closed printable ASCII bytes.',
+    );
+  }
+}
+
+void _validateProcessRuntimeBasename(String targetKey, String basename) {
+  final safeBasename = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$');
+  final targetShape = switch (targetKey) {
+    'macos' => RegExp(r'^lib[A-Za-z0-9][A-Za-z0-9._-]*\.dylib$'),
+    'linux' => RegExp(r'^lib[A-Za-z0-9][A-Za-z0-9._-]*\.so(?:\.[0-9]+)*$'),
+    'windows' => RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]*\.dll$'),
+    _ => throw StateError('Unsupported process-runtime target: $targetKey'),
+  };
+  if (!safeBasename.hasMatch(basename) || !targetShape.hasMatch(basename)) {
+    throw BuildError(
+      message:
+          'hooks.user_defines.$fonixPackageName.'
+          '$fonixProcessRuntimeBasenamesUserDefine.$targetKey must be one '
+          'exact safe $targetKey dynamic-library basename.',
+    );
+  }
+}
+
+String fonixProcessRuntimeBuildInfoSha256(String buildInfo) =>
+    sha256.convert(utf8.encode(buildInfo)).toString();
+
+String fonixProcessRuntimeBuildId(
+  String targetKey,
+  String basename, {
+  String? expectedBuildInfo,
+}) {
+  final prefix = 'process-$targetKey-$basename';
+  return expectedBuildInfo == null
+      ? prefix
+      : '$prefix-buildinfo-${fonixProcessRuntimeBuildInfoSha256(expectedBuildInfo)}';
 }
 
 void _validateAndroidNdkApi({
@@ -386,6 +626,7 @@ CBuilder createFonixShimBuilder(
   List<String> frameworks = const <String>['Foundation'],
   List<String> additionalLibraries = const <String>[],
   List<String> libraryDirectories = const <String>['.'],
+  List<String> additionalIncludes = const <String>[],
   List<String> additionalFlags = const <String>[],
   Map<String, String?> artifactDefines = const <String, String?>{},
   Language language = Language.c,
@@ -394,7 +635,11 @@ CBuilder createFonixShimBuilder(
   packageName: fonixPackageName,
   assetName: fonixShimName,
   sources: List<String>.unmodifiable(sources),
-  includes: const <String>['src', 'third_party/onnxruntime/include'],
+  includes: <String>[
+    'src',
+    'third_party/onnxruntime/include',
+    ...additionalIncludes,
+  ],
   frameworks: frameworks,
   libraries: <String>[
     ...fonixSystemLibraries(options.targetOS),
@@ -409,6 +654,7 @@ CBuilder createFonixShimBuilder(
     'FONIX_SHIM_BUILD_ID': '"development"',
     ...fonixPlatformDefines(options.targetOS),
     ...fonixAndroidOwnershipDefines(options),
+    ...fonixProcessRuntimeDefines(options),
     ...artifactDefines,
   },
   std: 'c11',
@@ -417,6 +663,33 @@ CBuilder createFonixShimBuilder(
   optimizationLevel: OptimizationLevel.o2,
   buildMode: BuildMode.release,
 );
+
+/// Compile-time exact process-runtime contract for one desktop target.
+///
+/// Ordinary Fonix builds return no definitions and retain their existing
+/// constrained process loader. Configured builds bind both the target and the
+/// exact basename into native code and the existing build ID field.
+Map<String, String?> fonixProcessRuntimeDefines(FonixBuildOptions options) {
+  final basename = options.processRuntimeBasename;
+  if (basename == null) {
+    return const <String, String?>{};
+  }
+  final targetKey = _processRuntimeTargetKey(options.targetOS);
+  if (targetKey == null) {
+    throw StateError(
+      'An exact process-runtime basename was selected for a non-desktop target.',
+    );
+  }
+  final targetMacro = targetKey.toUpperCase();
+  final expectedBuildInfo = options.processRuntimeExpectedBuildInfo;
+  return <String, String?>{
+    'FONIX_PROCESS_RUNTIME_BASENAME': '"$basename"',
+    'FONIX_PROCESS_RUNTIME_TARGET_$targetMacro': '1',
+    if (expectedBuildInfo != null) 'FONIX_PROCESS_RUNTIME_IDENTITY_HEADER': '1',
+    'FONIX_SHIM_BUILD_ID':
+        '"${fonixProcessRuntimeBuildId(targetKey, basename, expectedBuildInfo: expectedBuildInfo)}"',
+  };
+}
 
 /// Compile-time ownership identity included in the shim build manifest.
 ///

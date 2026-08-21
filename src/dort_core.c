@@ -13,6 +13,11 @@
 #define FONIX_RUNTIME_PROFILE "external"
 #endif
 
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME) &&                            \
+    !defined(FONIX_RUNTIME_PROFILE_EXTERNAL)
+#error "An exact process runtime must use the external runtime profile"
+#endif
+
 #if defined(FONIX_ANDROID_RUNTIME_OWNER_SHERPA) &&                         \
     defined(FONIX_ANDROID_RUNTIME_OWNER_APPLICATION)
 #error "An Android Fonix shim must have exactly one runtime owner"
@@ -36,7 +41,9 @@
 #define FONIX_ALLOWED_RUNTIME_SOURCES_JSON "[\"bundled\"]"
 #else
 #define FONIX_ANDROID_RUNTIME_OWNER_JSON "null"
-#if defined(FONIX_RUNTIME_PROFILE_EXTERNAL)
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME)
+#define FONIX_ALLOWED_RUNTIME_SOURCES_JSON "[\"process\"]"
+#elif defined(FONIX_RUNTIME_PROFILE_EXTERNAL)
 #define FONIX_ALLOWED_RUNTIME_SOURCES_JSON "[\"process\",\"file\"]"
 #elif defined(FONIX_RUNTIME_PROFILE_BUNDLED)
 #define FONIX_ALLOWED_RUNTIME_SOURCES_JSON "[\"bundled\"]"
@@ -112,6 +119,8 @@ int dort_runtime_profile_supports(uint32_t source_kind) {
   return source_kind == DORT_RUNTIME_SOURCE_PROCESS;
 #elif defined(FONIX_ANDROID_RUNTIME_OWNER_APPLICATION)
   return source_kind == DORT_RUNTIME_SOURCE_BUNDLED;
+#elif defined(FONIX_PROCESS_RUNTIME_BASENAME)
+  return source_kind == DORT_RUNTIME_SOURCE_PROCESS;
 #elif defined(FONIX_RUNTIME_PROFILE_EXTERNAL)
   return source_kind == DORT_RUNTIME_SOURCE_PROCESS ||
          source_kind == DORT_RUNTIME_SOURCE_FILE;

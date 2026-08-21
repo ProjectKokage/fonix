@@ -88,6 +88,40 @@ void main() {
         OrtRuntimeSourceKind.file,
       ]);
     });
+
+    test(
+      'only a closed exact-process build ID may narrow external sources',
+      () {
+        final exact = <String, Object?>{
+          ..._validBuildInfo(),
+          'allowedRuntimeSources': <String>['process'],
+          'buildId':
+              'process-macos-libonnxruntime.1.27.0.dylib-buildinfo-'
+              '${List<String>.filled(64, 'a').join()}',
+        };
+        expect(
+          parseOrtNativeBuildInfo(jsonEncode(exact)).allowedRuntimeSources,
+          const <OrtRuntimeSourceKind>[OrtRuntimeSourceKind.process],
+        );
+
+        for (final invalidBuildId in <String>[
+          'process-macos-onnxruntime.dll',
+          'process-macos-libonnxruntime.1.27.0.dylib-buildinfo-'
+              '${List<String>.filled(63, 'a').join()}',
+          'fonix-test-external',
+        ]) {
+          expect(
+            () => parseOrtNativeBuildInfo(
+              jsonEncode(<String, Object?>{
+                ...exact,
+                'buildId': invalidBuildId,
+              }),
+            ),
+            throwsFormatException,
+          );
+        }
+      },
+    );
   });
 }
 

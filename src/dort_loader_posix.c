@@ -16,6 +16,22 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME)
+#if defined(__APPLE__)
+#if !defined(FONIX_PROCESS_RUNTIME_TARGET_MACOS)
+#error "The exact Apple process runtime must be target-keyed as macos"
+#endif
+#elif defined(__ANDROID__)
+#error "Android process runtime ownership remains the fixed libonnxruntime.so contract"
+#elif defined(__linux__)
+#if !defined(FONIX_PROCESS_RUNTIME_TARGET_LINUX)
+#error "The exact Linux process runtime must be target-keyed as linux"
+#endif
+#else
+#error "The exact POSIX process runtime contract supports only macOS and Linux"
+#endif
+#endif
+
 static int dort_path_is_within(const char* path, const char* root) {
   const size_t root_length = strlen(root);
   if (strcmp(root, "/") == 0) {
@@ -135,6 +151,7 @@ static dort_status_t* dort_resolve_file_path(
   return NULL;
 }
 
+#if !defined(FONIX_PROCESS_RUNTIME_BASENAME)
 static int dort_is_allowed_process_library_name(const char* name) {
 #if defined(__APPLE__)
   return strcmp(name, "libonnxruntime.dylib") == 0;
@@ -142,6 +159,7 @@ static int dort_is_allowed_process_library_name(const char* name) {
   return strcmp(name, "libonnxruntime.so") == 0;
 #endif
 }
+#endif
 
 static dort_status_t* dort_assign_symbol(
     void* handle,
@@ -616,9 +634,304 @@ static dort_status_t* dort_open_bundled(
 #endif
 }
 
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME)
+static dort_status_t* dort_exact_process_paths(
+    char** out_application_root,
+    char** out_runtime_path) {
+  dort_status_t* (*loader_function)(
+      const dort_runtime_config_t*, dort_loaded_library_t*) = dort_loader_open;
+  void* loader_address = NULL;
+  Dl_info shim_info;
+  char* shim_path = NULL;
+  char* root_candidate = NULL;
+  char* application_root = NULL;
+  char* requested_runtime_path = NULL;
+  char* runtime_path = NULL;
+  char* separator = NULL;
+  size_t root_length = 0u;
+  struct stat runtime_status;
+  struct stat root_status;
+  dort_status_t* status = NULL;
+
+  *out_application_root = NULL;
+  *out_runtime_path = NULL;
+  _Static_assert(
+      sizeof(loader_function) == sizeof(loader_address),
+      "POSIX data and function pointers must have matching sizes");
+  memcpy(&loader_address, &loader_function, sizeof(loader_address));
+  memset(&shim_info, 0, sizeof(shim_info));
+  if (dladdr(loader_address, &shim_info) == 0 || shim_info.dli_fname == NULL) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_PLATFORM,
+        0,
+        "runtime_open",
+        "Could not identify the exact-process Fonix shim location.");
+  }
+  shim_path = dort_memory_realpath(shim_info.dli_fname);
+  if (shim_path == NULL) {
+    return dort_status_create(
+        errno == ENOMEM ? DORT_ERROR_DOMAIN_ALLOCATION
+                        : DORT_ERROR_DOMAIN_LOADER,
+        errno == ENOMEM ? DORT_ERROR_ALLOCATION_FAILED
+                        : DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        errno == ENOMEM
+            ? "Could not allocate the canonical exact-process shim path."
+            : "Could not canonicalize the exact-process shim location.");
+  }
+
+#if defined(__APPLE__)
+  {
+    static const char framework_suffix[] =
+        "/fonix_shim.framework/Versions/A/fonix_shim";
+    const size_t shim_length = strlen(shim_path);
+    const size_t suffix_length = sizeof(framework_suffix) - 1u;
+    if (shim_length > suffix_length &&
+        strcmp(shim_path + shim_length - suffix_length, framework_suffix) ==
+            0) {
+      root_length = shim_length - suffix_length;
+    }
+  }
+#endif
+  if (root_length == 0u) {
+    separator = strrchr(shim_path, '/');
+    if (separator == NULL) {
+      free(shim_path);
+      return dort_status_create(
+          DORT_ERROR_DOMAIN_LOADER,
+          DORT_ERROR_PLATFORM,
+          0,
+          "runtime_open",
+          "The exact-process Fonix shim has no absolute parent directory.");
+    }
+    root_length = separator == shim_path ? 1u : (size_t)(separator - shim_path);
+  }
+  root_candidate = (char*)dort_memory_allocate(root_length + 1u);
+  if (root_candidate == NULL) {
+    free(shim_path);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION,
+        DORT_ERROR_ALLOCATION_FAILED,
+        0,
+        "runtime_open",
+        "Could not allocate the exact-process application root.");
+  }
+  memcpy(root_candidate, shim_path, root_length);
+  root_candidate[root_length] = '\0';
+  free(shim_path);
+
+  application_root = dort_memory_realpath(root_candidate);
+  free(root_candidate);
+  if (application_root == NULL ||
+      stat(application_root, &root_status) != 0 ||
+      !S_ISDIR(root_status.st_mode)) {
+    const int error_number = errno;
+    free(application_root);
+    return dort_status_create(
+        error_number == ENOMEM ? DORT_ERROR_DOMAIN_ALLOCATION
+                               : DORT_ERROR_DOMAIN_LOADER,
+        error_number == ENOMEM ? DORT_ERROR_ALLOCATION_FAILED
+                               : DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        error_number == ENOMEM
+            ? "Could not allocate the canonical exact-process application root."
+            : "Could not canonicalize the exact-process application root.");
+  }
+  status = dort_allocate_adjacent_path(
+      application_root,
+      FONIX_PROCESS_RUNTIME_BASENAME,
+      &requested_runtime_path);
+  if (status != NULL) {
+    free(application_root);
+    return status;
+  }
+  if (lstat(requested_runtime_path, &runtime_status) != 0 ||
+      !S_ISREG(runtime_status.st_mode)) {
+    free(requested_runtime_path);
+    free(application_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "The exact adjacent process runtime is missing or is not a regular file.");
+  }
+  runtime_path = dort_memory_realpath(requested_runtime_path);
+  free(requested_runtime_path);
+  if (runtime_path == NULL) {
+    const int error_number = errno;
+    free(application_root);
+    return dort_status_create(
+        error_number == ENOMEM ? DORT_ERROR_DOMAIN_ALLOCATION
+                               : DORT_ERROR_DOMAIN_LOADER,
+        error_number == ENOMEM ? DORT_ERROR_ALLOCATION_FAILED
+                               : DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        error_number == ENOMEM
+            ? "Could not allocate the canonical exact process runtime path."
+            : "Could not canonicalize the exact process runtime path.");
+  }
+  separator = strrchr(runtime_path, '/');
+  if (!dort_path_is_within(runtime_path, application_root) ||
+      separator == NULL ||
+      strcmp(separator + 1, FONIX_PROCESS_RUNTIME_BASENAME) != 0) {
+    free(runtime_path);
+    free(application_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT,
+        0,
+        "runtime_open",
+        "The exact process runtime does not resolve to its app-owned basename and root.");
+  }
+
+  *out_application_root = application_root;
+  *out_runtime_path = runtime_path;
+  return NULL;
+}
+
+static dort_status_t* dort_verify_exact_process_symbol(
+    void* symbol,
+    const char* exact_runtime_path) {
+  Dl_info symbol_info;
+  char* symbol_path = NULL;
+
+  memset(&symbol_info, 0, sizeof(symbol_info));
+  if (symbol == NULL || dladdr(symbol, &symbol_info) == 0 ||
+      symbol_info.dli_fname == NULL) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_PLATFORM,
+        0,
+        "runtime_open",
+        "Could not identify the process-owned ONNX Runtime image.");
+  }
+  symbol_path = dort_memory_realpath(symbol_info.dli_fname);
+  if (symbol_path == NULL) {
+    return dort_status_create(
+        errno == ENOMEM ? DORT_ERROR_DOMAIN_ALLOCATION
+                        : DORT_ERROR_DOMAIN_LOADER,
+        errno == ENOMEM ? DORT_ERROR_ALLOCATION_FAILED
+                        : DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        errno == ENOMEM
+            ? "Could not allocate the canonical loaded runtime identity."
+            : "Could not canonicalize the loaded runtime identity.");
+  }
+  if (strcmp(symbol_path, exact_runtime_path) != 0) {
+    free(symbol_path);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "A different ONNX Runtime image is already visible in the process.");
+  }
+  free(symbol_path);
+  return NULL;
+}
+
+static dort_status_t* dort_open_exact_process(
+    const dort_runtime_config_t* config,
+    dort_loaded_library_t* out_library) {
+  char* application_root = NULL;
+  char* runtime_path = NULL;
+  void* visible_symbol = NULL;
+  void* handle = NULL;
+  void* retained_symbol = NULL;
+  const char* loader_error = NULL;
+  dort_status_t* status = NULL;
+
+  if (config->preferred_library_name_count != 0u &&
+      (config->preferred_library_name_count != 1u ||
+       strcmp(
+           config->preferred_library_names_utf8[0],
+           FONIX_PROCESS_RUNTIME_BASENAME) != 0)) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM,
+        DORT_ERROR_INVALID_ARGUMENT,
+        0,
+        "runtime_open",
+        "Runtime-supplied process names contradict the compiled exact basename.");
+  }
+  status = dort_exact_process_paths(&application_root, &runtime_path);
+  if (status != NULL) {
+    return status;
+  }
+
+  dlerror();
+  visible_symbol = dlsym(RTLD_DEFAULT, "OrtGetApiBase");
+  loader_error = dlerror();
+  if (loader_error == NULL && visible_symbol != NULL) {
+    status = dort_verify_exact_process_symbol(visible_symbol, runtime_path);
+    if (status != NULL) {
+      free(runtime_path);
+      free(application_root);
+      return status;
+    }
+  }
+
+  dlerror();
+  handle = dlopen(runtime_path, RTLD_NOW | RTLD_LOCAL);
+  if (handle == NULL) {
+    (void)dlerror();
+    free(runtime_path);
+    free(application_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "Could not load the exact adjacent process runtime; loader details were redacted.");
+  }
+  dlerror();
+  retained_symbol = dlsym(handle, "OrtGetApiBase");
+  loader_error = dlerror();
+  if (loader_error != NULL || retained_symbol == NULL) {
+    dlclose(handle);
+    free(runtime_path);
+    free(application_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_SYMBOL_NOT_FOUND,
+        0,
+        "runtime_open",
+        "The exact adjacent process runtime does not export OrtGetApiBase.");
+  }
+  status = dort_verify_exact_process_symbol(retained_symbol, runtime_path);
+  if (status == NULL && visible_symbol != NULL &&
+      visible_symbol != retained_symbol) {
+    status = dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "The visible ONNX Runtime symbol does not belong to the exact retained image.");
+  }
+  if (status == NULL) {
+    status = dort_assign_symbol(
+        handle, retained_symbol, runtime_path, 1, out_library);
+  }
+  if (status != NULL) {
+    dlclose(handle);
+  }
+  free(runtime_path);
+  free(application_root);
+  return status;
+}
+#endif
+
 static dort_status_t* dort_open_process(
     const dort_runtime_config_t* config,
     dort_loaded_library_t* out_library) {
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME)
+  return dort_open_exact_process(config, out_library);
+#else
 #if defined(__APPLE__)
   static const char default_name[] = "libonnxruntime.dylib";
 #else
@@ -708,6 +1021,7 @@ static dort_status_t* dort_open_process(
       0,
       "runtime_open",
       "No process-owned ONNX Runtime exposing OrtGetApiBase could be resolved.");
+#endif
 }
 
 dort_status_t* dort_loader_open(

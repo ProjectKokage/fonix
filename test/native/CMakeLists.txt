@@ -86,6 +86,314 @@ add_fake_ort(fake_ort_unsupported 2 "fake/unsupported")
 add_fake_ort(fake_ort_bad_discovery 3 "fake/bad_discovery")
 add_fake_ort(fake_ort_partial_discovery 4 "fake/partial_discovery")
 
+if(APPLE)
+  set(_fonix_exact_process_target "macos")
+  set(_fonix_exact_process_basename "libonnxruntime.1.27.0.dylib")
+  set(_fonix_wrong_process_basename "libonnxruntime.dylib")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(_fonix_exact_process_target "linux")
+  set(_fonix_exact_process_basename "libonnxruntime.so")
+  set(_fonix_wrong_process_basename "libonnxruntime.so.1")
+endif()
+
+if(DEFINED _fonix_exact_process_target)
+  set(FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO "fonix-test-build-info-v1")
+  string(
+    SHA256
+    _fonix_exact_process_build_info_sha256
+    "${FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO}"
+  )
+  set(_fonix_exact_process_directory "${CMAKE_CURRENT_BINARY_DIR}/exact_process")
+  set(_fonix_wrong_process_directory "${CMAKE_CURRENT_BINARY_DIR}/wrong_process")
+  set(_fonix_search_process_directory "${CMAKE_CURRENT_BINARY_DIR}/search_process")
+  set(_fonix_missing_process_directory "${CMAKE_CURRENT_BINARY_DIR}/missing_process")
+  set(_fonix_symlink_process_directory "${CMAKE_CURRENT_BINARY_DIR}/symlink_process")
+  set(_fonix_stale_process_directory "${CMAKE_CURRENT_BINARY_DIR}/stale_process")
+  set(_fonix_null_process_directory "${CMAKE_CURRENT_BINARY_DIR}/null_process")
+  set(_fonix_oversize_process_directory "${CMAKE_CURRENT_BINARY_DIR}/oversize_process")
+  set(_fonix_prefix_process_directory "${CMAKE_CURRENT_BINARY_DIR}/prefix_process")
+  set(_fonix_suffix_process_directory "${CMAKE_CURRENT_BINARY_DIR}/suffix_process")
+  set(_fonix_nonascii_process_directory "${CMAKE_CURRENT_BINARY_DIR}/nonascii_process")
+  set(_fonix_exact_process_include "${CMAKE_CURRENT_BINARY_DIR}/exact_process_private")
+  file(MAKE_DIRECTORY "${_fonix_exact_process_include}")
+  configure_file(
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/fonix_process_runtime_identity.h.in"
+    "${_fonix_exact_process_include}/fonix_process_runtime_identity.h"
+    @ONLY
+  )
+
+  add_library(fake_ort_exact_process SHARED fake_ort.c)
+  target_compile_definitions(
+    fake_ort_exact_process PRIVATE FONIX_FAKE_ORT_BEHAVIOR=1
+  )
+  target_include_directories(
+    fake_ort_exact_process SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}"
+  )
+  set_target_properties(
+    fake_ort_exact_process PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    PREFIX ""
+    SUFFIX ""
+    OUTPUT_NAME "${_fonix_exact_process_basename}"
+    LIBRARY_OUTPUT_DIRECTORY "${_fonix_exact_process_directory}"
+  )
+  fonix_strict_target(fake_ort_exact_process)
+
+  add_library(fake_ort_wrong_process SHARED fake_ort.c)
+  target_compile_definitions(
+    fake_ort_wrong_process PRIVATE FONIX_FAKE_ORT_BEHAVIOR=1
+  )
+  target_include_directories(
+    fake_ort_wrong_process SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}"
+  )
+  set_target_properties(
+    fake_ort_wrong_process PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    PREFIX ""
+    SUFFIX ""
+    OUTPUT_NAME "${_fonix_wrong_process_basename}"
+    LIBRARY_OUTPUT_DIRECTORY "${_fonix_wrong_process_directory}"
+  )
+  fonix_strict_target(fake_ort_wrong_process)
+
+  add_library(fake_ort_search_process SHARED fake_ort.c)
+  target_compile_definitions(
+    fake_ort_search_process PRIVATE FONIX_FAKE_ORT_BEHAVIOR=1
+  )
+  target_include_directories(
+    fake_ort_search_process SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}"
+  )
+  set_target_properties(
+    fake_ort_search_process PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    PREFIX ""
+    SUFFIX ""
+    OUTPUT_NAME "${_fonix_exact_process_basename}"
+    LIBRARY_OUTPUT_DIRECTORY "${_fonix_search_process_directory}"
+  )
+  fonix_strict_target(fake_ort_search_process)
+
+  function(add_process_identity_fake target output_directory build_info_mode)
+    add_library(${target} SHARED fake_ort.c)
+    target_compile_definitions(
+      ${target} PRIVATE
+      FONIX_FAKE_ORT_BEHAVIOR=1
+      FONIX_FAKE_ORT_BUILD_INFO_MODE=${build_info_mode}
+    )
+    target_include_directories(
+      ${target} SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}"
+    )
+    set_target_properties(
+      ${target} PROPERTIES
+      C_VISIBILITY_PRESET hidden
+      PREFIX ""
+      SUFFIX ""
+      OUTPUT_NAME "${_fonix_exact_process_basename}"
+      LIBRARY_OUTPUT_DIRECTORY "${output_directory}"
+    )
+    fonix_strict_target(${target})
+  endfunction()
+
+  add_process_identity_fake(
+    fake_ort_stale_process "${_fonix_stale_process_directory}" 1
+  )
+  add_process_identity_fake(
+    fake_ort_null_process "${_fonix_null_process_directory}" 2
+  )
+  add_process_identity_fake(
+    fake_ort_oversize_process "${_fonix_oversize_process_directory}" 3
+  )
+  add_process_identity_fake(
+    fake_ort_prefix_process "${_fonix_prefix_process_directory}" 4
+  )
+  add_process_identity_fake(
+    fake_ort_suffix_process "${_fonix_suffix_process_directory}" 5
+  )
+  add_process_identity_fake(
+    fake_ort_nonascii_process "${_fonix_nonascii_process_directory}" 6
+  )
+
+  set(_fonix_exact_process_sources
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_core.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_loader_posix.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_loader_windows.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_memory.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_provider.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_runtime.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_run.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_session.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_status.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/dort_tensor.c"
+  )
+  add_library(fonix_exact_process_shim SHARED ${_fonix_exact_process_sources})
+  string(TOUPPER "${_fonix_exact_process_target}" _fonix_exact_target_upper)
+  set(_fonix_exact_process_build_id
+      "process-${_fonix_exact_process_target}-${_fonix_exact_process_basename}-buildinfo-${_fonix_exact_process_build_info_sha256}")
+  target_compile_definitions(
+    fonix_exact_process_shim PRIVATE
+    FONIX_SHIM_BUILDING=1
+    FONIX_RUNTIME_PROFILE_EXTERNAL=1
+    FONIX_RUNTIME_PROFILE="external"
+    FONIX_SHIM_BUILD_ID="${_fonix_exact_process_build_id}"
+    FONIX_PROCESS_RUNTIME_BASENAME="${_fonix_exact_process_basename}"
+    FONIX_PROCESS_RUNTIME_TARGET_${_fonix_exact_target_upper}=1
+    FONIX_PROCESS_RUNTIME_IDENTITY_HEADER=1
+  )
+  target_include_directories(
+    fonix_exact_process_shim PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../src"
+    "${ONNXRUNTIME_INCLUDE_DIR}"
+    "${_fonix_exact_process_include}"
+  )
+  target_link_libraries(
+    fonix_exact_process_shim PRIVATE Threads::Threads ${CMAKE_DL_LIBS}
+  )
+  set_target_properties(
+    fonix_exact_process_shim PROPERTIES
+    OUTPUT_NAME "fonix_shim"
+    C_VISIBILITY_PRESET hidden
+    POSITION_INDEPENDENT_CODE YES
+    LIBRARY_OUTPUT_DIRECTORY "${_fonix_exact_process_directory}"
+  )
+  if(APPLE)
+    target_link_options(
+      fonix_exact_process_shim PRIVATE
+      "-Wl,-exported_symbols_list,${CMAKE_CURRENT_LIST_DIR}/../../src/fonix_exports.apple"
+    )
+  elseif(UNIX)
+    target_link_options(
+      fonix_exact_process_shim PRIVATE
+      "-Xlinker"
+      "--version-script=${CMAKE_CURRENT_LIST_DIR}/../../src/fonix_exports.map"
+      "-Wl,--no-undefined"
+    )
+  endif()
+  fonix_strict_target(fonix_exact_process_shim)
+  add_custom_command(
+    TARGET fonix_exact_process_shim POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_missing_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_symlink_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_stale_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_null_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_oversize_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_prefix_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_suffix_process_directory}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_fonix_nonascii_process_directory}"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_missing_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_symlink_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_stale_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_null_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_oversize_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_prefix_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_suffix_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy
+      "$<TARGET_FILE:fonix_exact_process_shim>"
+      "${_fonix_nonascii_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E create_symlink
+      "../exact_process/${_fonix_exact_process_basename}"
+      "${_fonix_symlink_process_directory}/${_fonix_exact_process_basename}"
+  )
+
+  add_executable(fonix_exact_process_loader_test exact_process_loader_test.c)
+  target_compile_definitions(
+    fonix_exact_process_loader_test PRIVATE
+    FONIX_TEST_EXACT_PROCESS_RUNTIME_BASENAME="${_fonix_exact_process_basename}"
+    FONIX_TEST_WRONG_PROCESS_RUNTIME_BASENAME="${_fonix_wrong_process_basename}"
+    FONIX_TEST_EXACT_PROCESS_BUILD_ID="${_fonix_exact_process_build_id}"
+  )
+  target_include_directories(
+    fonix_exact_process_loader_test PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src"
+  )
+  target_link_libraries(
+    fonix_exact_process_loader_test PRIVATE ${CMAKE_DL_LIBS}
+  )
+  add_dependencies(
+    fonix_exact_process_loader_test
+    fake_ort_exact_process
+    fake_ort_wrong_process
+    fake_ort_search_process
+    fake_ort_stale_process
+    fake_ort_null_process
+    fake_ort_oversize_process
+    fake_ort_prefix_process
+    fake_ort_suffix_process
+    fake_ort_nonascii_process
+    fonix_exact_process_shim
+  )
+  fonix_strict_target(fonix_exact_process_loader_test)
+
+  foreach(_fonix_mode IN ITEMS shim-first runtime-first exact-name wrong-first wrong-name)
+    add_test(
+      NAME exact-process-${_fonix_mode}
+      COMMAND fonix_exact_process_loader_test
+        "$<TARGET_FILE:fonix_exact_process_shim>"
+        "$<TARGET_FILE:fake_ort_exact_process>"
+        "$<TARGET_FILE:fake_ort_wrong_process>"
+        "${_fonix_mode}"
+    )
+  endforeach()
+  add_test(
+    NAME exact-process-rejects-search-only
+    COMMAND fonix_exact_process_loader_test
+      "${_fonix_missing_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+      "$<TARGET_FILE:fake_ort_search_process>"
+      "$<TARGET_FILE:fake_ort_wrong_process>"
+      "search-only"
+  )
+  add_test(
+    NAME exact-process-rejects-symlink
+    COMMAND fonix_exact_process_loader_test
+      "${_fonix_symlink_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+      "$<TARGET_FILE:fake_ort_exact_process>"
+      "$<TARGET_FILE:fake_ort_wrong_process>"
+      "symlink-adjacent"
+  )
+  foreach(_fonix_identity_mode IN ITEMS stale null oversize prefix suffix nonascii)
+    add_test(
+      NAME exact-process-rejects-${_fonix_identity_mode}-build-info
+      COMMAND fonix_exact_process_loader_test
+        "${_fonix_${_fonix_identity_mode}_process_directory}/$<TARGET_FILE_NAME:fonix_exact_process_shim>"
+        "$<TARGET_FILE:fake_ort_${_fonix_identity_mode}_process>"
+        "$<TARGET_FILE:fake_ort_wrong_process>"
+        "${_fonix_identity_mode}-build-info"
+    )
+  endforeach()
+  if(APPLE)
+    set_tests_properties(
+      exact-process-rejects-search-only PROPERTIES
+      ENVIRONMENT "DYLD_LIBRARY_PATH=${_fonix_search_process_directory}"
+    )
+  else()
+    set_tests_properties(
+      exact-process-rejects-search-only PROPERTIES
+      ENVIRONMENT "LD_LIBRARY_PATH=${_fonix_search_process_directory}"
+    )
+  endif()
+endif()
+
 add_library(fake_ort_missing_symbol SHARED fake_missing_symbol.c)
 set_target_properties(
   fake_ort_missing_symbol PROPERTIES

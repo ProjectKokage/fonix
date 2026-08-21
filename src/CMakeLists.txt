@@ -35,6 +35,110 @@ if(NOT FONIX_SHIM_BUILD_ID MATCHES "^[A-Za-z0-9._-]+$")
 endif()
 
 set(
+  FONIX_PROCESS_RUNTIME_BASENAME
+  ""
+  CACHE STRING
+  "Optional exact app-owned process runtime basename for this desktop target"
+)
+set(
+  FONIX_PROCESS_RUNTIME_TARGET
+  ""
+  CACHE STRING
+  "Target key paired with FONIX_PROCESS_RUNTIME_BASENAME: macos, linux, or windows"
+)
+set(
+  FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO
+  ""
+  CACHE STRING
+  "Optional exact OrtApi GetBuildInfoString value for the process runtime"
+)
+if((FONIX_PROCESS_RUNTIME_BASENAME AND NOT FONIX_PROCESS_RUNTIME_TARGET) OR
+   (FONIX_PROCESS_RUNTIME_TARGET AND NOT FONIX_PROCESS_RUNTIME_BASENAME))
+  message(FATAL_ERROR "FONIX_PROCESS_RUNTIME_BASENAME and FONIX_PROCESS_RUNTIME_TARGET must be set together")
+endif()
+if(FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO AND
+   NOT FONIX_PROCESS_RUNTIME_BASENAME)
+  message(FATAL_ERROR "FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO requires an exact process runtime basename")
+endif()
+
+set(_fonix_effective_build_id "${FONIX_SHIM_BUILD_ID}")
+set(_fonix_process_runtime_definitions)
+set(_fonix_process_runtime_include)
+if(FONIX_PROCESS_RUNTIME_BASENAME)
+  if(NOT FONIX_RUNTIME_PROFILE STREQUAL "external")
+    message(FATAL_ERROR "An exact process runtime basename requires the external runtime profile")
+  endif()
+  if(NOT FONIX_PROCESS_RUNTIME_BASENAME MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    message(FATAL_ERROR "FONIX_PROCESS_RUNTIME_BASENAME must be one safe library basename")
+  endif()
+  if(FONIX_PROCESS_RUNTIME_TARGET STREQUAL "macos")
+    if(NOT APPLE OR CMAKE_SYSTEM_NAME STREQUAL "iOS" OR
+       NOT FONIX_PROCESS_RUNTIME_BASENAME MATCHES "^lib[A-Za-z0-9][A-Za-z0-9._-]*\\.dylib$")
+      message(FATAL_ERROR "The macos process runtime contract requires a macOS lib*.dylib target")
+    endif()
+  elseif(FONIX_PROCESS_RUNTIME_TARGET STREQUAL "linux")
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+       NOT FONIX_PROCESS_RUNTIME_BASENAME MATCHES "^lib[A-Za-z0-9][A-Za-z0-9._-]*\\.so(\\.[0-9]+)*$")
+      message(FATAL_ERROR "The linux process runtime contract requires a Linux lib*.so target")
+    endif()
+  elseif(FONIX_PROCESS_RUNTIME_TARGET STREQUAL "windows")
+    if(NOT WIN32 OR
+       NOT FONIX_PROCESS_RUNTIME_BASENAME MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*\\.dll$")
+      message(FATAL_ERROR "The windows process runtime contract requires a Windows *.dll target")
+    endif()
+  else()
+    message(FATAL_ERROR "FONIX_PROCESS_RUNTIME_TARGET must be macos, linux, or windows")
+  endif()
+  string(TOUPPER "${FONIX_PROCESS_RUNTIME_TARGET}" _fonix_process_runtime_target_upper)
+  set(
+    _fonix_effective_build_id
+    "process-${FONIX_PROCESS_RUNTIME_TARGET}-${FONIX_PROCESS_RUNTIME_BASENAME}"
+  )
+  if(FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO)
+    string(
+      LENGTH
+      "${FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO}"
+      _fonix_process_runtime_build_info_length
+    )
+    if(_fonix_process_runtime_build_info_length GREATER 1024 OR
+       NOT FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO MATCHES "^[A-Za-z0-9][A-Za-z0-9 ._:@,=+/\\-]*$")
+      message(FATAL_ERROR "FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO must contain 1 to 1024 closed printable ASCII bytes")
+    endif()
+    string(
+      SHA256
+      _fonix_process_runtime_build_info_sha256
+      "${FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO}"
+    )
+    string(
+      APPEND
+      _fonix_effective_build_id
+      "-buildinfo-${_fonix_process_runtime_build_info_sha256}"
+    )
+    set(_fonix_process_runtime_include "${CMAKE_CURRENT_BINARY_DIR}/fonix_private")
+    file(MAKE_DIRECTORY "${_fonix_process_runtime_include}")
+    configure_file(
+      "${CMAKE_CURRENT_LIST_DIR}/fonix_process_runtime_identity.h.in"
+      "${_fonix_process_runtime_include}/fonix_process_runtime_identity.h"
+      @ONLY
+    )
+    list(
+      APPEND _fonix_process_runtime_definitions
+      FONIX_PROCESS_RUNTIME_IDENTITY_HEADER=1
+    )
+  endif()
+  string(LENGTH "${_fonix_effective_build_id}" _fonix_effective_build_id_length)
+  if(_fonix_effective_build_id_length GREATER 128 OR
+     NOT _fonix_effective_build_id MATCHES "^[A-Za-z0-9._-]+$")
+    message(FATAL_ERROR "The exact process runtime contract exceeds the build ID limit")
+  endif()
+  list(
+    APPEND _fonix_process_runtime_definitions
+    FONIX_PROCESS_RUNTIME_BASENAME="${FONIX_PROCESS_RUNTIME_BASENAME}"
+    FONIX_PROCESS_RUNTIME_TARGET_${_fonix_process_runtime_target_upper}=1
+  )
+endif()
+
+set(
   ONNXRUNTIME_INCLUDE_DIR
   "${CMAKE_CURRENT_LIST_DIR}/../third_party/onnxruntime/include"
   CACHE PATH
@@ -89,7 +193,8 @@ target_compile_definitions(
   FONIX_SHIM_BUILDING=1
   FONIX_RUNTIME_PROFILE_${_fonix_runtime_profile_upper}=1
   FONIX_RUNTIME_PROFILE="${FONIX_RUNTIME_PROFILE}"
-  FONIX_SHIM_BUILD_ID="${FONIX_SHIM_BUILD_ID}"
+  FONIX_SHIM_BUILD_ID="${_fonix_effective_build_id}"
+  ${_fonix_process_runtime_definitions}
 )
 if(FONIX_SHIM_LIBRARY_TYPE STREQUAL "STATIC")
   target_compile_definitions(fonix_shim PUBLIC FONIX_SHIM_STATIC=1)
@@ -102,6 +207,11 @@ target_include_directories(
     "$<INSTALL_INTERFACE:include>"
 )
 target_include_directories(fonix_shim SYSTEM PRIVATE "${ONNXRUNTIME_INCLUDE_DIR}")
+if(_fonix_process_runtime_include)
+  target_include_directories(
+    fonix_shim PRIVATE "${_fonix_process_runtime_include}"
+  )
+endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(fonix_shim PRIVATE Threads::Threads ${CMAKE_DL_LIBS})

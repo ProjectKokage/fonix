@@ -35,10 +35,18 @@ Future<void> buildFonixShim(BuildInput input, BuildOutputBuilder output) async {
         configuredUserDefines[fonixAndroidRuntimeOwnerUserDefine],
     applicationMinimumOs:
         configuredUserDefines[fonixApplicationMinimumOsUserDefine],
+    processRuntimeBasenames:
+        configuredUserDefines[fonixProcessRuntimeBasenamesUserDefine],
+    processRuntimeBuildInfo:
+        configuredUserDefines[fonixProcessRuntimeBuildInfoUserDefine],
   );
   final sources = discoverFonixNativeSources(input.packageRoot);
   final dependencies = validateFonixNativeInputs(input.packageRoot, sources);
   output.dependencies.addAll(dependencies);
+  final processRuntimeIdentityInclude = _writeProcessRuntimeIdentityHeader(
+    input,
+    options,
+  );
 
   final stagedRuntime = await stageFonixNativeRuntime(
     input: input,
@@ -50,6 +58,7 @@ Future<void> buildFonixShim(BuildInput input, BuildOutputBuilder output) async {
     options: options,
     sources: sources,
     stagedRuntime: stagedRuntime,
+    processRuntimeIdentityInclude: processRuntimeIdentityInclude,
   );
   await builder.run(input: input, output: output);
   if (stagedRuntime != null && !options.linksOnnxRuntime) {
@@ -138,6 +147,7 @@ CBuilder _createConfiguredShimBuilder({
   required FonixBuildOptions options,
   required List<String> sources,
   required StagedNativeArtifact? stagedRuntime,
+  required String? processRuntimeIdentityInclude,
 }) {
   final appleExportList = input.packageRoot.resolve('src/fonix_exports.apple');
   final linuxVersionScriptFlags = fonixLinuxVersionScriptFlags(
@@ -160,6 +170,7 @@ CBuilder _createConfiguredShimBuilder({
       options,
       sources,
       artifactDefines: artifactDefines,
+      additionalIncludes: <String>[?processRuntimeIdentityInclude],
       additionalFlags: <String>[
         ...linuxVersionScriptFlags,
         if (lockedMinimumOs != null)
@@ -198,6 +209,7 @@ CBuilder _createConfiguredShimBuilder({
     options,
     sources,
     artifactDefines: artifactDefines,
+    additionalIncludes: <String>[?processRuntimeIdentityInclude],
     frameworks: const <String>['Foundation', 'CoreML', 'onnxruntime'],
     additionalLibraries: const <String>['c++'],
     additionalFlags: <String>[
@@ -210,6 +222,37 @@ CBuilder _createConfiguredShimBuilder({
     ],
     language: Language.objectiveC,
   );
+}
+
+String? _writeProcessRuntimeIdentityHeader(
+  BuildInput input,
+  FonixBuildOptions options,
+) {
+  final expectedBuildInfo = options.processRuntimeExpectedBuildInfo;
+  if (expectedBuildInfo == null) {
+    return null;
+  }
+  final template = File.fromUri(
+    input.packageRoot.resolve(fonixProcessRuntimeIdentityHeaderTemplatePath),
+  ).readAsStringSync();
+  const marker = '@FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO@';
+  if (marker.allMatches(template).length != 1) {
+    throw BuildError(
+      message:
+          'The private process-runtime identity header template is invalid.',
+    );
+  }
+  final includeDirectory = Directory.fromUri(
+    input.outputDirectory.resolve('fonix_private/'),
+  )..createSync(recursive: true);
+  final header = File(
+    path.join(includeDirectory.path, fonixProcessRuntimeIdentityHeaderName),
+  );
+  header.writeAsStringSync(
+    template.replaceFirst(marker, expectedBuildInfo),
+    flush: true,
+  );
+  return includeDirectory.path;
 }
 
 Map<String, Object?> _configuredUserDefines(BuildInput input) {

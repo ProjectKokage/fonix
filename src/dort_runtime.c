@@ -5,6 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(FONIX_PROCESS_RUNTIME_IDENTITY_HEADER)
+#include "fonix_process_runtime_identity.h"
+#if !defined(FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO)
+#error "The generated process runtime identity header is incomplete"
+#endif
+#endif
+
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -125,6 +132,50 @@ static dort_status_t* dort_validate_optional_utf8(
       "%s must be non-empty valid UTF-8 within the ABI limit.",
       field_name);
 }
+
+#if defined(FONIX_PROCESS_RUNTIME_IDENTITY_HEADER)
+static dort_status_t* dort_validate_process_runtime_build_info(
+    const OrtApi* api) {
+  const char* actual = NULL;
+  size_t actual_length = 0u;
+  size_t index = 0u;
+  int validation = DORT_ERROR_NONE;
+
+  if (api == NULL || api->GetBuildInfoString == NULL) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ORT_API,
+        DORT_ERROR_RUNTIME_IDENTITY_MISMATCH,
+        0,
+        "runtime_open",
+        "ONNX Runtime did not provide the required build identity marker.");
+  }
+  actual = api->GetBuildInfoString();
+  validation = dort_bounded_utf8_length(
+      actual,
+      DORT_MAX_RUNTIME_BUILD_INFO_BYTES,
+      0,
+      &actual_length);
+  if (validation == DORT_ERROR_NONE) {
+    for (index = 0u; index < actual_length; ++index) {
+      const unsigned char byte = (unsigned char)actual[index];
+      if (byte < 0x20u || byte > 0x7eu) {
+        validation = DORT_ERROR_INVALID_UTF8;
+        break;
+      }
+    }
+  }
+  if (validation != DORT_ERROR_NONE ||
+      strcmp(actual, FONIX_PROCESS_RUNTIME_EXPECTED_BUILD_INFO) != 0) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ORT_API,
+        DORT_ERROR_RUNTIME_IDENTITY_MISMATCH,
+        0,
+        "runtime_open",
+        "ONNX Runtime build information does not match the compiled identity marker.");
+  }
+  return NULL;
+}
+#endif
 
 static dort_status_t* dort_validate_runtime_config(
     const dort_runtime_config_t* config) {
@@ -388,6 +439,15 @@ static dort_status_t* dort_negotiate_runtime(
         version,
         config->required_ort_api_version);
   }
+#if defined(FONIX_PROCESS_RUNTIME_IDENTITY_HEADER)
+  {
+    dort_status_t* build_info_status =
+        dort_validate_process_runtime_build_info(api);
+    if (build_info_status != NULL) {
+      return build_info_status;
+    }
+  }
+#endif
 
   identity = (dort_runtime_identity_t*)dort_memory_allocate_zeroed(1u, sizeof(*identity));
   if (identity == NULL) {

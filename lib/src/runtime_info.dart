@@ -243,6 +243,12 @@ OrtNativeBuildInfo parseOrtNativeBuildInfo(String json) {
       'Native artifact identity does not match the runtime profile.',
     );
   }
+  final bool isExactProcessBuild = RegExp(
+    r'^process-(?:macos-lib[A-Za-z0-9._-]+\.dylib|'
+    r'linux-lib[A-Za-z0-9._-]+\.so(?:\.[0-9]+)*|'
+    r'windows-[A-Za-z0-9._-]+\.dll)'
+    r'(?:-buildinfo-[0-9a-f]{64})?$',
+  ).hasMatch(buildId);
   final List<OrtRuntimeSourceKind> expectedSources =
       switch (androidRuntimeOwner) {
         OrtAndroidRuntimeOwner.sherpa => const <OrtRuntimeSourceKind>[
@@ -250,6 +256,9 @@ OrtNativeBuildInfo parseOrtNativeBuildInfo(String json) {
         ],
         OrtAndroidRuntimeOwner.application => const <OrtRuntimeSourceKind>[
           OrtRuntimeSourceKind.bundled,
+        ],
+        null when isExactProcessBuild => const <OrtRuntimeSourceKind>[
+          OrtRuntimeSourceKind.process,
         ],
         null => switch (runtimeProfile) {
           OrtRuntimeProfile.external => const <OrtRuntimeSourceKind>[

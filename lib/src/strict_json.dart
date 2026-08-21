@@ -10,14 +10,19 @@ void validateStrictJsonInternal(
   String source, {
   required String label,
   int maximumDepth = 32,
+  int? maximumValueCount,
 }) {
   if (maximumDepth < 1 || maximumDepth > 256) {
     throw RangeError.range(maximumDepth, 1, 256, 'maximumDepth');
+  }
+  if (maximumValueCount != null && maximumValueCount < 1) {
+    throw RangeError.range(maximumValueCount, 1, null, 'maximumValueCount');
   }
   _StrictJsonScanner(
     source,
     label: label,
     maximumDepth: maximumDepth,
+    maximumValueCount: maximumValueCount,
   ).validate();
 }
 
@@ -26,12 +31,15 @@ final class _StrictJsonScanner {
     this.source, {
     required this.label,
     required this.maximumDepth,
+    required this.maximumValueCount,
   });
 
   final String source;
   final String label;
   final int maximumDepth;
+  final int? maximumValueCount;
   var _index = 0;
+  var _valueCount = 0;
 
   void validate() {
     _skipWhitespace();
@@ -43,6 +51,11 @@ final class _StrictJsonScanner {
   }
 
   void _value(int depth) {
+    _valueCount += 1;
+    final maximumValueCount = this.maximumValueCount;
+    if (maximumValueCount != null && _valueCount > maximumValueCount) {
+      _fail('contains too many JSON values.');
+    }
     if (depth > maximumDepth || _index >= source.length) {
       _fail('contains invalid or excessively nested JSON.');
     }
@@ -76,7 +89,7 @@ final class _StrictJsonScanner {
       }
       final String key = _string();
       if (!keys.add(key)) {
-        _fail('contains a duplicate object key.');
+        _fail('contains a duplicate JSON object key.');
       }
       _skipWhitespace();
       if (!_consume(0x3a)) {

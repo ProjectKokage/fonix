@@ -9,6 +9,11 @@
 #include <string.h>
 #include <wchar.h>
 
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME) &&                            \
+    !defined(FONIX_PROCESS_RUNTIME_TARGET_WINDOWS)
+#error "The exact Windows process runtime must be target-keyed as windows"
+#endif
+
 static dort_status_t* dort_windows_error(
     int32_t code,
     const char* operation,
@@ -404,9 +409,297 @@ static dort_status_t* dort_open_windows_bundled(
   return status;
 }
 
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME)
+static dort_status_t* dort_windows_exact_process_paths(
+    wchar_t** out_runtime_name,
+    wchar_t** out_runtime_path) {
+  dort_status_t* (*loader_function)(
+      const dort_runtime_config_t*, dort_loaded_library_t*) = dort_loader_open;
+  const wchar_t* loader_address = NULL;
+  HMODULE shim_module = NULL;
+  wchar_t shim_path[32768];
+  DWORD shim_path_length = 0u;
+  wchar_t* separator = NULL;
+  wchar_t* requested_root = NULL;
+  wchar_t* canonical_root = NULL;
+  wchar_t* runtime_name = NULL;
+  wchar_t* requested_runtime_path = NULL;
+  wchar_t* canonical_runtime_path = NULL;
+  wchar_t* canonical_basename = NULL;
+  DWORD attributes = INVALID_FILE_ATTRIBUTES;
+  size_t root_length = 0u;
+  size_t name_length = 0u;
+  size_t path_length = 0u;
+
+  *out_runtime_name = NULL;
+  *out_runtime_path = NULL;
+  _Static_assert(
+      sizeof(loader_function) == sizeof(loader_address),
+      "Windows data and function pointers must have matching sizes");
+  memcpy(&loader_address, &loader_function, sizeof(loader_address));
+  if (!GetModuleHandleExW(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          loader_address,
+          &shim_module)) {
+    return dort_windows_error(
+        DORT_ERROR_PLATFORM,
+        "runtime_open",
+        "Could not identify the exact-process Fonix shim module",
+        GetLastError());
+  }
+  shim_path_length = GetModuleFileNameW(
+      shim_module,
+      shim_path,
+      (DWORD)(sizeof(shim_path) / sizeof(shim_path[0])));
+  if (shim_path_length == 0u ||
+      shim_path_length >=
+          (DWORD)(sizeof(shim_path) / sizeof(shim_path[0]))) {
+    return dort_windows_error(
+        DORT_ERROR_PLATFORM,
+        "runtime_open",
+        "Could not determine the exact-process Fonix shim path",
+        GetLastError());
+  }
+  separator = wcsrchr(shim_path, L'\\');
+  if (separator == NULL) {
+    separator = wcsrchr(shim_path, L'/');
+  }
+  if (separator == NULL) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_PLATFORM,
+        0,
+        "runtime_open",
+        "The exact-process Fonix shim has no absolute parent directory.");
+  }
+  root_length = separator == shim_path + 2 && shim_path[1] == L':'
+                    ? 3u
+                    : (size_t)(separator - shim_path);
+  requested_root = (wchar_t*)dort_memory_allocate_zeroed(
+      root_length + 1u, sizeof(*requested_root));
+  if (requested_root == NULL) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION,
+        DORT_ERROR_ALLOCATION_FAILED,
+        0,
+        "runtime_open",
+        "Could not allocate the exact-process application root.");
+  }
+  memcpy(requested_root, shim_path, root_length * sizeof(*requested_root));
+  canonical_root = dort_final_path(requested_root, 1);
+  free(requested_root);
+  if (canonical_root == NULL) {
+    return dort_windows_error(
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        "runtime_open",
+        "Could not resolve the exact-process application root",
+        GetLastError());
+  }
+  runtime_name = dort_utf8_to_wide(FONIX_PROCESS_RUNTIME_BASENAME);
+  if (runtime_name == NULL) {
+    free(canonical_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION,
+        DORT_ERROR_ALLOCATION_FAILED,
+        0,
+        "runtime_open",
+        "Could not encode the compiled exact process runtime basename.");
+  }
+  root_length = wcslen(canonical_root);
+  name_length = wcslen(runtime_name);
+  if (root_length > SIZE_MAX - name_length - 2u) {
+    free(runtime_name);
+    free(canonical_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM,
+        DORT_ERROR_LIMIT_EXCEEDED,
+        0,
+        "runtime_open",
+        "The exact adjacent process runtime path exceeds the ABI limit.");
+  }
+  path_length = root_length + name_length + 2u;
+  requested_runtime_path = (wchar_t*)dort_memory_allocate_zeroed(
+      path_length, sizeof(*requested_runtime_path));
+  if (requested_runtime_path == NULL) {
+    free(runtime_name);
+    free(canonical_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_ALLOCATION,
+        DORT_ERROR_ALLOCATION_FAILED,
+        0,
+        "runtime_open",
+        "Could not allocate the exact adjacent process runtime path.");
+  }
+  (void)swprintf(
+      requested_runtime_path,
+      path_length,
+      L"%ls%ls%ls",
+      canonical_root,
+      root_length > 0u &&
+              (canonical_root[root_length - 1u] == L'\\' ||
+               canonical_root[root_length - 1u] == L'/')
+          ? L""
+          : L"\\",
+      runtime_name);
+  attributes = GetFileAttributesW(requested_runtime_path);
+  if (attributes == INVALID_FILE_ATTRIBUTES ||
+      (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) !=
+          0u) {
+    free(requested_runtime_path);
+    free(runtime_name);
+    free(canonical_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "The exact adjacent process runtime is missing or is not a regular file.");
+  }
+  canonical_runtime_path = dort_final_path(requested_runtime_path, 0);
+  free(requested_runtime_path);
+  if (canonical_runtime_path == NULL) {
+    free(runtime_name);
+    free(canonical_root);
+    return dort_windows_error(
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        "runtime_open",
+        "Could not resolve the exact adjacent process runtime",
+        GetLastError());
+  }
+  canonical_basename = wcsrchr(canonical_runtime_path, L'\\');
+  if (canonical_basename == NULL) {
+    canonical_basename = wcsrchr(canonical_runtime_path, L'/');
+  }
+  if (!dort_windows_path_is_within(canonical_runtime_path, canonical_root) ||
+      canonical_basename == NULL ||
+      wcscmp(canonical_basename + 1, runtime_name) != 0) {
+    free(canonical_runtime_path);
+    free(runtime_name);
+    free(canonical_root);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT,
+        0,
+        "runtime_open",
+        "The exact process runtime does not resolve to its app-owned basename and root.");
+  }
+  free(canonical_root);
+  *out_runtime_name = runtime_name;
+  *out_runtime_path = canonical_runtime_path;
+  return NULL;
+}
+
+static dort_status_t* dort_verify_exact_windows_module(
+    HMODULE module,
+    const wchar_t* exact_runtime_path) {
+  wchar_t loaded_path[32768];
+  DWORD loaded_path_length = GetModuleFileNameW(
+      module,
+      loaded_path,
+      (DWORD)(sizeof(loaded_path) / sizeof(loaded_path[0])));
+  wchar_t* canonical_loaded_path = NULL;
+  if (loaded_path_length == 0u ||
+      loaded_path_length >=
+          (DWORD)(sizeof(loaded_path) / sizeof(loaded_path[0]))) {
+    return dort_windows_error(
+        DORT_ERROR_PLATFORM,
+        "runtime_open",
+        "Could not determine the process-owned runtime image",
+        GetLastError());
+  }
+  canonical_loaded_path = dort_final_path(loaded_path, 0);
+  if (canonical_loaded_path == NULL) {
+    return dort_windows_error(
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        "runtime_open",
+        "Could not resolve the process-owned runtime image",
+        GetLastError());
+  }
+  if (_wcsicmp(canonical_loaded_path, exact_runtime_path) != 0) {
+    free(canonical_loaded_path);
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_LOADER,
+        DORT_ERROR_RUNTIME_NOT_FOUND,
+        0,
+        "runtime_open",
+        "A different ONNX Runtime image is already visible in the process.");
+  }
+  free(canonical_loaded_path);
+  return NULL;
+}
+
+static dort_status_t* dort_open_windows_exact_process(
+    const dort_runtime_config_t* config,
+    dort_loaded_library_t* out_library) {
+  wchar_t* runtime_name = NULL;
+  wchar_t* runtime_path = NULL;
+  HMODULE module = NULL;
+  dort_status_t* status = NULL;
+
+  if (config->preferred_library_name_count != 0u &&
+      (config->preferred_library_name_count != 1u ||
+       strcmp(
+           config->preferred_library_names_utf8[0],
+           FONIX_PROCESS_RUNTIME_BASENAME) != 0)) {
+    return dort_status_create(
+        DORT_ERROR_DOMAIN_SHIM,
+        DORT_ERROR_INVALID_ARGUMENT,
+        0,
+        "runtime_open",
+        "Runtime-supplied process names contradict the compiled exact basename.");
+  }
+  status = dort_windows_exact_process_paths(&runtime_name, &runtime_path);
+  if (status != NULL) {
+    return status;
+  }
+  if (GetModuleHandleExW(0u, runtime_name, &module)) {
+    status = dort_verify_exact_windows_module(module, runtime_path);
+    if (status != NULL) {
+      FreeLibrary(module);
+      free(runtime_path);
+      free(runtime_name);
+      return status;
+    }
+  } else {
+    module = LoadLibraryExW(
+        runtime_path,
+        NULL,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (module == NULL) {
+      const DWORD error_code = GetLastError();
+      free(runtime_path);
+      free(runtime_name);
+      return dort_windows_error(
+          DORT_ERROR_RUNTIME_NOT_FOUND,
+          "runtime_open",
+          "Could not securely load the exact adjacent process runtime",
+          error_code);
+    }
+    status = dort_verify_exact_windows_module(module, runtime_path);
+    if (status != NULL) {
+      FreeLibrary(module);
+      free(runtime_path);
+      free(runtime_name);
+      return status;
+    }
+  }
+  status = dort_assign_windows_module(module, 1, out_library);
+  if (status != NULL) {
+    FreeLibrary(module);
+  }
+  free(runtime_path);
+  free(runtime_name);
+  return status;
+}
+#endif
+
 static dort_status_t* dort_open_windows_process(
     const dort_runtime_config_t* config,
     dort_loaded_library_t* out_library) {
+#if defined(FONIX_PROCESS_RUNTIME_BASENAME)
+  return dort_open_windows_exact_process(config, out_library);
+#else
   static const char default_name[] = "onnxruntime.dll";
   size_t count = config->preferred_library_name_count;
   size_t index = 0u;
@@ -463,6 +756,7 @@ static dort_status_t* dort_open_windows_process(
       "runtime_open",
       "No process-owned ONNX Runtime could be resolved",
       last_error);
+#endif
 }
 
 dort_status_t* dort_loader_open(

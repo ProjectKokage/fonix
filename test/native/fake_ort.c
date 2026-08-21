@@ -10,6 +10,50 @@
 #error "FONIX_FAKE_ORT_BEHAVIOR must be 1 (good), 2 (unsupported API), 3 (bad discovery), or 4 (partial discovery error)"
 #endif
 
+#ifndef FONIX_FAKE_ORT_BUILD_INFO_MODE
+#define FONIX_FAKE_ORT_BUILD_INFO_MODE 0
+#endif
+#if FONIX_FAKE_ORT_BUILD_INFO_MODE < 0 || FONIX_FAKE_ORT_BUILD_INFO_MODE > 6
+#error "FONIX_FAKE_ORT_BUILD_INFO_MODE must be between 0 and 6"
+#endif
+
+#if FONIX_FAKE_ORT_BEHAVIOR != 2
+static const char* ORT_API_CALL fake_get_build_info(void) NO_EXCEPTION {
+#if FONIX_FAKE_ORT_BUILD_INFO_MODE == 0
+  return "fonix-test-build-info-v1";
+#elif FONIX_FAKE_ORT_BUILD_INFO_MODE == 1
+  return "fonix-test-build-info-v0";
+#elif FONIX_FAKE_ORT_BUILD_INFO_MODE == 2
+  return NULL;
+#elif FONIX_FAKE_ORT_BUILD_INFO_MODE == 3
+  return
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "a";
+#elif FONIX_FAKE_ORT_BUILD_INFO_MODE == 4
+  return "fonix-test-build-info-v";
+#elif FONIX_FAKE_ORT_BUILD_INFO_MODE == 5
+  return "fonix-test-build-info-v1-extra";
+#else
+  return "\xe5\xa3\xb0";
+#endif
+}
+#endif
+
 #if FONIX_FAKE_ORT_BEHAVIOR == 1 || FONIX_FAKE_ORT_BEHAVIOR == 3 || \
     FONIX_FAKE_ORT_BEHAVIOR == 4
 #define FONIX_FAKE_API fake_good_api
@@ -269,6 +313,7 @@ static const OrtApi FONIX_FAKE_API = {
     .ReleaseValue = fake_release_value,
     .GetAvailableProviders = fake_get_available_providers,
     .ReleaseAvailableProviders = fake_release_available_providers,
+    .GetBuildInfoString = fake_get_build_info,
 };
 #else
 #define FONIX_FAKE_API_BASE fake_unsupported_api_base

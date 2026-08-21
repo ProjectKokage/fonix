@@ -126,6 +126,40 @@ Omit a global `runtime_mode` when targets need different defaults: linked on
 iOS, external on ordinary desktop targets, and process-only on sherpa-owned
 Android.
 
+An application that is the sole owner of a desktop process runtime may bind a
+closed, target-specific basename into the external shim:
+
+```yaml
+hooks:
+  user_defines:
+    fonix:
+      process_runtime_basenames:
+        macos: libonnxruntime.1.27.0.dylib
+        linux: libonnxruntime.so
+        windows: onnxruntime.dll
+      # Add only after the owning ORT fork freezes the complete exact string:
+      # process_runtime_build_info:
+      #   macos: <exact OrtApi GetBuildInfoString value>
+```
+
+Fonix uses only the entry for the active desktop target. The basename becomes
+part of the native build identity, and the process loader accepts only the
+exact regular file adjacent to the application-owned shim. It canonicalizes
+the path, verifies containment and loaded-image identity, and reuses an
+already-visible runtime only when it is that same image. Omit the map to retain
+the ordinary Fonix loader contract. Android keeps its fixed sherpa-owned
+`libonnxruntime.so` contract and does not accept an entry in this map.
+
+When supplied, `process_runtime_build_info` must contain the complete 1–1024
+byte closed printable-ASCII `OrtApi::GetBuildInfoString()` value for the same
+target. Fonix generates a private header, binds the marker's SHA-256 into the
+shim build ID, and requires a byte-for-byte match immediately after API
+negotiation and before environment creation. Basename and runtime marker checks
+are defense in depth, not independent byte provenance: release authority still
+comes from the consuming application's signed and sealed package, exact
+contained path/install ID, and package-bound hashes. An unsigned Simulator or
+local loader run is not release evidence.
+
 ## Execution-provider evidence
 
 Provider configuration is ordered. CPU, when explicit, must be last. Use
