@@ -164,7 +164,6 @@ faa6dd5258aa90da985b4077c3e68e7a6557aa80d04f8b197642fd8533ab7947  ./example/test
 76c6e2cfd208262de0d4cf4377d8d4f3acc01aa9649164ac5403a4cba7a5c7bf  ./example/test/reference_smoke_test.dart
 b84428a6eb0bff5afe46092d4e0d7f6bea68eb61edb7d335e806f23c8024f884  ./example/test/widget_test.dart
 1e53809e173625fa7ab5859cdb0635461ac556f70a8b8c75fe7740ba924fa500  ./ffigen.native_assets.yaml
-ab5319c19a88826347e8782e3b1ceb94bfe5b176289b51ee5937d08c2af00e0f  ./ffigen.yaml
 9556c6c6a08ebd7523b9e209640c336a5aea105df3e4fdb15a89e63f8fa44aaa  ./hook/build.dart
 1e26f321da26dbeaf83f38e93eea403d012f20651a06ed8caaa7c53a3f382b7c  ./hook/src/build_config.dart
 6b068281d0ed227afcac028f663ea5801355808f541e312442cc0798fac7a56e  ./hook/src/native_artifact_auditor.dart
@@ -175,7 +174,6 @@ c1b6bf1c47edebcc0cb9396b89fbb02074fcde92271c7df7c1d0a97ba562047e  ./lib/src/comp
 04c9d7c3d2c7d1d0a910bcbf39795b5513df122854292a0d8cb76f53f58c97bb  ./lib/src/diagnostics.dart
 da601c5069fd3c24d03dca57879bdc3ab207006ffa2b0cda94d1564018bbe6ba  ./lib/src/disposable.dart
 eb4fd19aaf12adea71e643ab3d25f1c975c0b467e7548f3ae0f6f7996d639281  ./lib/src/exceptions.dart
-5b4d6aa744ac24bed47db079133a7f99705e41325ba5096209c59dea869d6859  ./lib/src/ffi/generated_bindings.dart
 8981f746af83e7cd74733f25ee1935e06f909fd26c457fd53ca4532b4f7706e3  ./lib/src/ffi/generated_native_asset_bindings.dart
 3e4f31591cac021456c185a7a3240b418ea5ca1034024abab1fb05687705499a  ./lib/src/ffi/native_api.dart
 0d1dffef1390bc70431507d4e15c52c9caaac2c08e0a9a2ed66b8092ccf5c5fc  ./lib/src/isolate_session.dart
@@ -205,7 +203,7 @@ bc03ffacad8c2fcdba868b80b3b5cd3e64675fb93ca158263bd2089c42b0e189  ./lib/src/vers
 ea0f101c6c901287ef498a3f4b04c0fb9d5e3abd20c8fa796534b8f7e141658b  ./native/versions.lock.yaml
 765d0021b439142ca8f9167a0b45ecba2980cbc37c089dbf91990458584fb43d  ./pubspec.lock
 a63fdb99fa0b093e1469aa4283263827984b96c1b65db94dca2c31937cae91fe  ./pubspec.yaml
-02985575cc126370feb2a736ee0fca334e741d1d11da9437d4fa86aef9abab6c  ./release/native-c-abi-v1.json
+bab5b786038ceb2eecebd775cf8d9a6d2fd3e066828445742bd53ee5e3e1cdf7  ./release/native-c-abi-v1.json
 3aad3a9682ade05397b553697f55d4d83336aab2e822e2c182be0f620ebea5d1  ./release/public-dart-api-v1.json
 cb69eaeac22e92231b2a9437db487af3460cc6b11c4b82599f788f9cc9dac156  ./release/scoped-pre-1.0-v1.json
 17a4c366d21585315ae92f564fa7bcd7e7fbb524f9f1d681d675fdace5a9db1a  ./src/CMakeLists.txt
@@ -431,7 +429,7 @@ ee18ff52c86de7a8b5b0d7df3750396e35deef742337dfc4b07b627931d52a17  ./tool/ci/vali
 214e5d4117b4ffe9b27487190a530cc5a471eedbf61bb429b40aa1dcdcb5d4df  ./tool/ci/validate_scoped_release_approval.py
 604ed0f5cf363bdc516d6f008c5bfa196b34d0024fd0eaba802f1dc90ad7d411  ./tool/ci/validate_scoped_release_scope.py
 3ef7aa8ca585b9a260f6e4e01cb8fe242fc02317fd83acdc5524782208de4751  ./tool/ci/validate_source_release_archive.py
-943a3d2d1b4212ad1e7645b0b42cadad25038e1c68ae8e6220ab34f1e5d013a6  ./tool/ci/verify_bindings.py
+9fd91950fe435ce16f5d21ca76cf23cb61f4c410856d7203b43f0d16cd270d3b  ./tool/ci/verify_bindings.py
 c80eb575d57828b165dde634f1b357e883eb94230b98e7b317cbd67eaf2a5799  ./tool/ci/verify_native_c_abi_baseline.py
 366780337b8611cb3a2b11cdd488425e44aafae4f341e4d595668d96dc1d6829  ./tool/ci/verify_public_dart_api.dart
 4e37396c2b0403e2be2cd93de19f4682339441f2db5b1be98e4fd51f97055126  ./tool/ci/windows/CMakeLists.txt

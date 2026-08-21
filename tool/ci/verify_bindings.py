@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate both ffigen outputs outside the checkout and compare bytes."""
+"""Regenerate the ffigen output outside the checkout and compare bytes."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ MAX_PUBSPEC_BYTES = 1024 * 1024
 MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
 FFIGEN_TIMEOUT_SECONDS = 15 * 60
 FORMAT_TIMEOUT_SECONDS = 5 * 60
-DEFAULT_CONFIGS = ("ffigen.yaml", "ffigen.native_assets.yaml")
+DEFAULT_CONFIGS = ("ffigen.native_assets.yaml",)
 
 
 class BindingVerificationError(RuntimeError):
@@ -338,7 +338,7 @@ def verify_bindings(
 
     if mismatches:
         raise BindingVerificationError(
-            "FFI bindings are stale; regenerate both checked-in outputs.\n"
+            "FFI bindings are stale; regenerate the checked-in output.\n"
             + "\n".join(mismatches)
         )
 
@@ -366,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     except (BindingVerificationError, OSError) as error:
         print(f"binding verification failed: {error}", file=sys.stderr)
         return 1
-    print("Both ffigen outputs reproduce exactly from src/dort.h.")
+    print("The ffigen output reproduces exactly from src/dort.h.")
     return 0
 
 
