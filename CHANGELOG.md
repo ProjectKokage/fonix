@@ -1,5 +1,10 @@
 ## 0.1.0-dev.1
 
+- Made the lock-selected macOS arm64 runtime default to bundled so a
+  multi-platform application can use linked iOS, bundled macOS, external
+  Linux/Windows, and owner-derived Android policy without a conflicting global
+  `runtime_mode`; macOS still requires an exact offline artifact source and
+  declared application floor.
 - Added version 3 of the GNU General Public License as Fonix's project-level
   license. Signing, publication authority, and target-specific release gates
   remain separate requirements.

@@ -24,20 +24,18 @@ void main() {
       Platform.environment['FONIX_ORT_ARTIFACT_CACHE'];
 
   group('build configuration', () {
-    test('defaults to the external non-linking runtime profile', () {
+    test('defaults macOS arm64 to the bundled runtime profile', () {
       final options = resolveFonixBuildOptions(
         targetOS: OS.macOS,
         targetArchitecture: Architecture.arm64,
+        applicationMinimumOs: '14.0',
       );
 
-      expect(options.runtimeMode, fonixExternalRuntimeMode);
+      expect(options.runtimeMode, fonixBundledRuntimeMode);
       expect(options.linksOnnxRuntime, isFalse);
       expect(
         options.runtimeSources,
-        equals(<FonixRuntimeSource>{
-          FonixRuntimeSource.process,
-          FonixRuntimeSource.file,
-        }),
+        equals(<FonixRuntimeSource>{FonixRuntimeSource.bundled}),
       );
       expect(fonixRequiredOrtApiVersion, 27);
       expect(fonixShimAssetId, 'package:fonix/fonix_shim');
@@ -533,6 +531,7 @@ void main() {
         targetArchitecture: Architecture.arm64,
         androidRuntimeOwner: false,
         applicationMinimumOs: 'not-a-version',
+        runtimeMode: fonixExternalRuntimeMode,
       );
       expect(macosOptions.androidRuntimeOwner, isNull);
       expect(macosOptions.applicationMinimumOs, isNull);
@@ -967,8 +966,17 @@ void main() {
   });
 
   test('build hook emits the bundled shim asset and declares inputs', () async {
+    final userDefines = PackageUserDefines(
+      workspacePubspec: PackageUserDefinesSource(
+        defines: const <String, Object?>{
+          fonixRuntimeModeUserDefine: fonixExternalRuntimeMode,
+        },
+        basePath: Directory.current.uri,
+      ),
+    );
     await testCodeBuildHook(
       mainMethod: build_hook.main,
+      userDefines: userDefines,
       check: (input, output) {
         final asset = output.assets.code.single;
         expect(asset.id, fonixShimAssetId);
@@ -992,6 +1000,7 @@ void main() {
       final userDefines = PackageUserDefines(
         workspacePubspec: PackageUserDefinesSource(
           defines: const <String, Object?>{
+            fonixRuntimeModeUserDefine: fonixExternalRuntimeMode,
             fonixProcessRuntimeBasenamesUserDefine: <String, Object?>{
               'macos': 'libonnxruntime.1.27.0.dylib',
             },

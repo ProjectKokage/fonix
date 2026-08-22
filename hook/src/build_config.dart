@@ -157,11 +157,23 @@ FonixBuildOptions resolveFonixBuildOptions({
     targetOS: targetOS,
     value: androidRuntimeOwner,
   );
+  final processRuntimeTarget = _processRuntimeTargetKey(targetOS);
+  final configuredProcessRuntimeForTarget =
+      processRuntimeBasenames != null &&
+      (processRuntimeBasenames is! Map ||
+          (processRuntimeTarget != null &&
+              processRuntimeBasenames.containsKey(processRuntimeTarget)));
   final defaultMode = switch (normalizedAndroidRuntimeOwner) {
     FonixAndroidRuntimeOwner.sherpa => fonixExternalRuntimeMode,
     FonixAndroidRuntimeOwner.application => fonixBundledRuntimeMode,
     null =>
-      targetOS == OS.iOS ? fonixLinkedRuntimeMode : fonixExternalRuntimeMode,
+      targetOS == OS.iOS
+          ? fonixLinkedRuntimeMode
+          : targetOS == OS.macOS &&
+                targetArchitecture == Architecture.arm64 &&
+                !configuredProcessRuntimeForTarget
+          ? fonixBundledRuntimeMode
+          : fonixExternalRuntimeMode,
   };
   final normalizedMode = (runtimeMode as String? ?? defaultMode)
       .trim()
@@ -212,17 +224,17 @@ FonixBuildOptions resolveFonixBuildOptions({
     basenames: processRuntimeBasenames,
     value: processRuntimeBuildInfo,
   );
-  final targetKey = _processRuntimeTargetKey(targetOS);
-  if (targetKey != null && normalizedProcessRuntimeBasename != null) {
+  if (processRuntimeTarget != null &&
+      normalizedProcessRuntimeBasename != null) {
     final buildId = fonixProcessRuntimeBuildId(
-      targetKey,
+      processRuntimeTarget,
       normalizedProcessRuntimeBasename,
       expectedBuildInfo: normalizedProcessRuntimeBuildInfo,
     );
     if (buildId.length > 128) {
       throw BuildError(
         message:
-            'The exact $targetKey process runtime identity makes the native '
+            'The exact $processRuntimeTarget process runtime identity makes the native '
             'build identity exceed its 128-byte limit.',
       );
     }

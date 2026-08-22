@@ -20,6 +20,13 @@ dev_dependencies:
   lints: ^6.0.0
   test: ^1.25.6
 
+# Keep the package's own portable source tests shim-only. Applications receive
+# the target defaults from the build hook and declare their own artifact input.
+hooks:
+  user_defines:
+    fonix:
+      runtime_mode: external
+
 flutter:
   licenses:
     - third_party/onnxruntime/LICENSE

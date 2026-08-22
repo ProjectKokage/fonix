@@ -123,8 +123,11 @@ hooks:
 ```
 
 Omit a global `runtime_mode` when targets need different defaults: linked on
-iOS, external on ordinary desktop targets, and process-only on sherpa-owned
-Android.
+iOS, bundled on macOS arm64, external on Linux and Windows, and process-only
+on sherpa-owned Android. The bundled macOS default still requires the exact
+offline artifact cache or mirror and an explicit application minimum OS. A
+matching `process_runtime_basenames.macos` entry selects the external macOS
+profile for an application that deliberately owns that runtime instead.
 
 An application that is the sole owner of a desktop process runtime may bind a
 closed, target-specific basename into the external shim:

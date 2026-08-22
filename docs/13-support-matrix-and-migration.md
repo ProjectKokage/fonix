@@ -230,9 +230,10 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
 2. Keep the committed dependency graph and exact artifact cache; do not run a
    broad dependency or ONNX Runtime upgrade as migration setup.
 3. Select the runtime source permitted by the rebuilt schema-3 manifest. iOS
-   arm64 defaults to linked; non-iOS desktop external builds accept process or
-   trusted file sources; bundled builds require `runtime_mode: bundled` plus an
-   explicit cache/mirror. On Android, `android_runtime_owner` derives the only
+   arm64 defaults to linked, macOS arm64 defaults to bundled, and Linux and
+   Windows default to external builds that accept process or trusted file
+   sources. Bundled builds require an explicit cache/mirror. On Android,
+   `android_runtime_owner` derives the only
    permitted mode, so remove any contradictory override. One shared pubspec may
    retain `android_runtime_owner` together with generic `artifact_cache`,
    `artifact_mirror`, and `application_minimum_os` fields: the owner is applied
