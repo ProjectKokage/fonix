@@ -10,7 +10,6 @@ bind and load the exact benchmark tuple without embedding large JSON arrays.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -66,7 +65,6 @@ WEIGHT_PATTERN_PARAMETERS = {
     "valueOffset": 2,
 }
 
-MAX_GENERATOR_BYTES = 1024 * 1024
 FLOAT32_EXACT_INTEGER_LIMIT = 1 << 24
 PACK_CHUNK_VALUES = 4096
 
@@ -303,74 +301,11 @@ def _model_bytes(weight_data: bytes) -> bytes:
     return model
 
 
-def _generator_identity() -> tuple[int, str]:
-    path = Path(os.path.abspath(__file__))
-    try:
-        path_before = path.lstat()
-    except OSError as error:
-        raise RuntimeError(f"could not inspect generator: {error}") from error
-    if (
-        not stat.S_ISREG(path_before.st_mode)
-        or path_before.st_size <= 0
-        or path_before.st_size > MAX_GENERATOR_BYTES
-    ):
-        raise RuntimeError("generator must be a bounded regular non-link file")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as error:
-        raise RuntimeError(f"could not open generator safely: {error}") from error
-    try:
-        before = os.fstat(descriptor)
-        if _stat_identity(before) != _stat_identity(path_before):
-            raise RuntimeError("generator changed before reading")
-        chunks: list[bytes] = []
-        consumed = 0
-        while consumed <= MAX_GENERATOR_BYTES:
-            chunk = os.read(
-                descriptor,
-                min(64 * 1024, MAX_GENERATOR_BYTES + 1 - consumed),
-            )
-            if not chunk:
-                break
-            chunks.append(chunk)
-            consumed += len(chunk)
-        after = os.fstat(descriptor)
-    finally:
-        os.close(descriptor)
-    try:
-        path_after = path.lstat()
-    except OSError as error:
-        raise RuntimeError(f"generator changed while reading: {error}") from error
-    if (
-        consumed != before.st_size
-        or consumed > MAX_GENERATOR_BYTES
-        or _stat_identity(before) != _stat_identity(after)
-        or _stat_identity(before) != _stat_identity(path_after)
-    ):
-        raise RuntimeError("generator changed while reading")
-    contents = b"".join(chunks)
-    return consumed, hashlib.sha256(contents).hexdigest()
-
-
-def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
-    return (
-        value.st_dev,
-        value.st_ino,
-        value.st_mode,
-        value.st_size,
-        value.st_mtime_ns,
-        value.st_ctime_ns,
-    )
-
-
 def _artifact(path: str, contents: bytes, encoding: str) -> dict[str, object]:
     return {
         "path": path,
         "encoding": encoding,
         "sizeBytes": len(contents),
-        "sha256": hashlib.sha256(contents).hexdigest(),
     }
 
 
@@ -380,18 +315,14 @@ def _metadata_bytes(
     output_data: bytes,
     weight_data: bytes,
 ) -> bytes:
-    generator_size, generator_sha256 = _generator_identity()
     multiplication_count = math.prod(INPUT_SHAPE) * WEIGHT_SHAPE[1]
     addition_count = OUTPUT_SHAPE[0] * OUTPUT_SHAPE[1] * (INPUT_SHAPE[1] - 1)
-    model_sha256 = hashlib.sha256(model).hexdigest()
     value = {
         "schemaVersion": 1,
-        "id": f"cpu-benchmark-matmul-sha256-{model_sha256}",
+        "id": "cpu-benchmark-matmul-v1",
         "generator": {
             "path": GENERATOR_ASSET_PATH,
             "version": GENERATOR_VERSION,
-            "sizeBytes": generator_size,
-            "sha256": generator_sha256,
             "dependencies": "python-standard-library-only",
         },
         "model": {
@@ -416,7 +347,6 @@ def _metadata_bytes(
             "shape": list(WEIGHT_SHAPE),
             "storage": "embedded-onnx-raw-data",
             "rawDataSizeBytes": len(weight_data),
-            "rawDataSha256": hashlib.sha256(weight_data).hexdigest(),
         },
         "matrixMultiplication": {
             "leftShape": list(INPUT_SHAPE),
@@ -470,10 +400,10 @@ def _metadata_bytes(
             ),
         },
         "claimBoundary": (
-            "Representative deterministic CPU timing workload for measurement "
-            "receipt generation only. Its dimensions are a calibration starting "
-            "point, not a latency, throughput, real-time, support, provider-"
-            "qualification, regression-threshold, portability, or release claim."
+            "Representative deterministic workload for local CPU timing only. "
+            "Its dimensions are a calibration starting point, not a latency, "
+            "throughput, real-time, support, provider-qualification, regression-"
+            "threshold, portability, or release claim."
         ),
     }
     return (json.dumps(value, ensure_ascii=True, indent=2) + "\n").encode("ascii")
@@ -588,10 +518,9 @@ def _check(*, root: Path = ROOT) -> int:
         for failure in failures:
             print(f"- {failure}", file=sys.stderr)
         return 1
-    model = outputs[0][1]
     print(
         "verified deterministic CPU benchmark MatMul fixture "
-        f"({len(model)} model bytes, sha256={hashlib.sha256(model).hexdigest()})"
+        f"({len(outputs[0][1])} model bytes)"
     )
     return 0
 

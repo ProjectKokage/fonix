@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
-import hashlib
 import importlib.util
 import io
 import json
@@ -10,7 +9,6 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
-from unittest import mock
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -60,14 +58,9 @@ class CpuBenchmarkFixtureGeneratorTest(unittest.TestCase):
         )
         self.assertEqual(
             set(metadata["generator"]),
-            {"path", "version", "sizeBytes", "sha256", "dependencies"},
+            {"path", "version", "dependencies"},
         )
-        self.assertEqual(
-            metadata["generator"]["sha256"], hashlib.sha256(GENERATOR.read_bytes()).hexdigest()
-        )
-        self.assertEqual(metadata["generator"]["sizeBytes"], GENERATOR.stat().st_size)
         self.assertEqual(metadata["generator"]["dependencies"], "python-standard-library-only")
-        self.assertEqual(metadata["model"]["sha256"], hashlib.sha256(model).hexdigest())
         self.assertEqual(metadata["model"]["sizeBytes"], len(model))
         self.assertEqual(metadata["model"]["onnxIrVersion"], 8)
         self.assertEqual(metadata["model"]["opset"], 17)
@@ -75,20 +68,12 @@ class CpuBenchmarkFixtureGeneratorTest(unittest.TestCase):
         self.assertEqual(metadata["input"]["name"], "input")
         self.assertEqual(metadata["input"]["shape"], [2048, 1024])
         self.assertEqual(metadata["input"]["data"]["sizeBytes"], len(input_data))
-        self.assertEqual(
-            metadata["input"]["data"]["sha256"],
-            hashlib.sha256(input_data).hexdigest(),
-        )
         self.assertEqual(metadata["initializer"]["name"], "weight")
         self.assertEqual(metadata["initializer"]["shape"], [1024, 1024])
         self.assertEqual(metadata["output"]["name"], "output")
         self.assertEqual(metadata["output"]["shape"], [2048, 1024])
         self.assertEqual(
             metadata["output"]["referenceData"]["sizeBytes"], len(output_data)
-        )
-        self.assertEqual(
-            metadata["output"]["referenceData"]["sha256"],
-            hashlib.sha256(output_data).hexdigest(),
         )
         self.assertEqual(
             metadata["matrixMultiplication"]["multiplyAccumulateCount"],
@@ -201,82 +186,6 @@ class CpuBenchmarkFixtureGeneratorTest(unittest.TestCase):
             with redirect_stderr(stderr):
                 self.assertEqual(GENERATOR_MODULE._check(root=root), 1)
             self.assertIn("not a regular non-link file", stderr.getvalue())
-
-    def test_generator_identity_rejects_a_symlinked_source_path(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "generator-source.py"
-            source.write_bytes(GENERATOR.read_bytes())
-            link = root / "generator-link.py"
-            try:
-                os.symlink(source.name, link)
-            except (NotImplementedError, OSError) as error:
-                self.skipTest(f"symlinks are unavailable: {error}")
-
-            with mock.patch.object(GENERATOR_MODULE, "__file__", str(link)):
-                with self.assertRaisesRegex(RuntimeError, "regular non-link"):
-                    GENERATOR_MODULE._generator_identity()
-
-    def test_generator_identity_rejects_same_size_path_replacement(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "generator.py"
-            original = GENERATOR.read_bytes()
-            source.write_bytes(original)
-            replacement = root / "replacement.py"
-            replacement.write_bytes(bytes((original[0] ^ 1,)) + original[1:])
-            original_read = os.read
-            replaced = False
-
-            def read_and_replace(descriptor: int, count: int) -> bytes:
-                nonlocal replaced
-                contents = original_read(descriptor, count)
-                if not replaced:
-                    replaced = True
-                    os.replace(replacement, source)
-                return contents
-
-            with (
-                mock.patch.object(GENERATOR_MODULE, "__file__", str(source)),
-                mock.patch.object(
-                    GENERATOR_MODULE.os,
-                    "read",
-                    side_effect=read_and_replace,
-                ),
-            ):
-                with self.assertRaisesRegex(RuntimeError, "changed while reading"):
-                    GENERATOR_MODULE._generator_identity()
-
-    def test_generator_identity_rejects_same_size_in_place_mutation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "generator.py"
-            original = GENERATOR.read_bytes()
-            source.write_bytes(original)
-            original_read = os.read
-            mutated = False
-
-            def read_and_mutate(descriptor: int, count: int) -> bytes:
-                nonlocal mutated
-                contents = original_read(descriptor, count)
-                if not mutated:
-                    mutated = True
-                    with source.open("r+b") as stream:
-                        stream.seek(len(original) - 1)
-                        stream.write(bytes((original[-1] ^ 1,)))
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                return contents
-
-            with (
-                mock.patch.object(GENERATOR_MODULE, "__file__", str(source)),
-                mock.patch.object(
-                    GENERATOR_MODULE.os,
-                    "read",
-                    side_effect=read_and_mutate,
-                ),
-            ):
-                with self.assertRaisesRegex(RuntimeError, "changed while reading"):
-                    GENERATOR_MODULE._generator_identity()
 
 
 if __name__ == "__main__":

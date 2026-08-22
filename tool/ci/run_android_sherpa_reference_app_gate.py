@@ -73,7 +73,6 @@ SHERPA_VERSION = "1.13.4"
 SNAPSHOT_DATE = "2026-08-07"
 
 TEMPLATE = Path("templates/android/sherpa_reference_app")
-MANIFEST = Path("MANIFEST.sha256")
 APK_RELATIVE = Path("build/app/outputs/flutter-apk/app-release.apk")
 AAB_RELATIVE = Path("build/app/outputs/bundle/release/app-release.aab")
 HOOK_BUILD_RELATIVE = Path(".dart_tool/hooks_runner/shared/fonix/build")
@@ -107,7 +106,6 @@ RUNTIME_FLUTTER_STANZA = (
     "    - assets/qualification/\n"
 )
 
-MAX_SOURCE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_TEMPLATE_ENTRIES = 100_000
 MAX_TEMPLATE_FILES = 10_000
 MAX_TEMPLATE_BYTES = 96 * 1024 * 1024
@@ -1476,41 +1474,41 @@ def _verify_flutter(
     return value
 
 
-def _verify_source_manifest(
+def _git_source_revision(
     repository: Path,
     runner: CommandRunner,
     environment: Mapping[str, str],
     *,
     phase: str,
-) -> FileIdentity:
-    manifest = repository / MANIFEST
-    identity = _file_identity(
-        manifest,
-        "source checksum manifest",
-        maximum=MAX_SOURCE_MANIFEST_BYTES,
-    )
-    _execute(
+) -> str:
+    output = _execute(
         runner,
         (
-            sys.executable,
-            "-B",
-            str(repository / "tool/ci/source_checksum_manifest.py"),
-            "check",
-            "--repository",
-            str(repository),
-            "--manifest",
-            str(manifest),
+            "git",
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=no",
         ),
-        operation=f"source checksum manifest {phase}",
+        operation=f"Git source state {phase}",
+        cwd=repository,
         environment=environment,
     )
-    _require_file_identity(
-        manifest,
-        identity,
-        f"source checksum manifest {phase}",
-        maximum=MAX_SOURCE_MANIFEST_BYTES,
-    )
-    return identity
+    lines = output.stdout.splitlines()
+    revisions = [
+        line.removeprefix("# branch.oid ")
+        for line in lines
+        if line.startswith("# branch.oid ")
+    ]
+    if (
+        len(revisions) != 1
+        or re.fullmatch(r"[0-9a-f]{40,64}", revisions[0]) is None
+        or any(line and not line.startswith("# ") for line in lines)
+    ):
+        raise AndroidSherpaReferenceAppGateError(
+            "Fonix tracked source must be one clean Git revision"
+        )
+    return revisions[0]
 
 
 def _fingerprint_escape_path(path: Path, label: str) -> str | None:
@@ -2544,7 +2542,7 @@ def _run_staged_gate(
     java_vendor: str,
     environment: Mapping[str, str],
     flutter_version: dict[str, object],
-    source_manifest_identity: FileIdentity,
+    source_revision: str,
     runner: CommandRunner,
     sherpa_model: tuple[Path, FileIdentity] | None,
 ) -> dict[str, object]:
@@ -2855,7 +2853,7 @@ def _run_staged_gate(
         ),
         "abi": ABI,
         "buildType": BUILD_TYPE,
-        "sourceManifestSha256": source_manifest_identity.sha256,
+        "sourceRevision": source_revision,
         "sourceCopy": {
             "fileCount": summary.file_count,
             "byteCount": summary.byte_count,
@@ -3052,7 +3050,7 @@ def run_gate(
     java_home, _java, java_vendor = _validate_java_home(java_home, runner)
     environment = _build_environment(java_home, android_sdk)
     flutter_version = _verify_flutter(flutter, runner, environment)
-    source_manifest_identity = _verify_source_manifest(
+    source_revision = _git_source_revision(
         repository,
         runner,
         environment,
@@ -3068,13 +3066,13 @@ def run_gate(
             java_vendor=java_vendor,
             environment=environment,
             flutter_version=flutter_version,
-            source_manifest_identity=source_manifest_identity,
+            source_revision=source_revision,
             runner=runner,
             sherpa_model=validated_sherpa_model,
         )
     finally:
         try:
-            final_manifest_identity = _verify_source_manifest(
+            final_source_revision = _git_source_revision(
                 repository,
                 runner,
                 environment,
@@ -3084,10 +3082,10 @@ def run_gate(
         except AndroidSherpaReferenceAppGateError as error:
             raise AndroidSherpaReferenceAppGateError(
                 "generated state or output escaped staging: "
-                "the Fonix source checkout no longer passes its exact manifest/state check"
+                "the Fonix source checkout is no longer clean"
             ) from error
         if (
-            final_manifest_identity != source_manifest_identity
+            final_source_revision != source_revision
             or final_escape_snapshot != escape_snapshot
         ):
             raise AndroidSherpaReferenceAppGateError(

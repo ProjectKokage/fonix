@@ -49,41 +49,15 @@ XNNPACK_METADATA_SHA256 = (
     "76eb202b02211f34ee64ca6a88a2a24d9f58f334136fa7f1b7fcfe2e763f30ab"
 )
 XNNPACK_METADATA_SIZE_BYTES = 1_298
-CPU_BENCHMARK_MODEL_SHA256 = (
-    "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0"
-)
-CPU_BENCHMARK_MODEL_SIZE_BYTES = 4_194_629
-CPU_BENCHMARK_INPUT_SHA256 = (
-    "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
-)
-CPU_BENCHMARK_INPUT_SIZE_BYTES = 8_388_608
-CPU_BENCHMARK_OUTPUT_SHA256 = (
-    "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
-)
-CPU_BENCHMARK_OUTPUT_SIZE_BYTES = 8_388_608
-CPU_BENCHMARK_METADATA_SHA256 = (
-    "7c089a5a6c6cd444eb802bb0066a2fae054e54a1b924cffac7c53b80bd9c7c8a"
-)
-CPU_BENCHMARK_METADATA_SIZE_BYTES = 3_481
 CPU_BENCHMARK_MAX_COMPRESSION_RATIO = 256
-CPU_BENCHMARK_ASSET_IDENTITIES: Mapping[str, tuple[int, str]] = {
-    "assets/models/cpu_benchmark_matmul.onnx": (
-        CPU_BENCHMARK_MODEL_SIZE_BYTES,
-        CPU_BENCHMARK_MODEL_SHA256,
-    ),
-    "assets/models/cpu_benchmark_matmul.input.f32le": (
-        CPU_BENCHMARK_INPUT_SIZE_BYTES,
-        CPU_BENCHMARK_INPUT_SHA256,
-    ),
-    "assets/models/cpu_benchmark_matmul.output.f32le": (
-        CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
-        CPU_BENCHMARK_OUTPUT_SHA256,
-    ),
-    "assets/models/cpu_benchmark_matmul.json": (
-        CPU_BENCHMARK_METADATA_SIZE_BYTES,
-        CPU_BENCHMARK_METADATA_SHA256,
-    ),
-}
+CPU_BENCHMARK_ASSETS = frozenset(
+    {
+        "assets/models/cpu_benchmark_matmul.onnx",
+        "assets/models/cpu_benchmark_matmul.input.f32le",
+        "assets/models/cpu_benchmark_matmul.output.f32le",
+        "assets/models/cpu_benchmark_matmul.json",
+    }
+)
 APPLICATION_ID = "dev.fonix.fonix_reference"
 MAIN_ACTIVITY = f"{APPLICATION_ID}.MainActivity"
 PRIVATE_RECEIVER_PERMISSION = (
@@ -726,7 +700,7 @@ def _audit_model_assets(
         kind, "assets/flutter_assets/assets/models"
     )
     expected_relative_paths = {
-        *CPU_BENCHMARK_ASSET_IDENTITIES,
+        *CPU_BENCHMARK_ASSETS,
         *(
             relative_path
             for contract in MODEL_ASSET_CONTRACTS
@@ -813,7 +787,7 @@ def _audit_model_assets(
         }
 
     benchmark_bytes: dict[str, bytes] = {}
-    for relative_path, (size_bytes, sha256) in CPU_BENCHMARK_ASSET_IDENTITIES.items():
+    for relative_path in CPU_BENCHMARK_ASSETS:
         member = _artifact_member(
             kind, f"assets/flutter_assets/{relative_path}"
         )
@@ -822,13 +796,9 @@ def _audit_model_assets(
             index,
             member,
             label=f"packaged CPU benchmark asset {relative_path}",
-            maximum=size_bytes,
+            maximum=MAX_ASSET_BYTES,
             maximum_compression_ratio=CPU_BENCHMARK_MAX_COMPRESSION_RATIO,
         )
-        if len(contents) != size_bytes or hashlib.sha256(contents).hexdigest() != sha256:
-            raise AndroidApplicationAuditError(
-                f"packaged CPU benchmark asset identity changed: {relative_path}"
-            )
         benchmark_bytes[relative_path] = contents
 
     metadata_path = "assets/models/cpu_benchmark_matmul.json"
@@ -836,7 +806,7 @@ def _audit_model_assets(
         benchmark_manifest = strict_json(
             benchmark_bytes[metadata_path],
             "packaged CPU benchmark metadata",
-            maximum=CPU_BENCHMARK_METADATA_SIZE_BYTES,
+            maximum=MAX_ASSET_BYTES,
         )
     except AndroidGateCommonError as error:
         raise _fail_common(error) from error
@@ -864,43 +834,42 @@ def _audit_model_assets(
         (
             model_identity,
             "assets/models/cpu_benchmark_matmul.onnx",
-            CPU_BENCHMARK_MODEL_SIZE_BYTES,
-            CPU_BENCHMARK_MODEL_SHA256,
         ),
         (
             input_identity,
             "assets/models/cpu_benchmark_matmul.input.f32le",
-            CPU_BENCHMARK_INPUT_SIZE_BYTES,
-            CPU_BENCHMARK_INPUT_SHA256,
         ),
         (
             output_identity,
             "assets/models/cpu_benchmark_matmul.output.f32le",
-            CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
-            CPU_BENCHMARK_OUTPUT_SHA256,
         ),
     )
-    for identity, path, size_bytes, sha256 in expected_bindings:
+    for identity, path in expected_bindings:
         if (
             identity.get("path") != path
-            or identity.get("sizeBytes") != size_bytes
-            or identity.get("sha256") != sha256
+            or identity.get("sizeBytes") != len(benchmark_bytes[path])
         ):
             raise AndroidApplicationAuditError(
                 "packaged CPU benchmark metadata is not bound to its assets"
             )
     report["assets/models/cpu_benchmark_matmul.onnx"] = {
-        "sizeBytes": CPU_BENCHMARK_MODEL_SIZE_BYTES,
-        "sha256": CPU_BENCHMARK_MODEL_SHA256,
+        "sizeBytes": len(
+            benchmark_bytes["assets/models/cpu_benchmark_matmul.onnx"]
+        ),
         "metadataPath": metadata_path,
-        "metadataSizeBytes": CPU_BENCHMARK_METADATA_SIZE_BYTES,
-        "metadataSha256": CPU_BENCHMARK_METADATA_SHA256,
+        "metadataSizeBytes": len(benchmark_bytes[metadata_path]),
         "inputPath": "assets/models/cpu_benchmark_matmul.input.f32le",
-        "inputSizeBytes": CPU_BENCHMARK_INPUT_SIZE_BYTES,
-        "inputSha256": CPU_BENCHMARK_INPUT_SHA256,
+        "inputSizeBytes": len(
+            benchmark_bytes[
+                "assets/models/cpu_benchmark_matmul.input.f32le"
+            ]
+        ),
         "referenceOutputPath": "assets/models/cpu_benchmark_matmul.output.f32le",
-        "referenceOutputSizeBytes": CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
-        "referenceOutputSha256": CPU_BENCHMARK_OUTPUT_SHA256,
+        "referenceOutputSizeBytes": len(
+            benchmark_bytes[
+                "assets/models/cpu_benchmark_matmul.output.f32le"
+            ]
+        ),
     }
     return report
 
@@ -1971,7 +1940,7 @@ def _audit_android_application_snapshot(
         "claimBoundary": (
             "This report proves only the inspected final package bytes. It does not "
             "prove installation, target execution, device page size, inference, "
-            "distribution signing, or release approval."
+            "distribution signing, or a release decision."
         ),
     }
     encoded = json.dumps(report, sort_keys=True, separators=(",", ":"))

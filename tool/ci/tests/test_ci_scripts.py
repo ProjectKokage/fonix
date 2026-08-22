@@ -195,15 +195,11 @@ class WorkflowContractTest(unittest.TestCase):
             run_native_tests.REQUIRED_TESTS["posix"],
         )
 
-    def test_reviewed_api_and_abi_baselines_use_the_minimum_sdk_job(self) -> None:
+    def test_reviewed_native_abi_baseline_uses_the_minimum_sdk_job(self) -> None:
         source = (REPOSITORY / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"
         )
         bindings_job = self._job(source, "bindings-regenerate")
-        dart_step = self._step(
-            bindings_job,
-            "Verify the reviewed public Dart API baseline",
-        )
         native_step = self._step(
             bindings_job,
             "Verify the reviewed native C ABI baseline",
@@ -211,18 +207,9 @@ class WorkflowContractTest(unittest.TestCase):
 
         self.assertEqual(bindings_job.count('sdk: "3.11.5"'), 1)
         self.assertIn(
-            "dart --packages=.dart_tool/package_config.json\n"
-            "          tool/ci/verify_public_dart_api.dart",
-            dart_step,
-        )
-        self.assertIn(
             "python -B tool/ci/verify_native_c_abi_baseline.py\n"
             "          --repository .",
             native_step,
-        )
-        self.assertEqual(
-            source.count("tool/ci/verify_public_dart_api.dart"),
-            1,
         )
         self.assertEqual(
             source.count("tool/ci/verify_native_c_abi_baseline.py"),

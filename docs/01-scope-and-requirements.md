@@ -135,7 +135,7 @@ No EP is enabled by default solely because it is present. The automatic policy m
 - Maintain a machine-readable lockfile containing ORT source/binary versions, URLs, hashes, build flags, deployment targets, and EP dependencies.
 - Provide separate artifacts/flavors rather than one binary with every heavy EP dependency.
 - Package provider shared libraries next to the matching ORT library.
-- Include notices, licenses, build manifests, and an SBOM for release artifacts.
+- Include notices, licenses, and build manifests for release artifacts.
 - Verify the final executable/application package, not only intermediate package contents.
 
 ## 1.7 Android/sherpa-onnx requirements
@@ -202,5 +202,5 @@ or cross-build checks pass.
 - Stable Dart API and shim ABI policy.
 - Required ONNX value types documented and tested.
 - Complete platform/flavor support matrix.
-- Reproducible releases, notices, SBOM, and upgrade process.
+- Reproducible releases, notices, and an upgrade process.
 - No unresolved high-severity ownership, packaging, or load-order defects.

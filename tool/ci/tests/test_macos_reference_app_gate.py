@@ -18,10 +18,6 @@ RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
     / "templates/ci/macos_cpu_assignment_receipt_v1.schema.json"
 )
-APPROVAL_SCHEMA = (
-    Path(__file__).resolve().parents[3]
-    / "templates/ci/scoped_release_approval.schema.json"
-)
 SPEC = importlib.util.spec_from_file_location("run_macos_reference_app_gate", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 run_macos_reference_app_gate = importlib.util.module_from_spec(SPEC)
@@ -371,15 +367,6 @@ class MacOsReferenceAppGateReceiptTest(unittest.TestCase):
                         run_macos_reference_app_gate._validate_reference_receipt(
                             mutated
                         )
-
-    def test_approval_schema_does_not_treat_a_reference_as_semantic_evidence(
-        self,
-    ) -> None:
-        schema = json.loads(APPROVAL_SCHEMA.read_text(encoding="utf-8"))
-        comment = schema["$defs"]["evidenceReference"]["$comment"]
-        self.assertIn("inventory identity", comment)
-        self.assertIn("does not semantically satisfy", comment)
-        self.assertIn("registers an exact semantic validator", comment)
 
     def test_rejects_duplicate_json_key(self) -> None:
         line = self._receipt_line()

@@ -171,8 +171,8 @@ void main() {
     expect(
       source,
       contains(
-        r"stdout.writeln('$cpuBenchmarkFragmentPrefix"
-        r"${fragment.toJsonString()}');",
+        r"stdout.writeln('$cpuBenchmarkResultPrefix"
+        r"${result.toJsonString()}');",
       ),
     );
     expect(

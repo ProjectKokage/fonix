@@ -372,9 +372,7 @@ class AndroidSherpaTargetGateTest(unittest.TestCase):
                 "mode": "runtime-provisioned",
                 "abi": GATE.ABI,
                 "buildType": GATE.BUILD_TYPE,
-                "sourceManifestSha256": _sha256(
-                    REPOSITORY / staged_gate.MANIFEST
-                ),
+                "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
                 "sourceCopy": {"fileCount": 25, "byteCount": 4096},
                 "stagedSource": {
                     "manifestSchema": 1,

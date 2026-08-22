@@ -31,15 +31,6 @@ if _COMMON_SPEC is None or _COMMON_SPEC.loader is None:  # pragma: no cover
 _COMMON = importlib.util.module_from_spec(_COMMON_SPEC)
 _COMMON_SPEC.loader.exec_module(_COMMON)
 
-_SOURCE_MANIFEST_PATH = Path(__file__).with_name("source_checksum_manifest.py")
-_SOURCE_MANIFEST_SPEC = importlib.util.spec_from_file_location(
-    "_fonix_ios_reference_gate_source_manifest", _SOURCE_MANIFEST_PATH
-)
-if _SOURCE_MANIFEST_SPEC is None or _SOURCE_MANIFEST_SPEC.loader is None:  # pragma: no cover
-    raise RuntimeError("could not load the source-manifest helpers")
-_SOURCE_MANIFEST = importlib.util.module_from_spec(_SOURCE_MANIFEST_SPEC)
-_SOURCE_MANIFEST_SPEC.loader.exec_module(_SOURCE_MANIFEST)
-
 _BOUNDED_PROCESS_PATH = Path(__file__).with_name("bounded_process.py")
 _BOUNDED_PROCESS_SPEC = importlib.util.spec_from_file_location(
     "_fonix_ios_reference_gate_bounded_process", _BOUNDED_PROCESS_PATH
@@ -831,7 +822,7 @@ def _require_ios_source_contract(work_directory: Path) -> None:
         benchmark_guard,
         "final int status = await _runPackagedCpuBenchmark();",
         "Future<int> _runPackagedCpuBenchmark() async {",
-        "stdout.writeln('$cpuBenchmarkFragmentPrefix${fragment.toJsonString()}');",
+        "stdout.writeln('$cpuBenchmarkResultPrefix${result.toJsonString()}');",
         "Fonix CPU benchmark failed (${error.runtimeType}).",
         "exit(status);",
     )
@@ -845,7 +836,7 @@ def _require_ios_source_contract(work_directory: Path) -> None:
         or main.count("desktopReferenceSmokeEnabled(") != 1
         or main.count("desktopCpuBenchmarkEnabled(") != 1
         or main.count("_runPackagedCpuBenchmark()") != 2
-        or main.count("cpuBenchmarkFragmentPrefix") != 1
+        or main.count("cpuBenchmarkResultPrefix") != 1
         or main.count("exit(status);") != 2
         or ".ignore()" in main
         or "requireResidentReferenceChallenge(Platform.environment)" in main
@@ -2344,96 +2335,52 @@ def _installed_transport_evidence(
     }
 
 
+def _git_source_revision(repository: Path) -> str:
+    status = _run(
+        ("git", "status", "--porcelain=v2", "--branch", "--untracked-files=no"),
+        cwd=repository,
+        timeout_seconds=SOURCE_CHECK_TIMEOUT_SECONDS,
+        maximum_output=MAX_COMMAND_OUTPUT_BYTES,
+        operation="Fonix Git source state",
+    ).stdout.splitlines()
+    revisions = [line.removeprefix("# branch.oid ") for line in status if line.startswith("# branch.oid ")]
+    if (
+        len(revisions) != 1
+        or re.fullmatch(r"[0-9a-f]{40,64}", revisions[0]) is None
+        or any(line and not line.startswith("# ") for line in status)
+    ):
+        raise IosReferenceAppGateError(
+            "Fonix tracked source must be one clean Git revision"
+        )
+    return revisions[0]
+
+
 def _snapshot_source_epoch(repository: Path, destination: Path) -> tuple[Path, dict[str, object]]:
     if destination.exists() or destination.is_symlink():
         raise IosReferenceAppGateError("source epoch destination must not exist")
-    manifest_path = repository / "MANIFEST.sha256"
-    try:
-        initial_manifest_sha = _SOURCE_MANIFEST.check_manifest(
-            repository, manifest_path
-        )
-        manifest_bytes = _SOURCE_MANIFEST._regular_file_bytes(
-            manifest_path,
-            label="checksum manifest",
-            maximum=_SOURCE_MANIFEST.MAX_MANIFEST_BYTES,
-        )
-        entries = _SOURCE_MANIFEST.parse_manifest(manifest_bytes)
-    except _SOURCE_MANIFEST.SourceManifestError as error:
-        raise IosReferenceAppGateError(
-            "live Fonix source manifest is not a closed stable epoch"
-        ) from error
-
+    revision = _git_source_revision(repository)
+    archive = destination.with_suffix(".tar")
+    if archive.exists() or archive.is_symlink():
+        raise IosReferenceAppGateError("source archive staging path already exists")
     destination.mkdir(mode=0o700)
-    total = 0
     try:
-        for relative, expected_sha256 in entries:
-            source = _regular_file(
-                repository.joinpath(*relative.split("/")),
-                f"manifest source {relative}",
-                maximum=_SOURCE_MANIFEST.MAX_FILE_BYTES,
-            )
-            before = source.lstat()
-            try:
-                contents = _SOURCE_MANIFEST._regular_file_bytes(
-                    source,
-                    label=f"manifest source {relative}",
-                    maximum=_SOURCE_MANIFEST.MAX_FILE_BYTES,
-                )
-            except _SOURCE_MANIFEST.SourceManifestError as error:
-                raise IosReferenceAppGateError(
-                    f"could not freeze manifest source: {relative}"
-                ) from error
-            after = source.lstat()
-            if (
-                (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_mode)
-                != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_mode)
-                or hashlib.sha256(contents).hexdigest() != expected_sha256
-            ):
-                raise IosReferenceAppGateError(
-                    f"manifest source changed while freezing: {relative}"
-                )
-            total += len(contents)
-            if total > _SOURCE_MANIFEST.MAX_TOTAL_BYTES:
-                raise IosReferenceAppGateError("source epoch exceeds its byte bound")
-            target = destination.joinpath(*relative.split("/"))
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            with target.open("xb") as stream:
-                stream.write(contents)
-                stream.flush()
-                os.fsync(stream.fileno())
-            target.chmod(0o700 if before.st_mode & 0o111 else 0o600)
-        manifest_target = destination / "MANIFEST.sha256"
-        with manifest_target.open("xb") as stream:
-            stream.write(manifest_bytes)
-            stream.flush()
-            os.fsync(stream.fileno())
-        manifest_target.chmod(0o600)
-        try:
-            snapshot_manifest_sha = _SOURCE_MANIFEST.check_manifest(
-                destination, manifest_target
-            )
-            final_live_manifest_sha = _SOURCE_MANIFEST.check_manifest(
-                repository, manifest_path
-            )
-        except _SOURCE_MANIFEST.SourceManifestError as error:
-            raise IosReferenceAppGateError(
-                "Fonix source epoch changed during its private snapshot"
-            ) from error
-        if (
-            snapshot_manifest_sha != initial_manifest_sha
-            or final_live_manifest_sha != initial_manifest_sha
-        ):
-            raise IosReferenceAppGateError(
-                "Fonix source manifest identity changed during snapshot"
-            )
-        identity = _tree_identity(destination, "frozen Fonix source epoch")
+        _run(
+            ("git", "archive", "--format=tar", f"--output={archive}", revision),
+            cwd=repository,
+            timeout_seconds=SOURCE_CHECK_TIMEOUT_SECONDS,
+            maximum_output=MAX_COMMAND_OUTPUT_BYTES,
+            operation="Fonix Git source export",
+        )
+        _regular_file(archive, "Fonix Git source archive", maximum=MAX_ARCHIVE_BYTES)
+        shutil.unpack_archive(archive, destination, "tar")
+        archive.unlink()
+        if not any(destination.iterdir()) or _git_source_revision(repository) != revision:
+            raise IosReferenceAppGateError("Fonix Git source changed during export")
     except BaseException:
+        archive.unlink(missing_ok=True)
         shutil.rmtree(destination, ignore_errors=True)
         raise
-    return destination, {
-        "manifestSha256": initial_manifest_sha,
-        **_tree_evidence(identity),
-    }
+    return destination, {"gitRevision": revision}
 
 
 def _canonical_simulator_device_root(identity: SimulatorIdentity) -> Path:

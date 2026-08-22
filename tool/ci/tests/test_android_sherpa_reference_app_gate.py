@@ -137,9 +137,7 @@ class GateFixture:
             "void main() {}\n",
             encoding="utf-8",
         )
-        (self.repository / gate.MANIFEST).write_bytes(b"source manifest\n")
         for relative in (
-            "tool/ci/source_checksum_manifest.py",
             "tool/ci/android_static_package_manifest.py",
             "templates/android/verify_native_libs.py",
         ):
@@ -337,10 +335,12 @@ class FakeRunner:
                 ),
                 "",
             )
-        if command[0] == sys.executable and command[2].endswith(
-            "source_checksum_manifest.py"
-        ):
-            return gate.CommandOutput("verified source checksum manifest\n", "")
+        if command[:2] == ("git", "status"):
+            return gate.CommandOutput(
+                "# branch.oid 0123456789abcdef0123456789abcdef01234567\n"
+                "# branch.head main\n",
+                "",
+            )
         if command[:4] == (
             str(fixture.flutter),
             "pub",
@@ -1338,7 +1338,7 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
             [
                 "Java identity check",
                 "Flutter version check",
-                "source checksum manifest preflight",
+                "Git source state preflight",
                 "offline sherpa reference Flutter pub get",
                 "sherpa reference Flutter analysis",
                 "sherpa reference Flutter tests",
@@ -1347,7 +1347,7 @@ class AndroidSherpaReferenceOrchestrationTest(unittest.TestCase):
                 "sherpa reference Release AAB build",
                 "raw sherpa/Fonix native-input audit",
                 "closed sherpa APK/AAB static audit",
-                "source checksum manifest postflight",
+                "Git source state postflight",
             ],
         )
         build_commands = [

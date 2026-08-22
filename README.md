@@ -7,13 +7,9 @@ per-run assignment separately.
 
 The package is currently `0.1.0-dev.1` and is intentionally marked
 `publish_to: none`. The source implementation is usable for development and is
-licensed under version 3 of the GNU General Public License, but the repository
-does not yet contain the signing and publication decisions needed for
-redistribution. The planned first publication is a scoped pre-1.0 release over
-only exact, explicitly advertised target/provider tuples that pass their own
-gates. It is not five-platform, unqualified `Release-ready`, or 1.0 approval;
-those claims still require the complete Tier-1 matrix, including the deferred
-Windows target-host lane.
+licensed under version 3 of the GNU General Public License. A future release
+still needs the normal target testing, licensing, notices, signing, and
+distribution work for the platforms it advertises.
 
 ## What is implemented
 
@@ -361,8 +357,7 @@ the final Linux x86_64 Flutter bundle, and no exact Ubuntu 18.04.6/glibc 2.27
 gate report exists yet. The Linux support row therefore remains unpromoted.
 
 The corrected sherpa-owned arm64-v8a checkpoint is bound to commit
-`8a9b6812c17237aeab7ec6d933f23932668c4b33` and source manifest SHA-256
-`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`.
+`8a9b6812c17237aeab7ec6d933f23932668c4b33`.
 The static gate produced a 45,070,602-byte API 35 release-minified APK with
 SHA-256
 `35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`
@@ -410,95 +405,11 @@ exact API 35 arm64-v8a release-minified APK matrix only, not API 24, a physical
 device, an AAB-derived installation, another ABI/build, performance, signing,
 distribution, or general Android support.
 
-The next target-evidence step is executing and calibrating the Linux x86_64
-gate on its exact target host. The committed
-[`scoped-pre-1.0-v1.json`](release/scoped-pre-1.0-v1.json) policy records the
-exact CPU-only candidate and unsupported rows for scoped release work. A
-`selected` row is a development target, not a support, readiness, signing, or
-publication claim; every selected composition still needs its owning evidence
-and an externally controlled bundle conforming to
-[`scoped_release_approval.schema.json`](templates/ci/scoped_release_approval.schema.json).
-The repository contains the fail-closed validator but no approved bundle or
-publication authority. Evidence handling is closed and default-deny: a
-referenced file that is present and passes its path, media-type, size, and
-SHA-256 checks is present, not satisfied. Only evidence with a
-repository-registered semantic contract can be satisfied; unregistered
-evidence remains unvalidated and blocks readiness. The first registered
-receipt contract is `macos-arm64-cpu-full-assignment-v1`, for the exact
-`macos-arm64-cpu-full-assignment` record. Together with the separately derived
-source-closure record, a fully populated synthetic bundle therefore reports 55
-present, 2 satisfied, 53 unvalidated, and 0 missing evidence slots, and cannot
-be ready. Exact receipt contents do not authenticate capture or target
-execution and cannot replace the separate clean-machine, final-package,
-signing, provider-qualification, support, or release gates.
+The next target-evidence step is executing and calibrating the Linux x86_64 gate on its exact target host. Android QNN and Windows target-host qualification remain deferred until their required SDK, hardware, or host environment exists. Existing portable, static, package, and loader-security tests remain useful for the narrower layers they exercise.
 
-Local development can proceed in parallel with
-lifecycle/performance stabilization for those exact macOS, iOS-device, Linux,
-and Android-without-QNN candidates. These are four selected OS target rows and
-five CPU compositions: macOS arm64 bundled, iOS arm64 linked device, Linux
-x86_64 bundled, and Android arm64 application-owned bundled plus sherpa-owned
-process mode. The reference app now has a bounded, measurement-only
-macOS/Linux CPU target protocol over a reproducible static-weight MatMul.
-Formal CPU benchmark V1 contains both the synchronous serial phase and an exact
-public `OrtSessionPool` phase with two protocol-v4 workers, concurrency two,
-bounded input reservations, concurrent stabilization, three two-lane
-full-isolate-roundtrip throughput windows, two strict CPU assignment receipts
-outside timing, seven pool RSS phases, zero accounting, and idempotent close.
-The protocol descriptor, target fragment, five-launch collection, offline
-validation record, and collector are all V1. The four active templates are the
-V1 descriptor plus the V1 target, collection, and validation schemas. Replay
-registers only those three schemas; their closed reference chain runs from
-validation to collection to target. The
-earlier schema-1 serial fragment was an unreleased prototype rather than a
-formal protocol. The subsequently misnumbered intermediate checkpoints remain
-only in Git history and create no active artifact or compatibility obligation.
+The desktop reference app also exposes an ordinary opt-in CPU benchmark. It performs three warm-up runs and ten measured runs, verifies each result, and prints the raw microsecond samples plus simple summary statistics. Record the device, OS, build mode, runtime, and power state when comparing results; the command does not create a formal receipt or release claim.
 
-The host collector records five challenge-bound fresh processes, preserves the
-raw target fragments and host observations, and derives the V1 collection; the
-separate V1 offline validator independently reopens that exact seven-file raw
-bundle and emits only an `offline-consistency-only` record. On macOS, the
-collector reads the public `NSProcessInfo` thermal enum and current dynamic Low
-Power boolean. Separately, bounded `pmset` output supplies the source-stable
-active power source and matching opaque configured profile. The power label
-pairs the closed source and API boolean with a domain-separated digest of that
-profile; no `pmset` key is interpreted or compared with the API boolean.
-API-reported Low Power `off` can also mean that the state was unknown or
-unsupported. `baseline-comparable` means that the recorded controls are
-complete and stable enough to match as input to a later review; it is not a
-thermal-health judgment or baseline approval. Apple `nominal` can also mean
-the thermal state was undetermined, stable elevated states still require
-review, and the configured `pmset` profile does not assert every dynamic power
-condition. Linux thermal observation remains unavailable. The first formal V1
-five-launch collection and independent replay used the macOS arm64 Release
-reference application and the source snapshot at commit
-`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. The seven-file raw bundle has
-SHA-256 `976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`;
-the derived collection and validation record have SHA-256 values
-`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`
-and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
-The environment was recorded as `baseline-comparable`, but that label only
-makes the raw measurements eligible for later review. The replay remains
-`measurement-only` and `offline-consistency-only`; the source-snapshot binding
-is not compiled provenance. Earlier prototype bundles must not be relabeled as
-V1 evidence. This exact macOS result creates no
-controlled baseline, reviewed threshold, provider qualification, support
-promotion, release approval, or non-macOS target evidence. Android
-QNN/aligned-runtime device qualification and all Windows target-host,
-provider, final-app/package, installer, and clean-machine work are deferred
-until their required SDK/hardware or Windows environment exists. Their
-existing portable, static, source, tamper, cross-build, and loader-security
-gates remain required.
-
-The reviewed declaration boundaries are committed separately as
-[`public-dart-api-v1.json`](release/public-dart-api-v1.json) and
-[`native-c-abi-v1.json`](release/native-c-abi-v1.json). CI reconstructs the
-Dart surface with Dart 3.11.5 and analyzer 14.1.0, and reconstructs the C
-surface from `src/dort.h`, every platform export inventory, and the native
-audit invocation contract. Any drift must be reviewed as an intentional
-compatibility change before either canonical record is regenerated. These
-records expose changes for review; they do not classify compatibility, prove
-target behavior, or supply the independently controlled API/ABI approval
-required for a scoped release.
+Git owns tracked source identity. Clean source copies use `git archive`; SHA-256 remains on downloaded or provisioned native artifacts and final packages where byte identity matters. The native C ABI review record remains at [`native-c-abi-v1.json`](release/native-c-abi-v1.json). Dart API changes are reviewed through normal code review, analysis, tests, and consuming applications while the package remains unpublished.
 
 ## Documentation
 

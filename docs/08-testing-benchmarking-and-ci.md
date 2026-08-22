@@ -486,7 +486,7 @@ Use warm-up criteria based on observed stabilization, not an arbitrary single ru
 
 ### Controls
 
-- fixed model hash and inputs;
+- fixed tracked model and inputs;
 - fixed provider options;
 - fixed thread counts and power mode;
 - same precision/batch/shape;
@@ -495,301 +495,11 @@ Use warm-up criteria based on observed stabilization, not an arbitrary single ru
 - isolate cold and warm cache cases;
 - randomize/interleave provider order where thermal drift matters.
 
-### Offline benchmark evidence receipts
+### Ordinary desktop benchmark
 
-Target harnesses produce receipts; the repository validator does not run a
-benchmark or synthesize hardware results. A version-1 receipt follows
-[`benchmark_receipt.schema.json`](../templates/ci/benchmark_receipt.schema.json)
-and names only path-free, bounded identity data. The validator requires the
-corresponding model, input fixture, reference output, schema-3 native build
-manifest, runtime library, final application artifact, and normalized
-assignment evidence as separate local files and rehashes all seven. The
-normalized assignment file follows
-[`provider_assignment_evidence.schema.json`](../templates/ci/provider_assignment_evidence.schema.json)
-and its provider counts must exactly match the receipt. For a lock-selected
-artifact, the target provider and reported name must also occur in the
-manifest's compiled provider inventory.
+The committed reference app accepts `FONIX_CPU_BENCHMARK=1` on macOS and Linux. It performs three warm-up runs and ten measured synchronous CPU inferences, includes output materialization in each sample, checks every output against the tracked float32 reference, and prints the raw microsecond samples with min, median, average, and max.
 
-```bash
-python3 -B tool/ci/validate_benchmark_receipt.py \
-  --receipt /path/to/target-benchmark.json \
-  --model /path/to/model.onnx \
-  --input-fixture /path/to/input.bin \
-  --reference-output /path/to/reference.bin \
-  --build-manifest /path/to/native-build.json \
-  --runtime-artifact /path/to/libonnxruntime \
-  --final-artifact /path/to/final-application-archive \
-  --assignment-evidence /path/to/provider-assignment.json \
-  --output /new/path/to/validated-benchmark.json
-```
-
-The input includes raw integer-microsecond samples for cold runtime load, session
-creation, first run, and warm runs. It also includes bounded throughput windows
-as completed-run counts plus integer microseconds. Declared p50, p95, p99, and
-maximum values use the nearest-rank definition: sort the samples and select
-rank `ceil(percentile * count / 100)`. Per-window and aggregate throughput use
-integer milli-runs per second, rounded half up. The validator recomputes every
-value and rejects any mismatch, non-finite number, count/size overflow, unknown
-field, or duplicate JSON key.
-
-The receipt always records concurrency, threads, model/input identity,
-runtime/build/artifact identity, normalized provider options, assignment and
-fallback, platform/architecture, non-reversible device identity, OS/build,
-driver/firmware, power mode, and thermal state. RSS is either measured with raw
-samples or explicitly marked unavailable through one closed reason. Binary
-sizes are mandatory and rechecked for the final artifact and runtime library.
-Cache size is measured for cold/hit runs or explicitly marked as disabled or
-inapplicable. Path- or secret-bearing provider option values use only a
-non-reversible SHA-256 representation; ordinary strings cannot contain paths,
-URIs, or common secret forms.
-
-The emitted aggregate follows
-[`benchmark_validation_record.schema.json`](../templates/ci/benchmark_validation_record.schema.json),
-contains no input paths, and is bound to the exact input receipt and validator
-hashes. Its `claimStatus` is always `measurement-only`. Validation does not
-establish a supported platform, provider qualification, a baseline, a
-regression threshold, or transferability to another model/build/device tuple.
-Those decisions require real target runs, review of stable baselines, and
-separately approved thresholds. Focused tamper tests are discovered
-automatically by the existing `tool/ci/tests/test_*.py` unittest command.
-
-### Public-API CPU benchmark V1, collector, and replay validator
-
-Implementation checkpoint (2026-08-09): the committed Flutter reference app
-contains a macOS/Linux-only, exact `FONIX_CPU_BENCHMARK=1` activation over a
-generated static-weight float32 MatMul. The model computes
-`[2048, 1024] @ [1024, 1024] -> [2048, 1024]`; its model, input, reference
-output, metadata, generator, shapes, operation count, and exact-byte output
-policy are independently reproducible and SHA-256 bound.
-
-Formal V1 contains both the serial and bounded-pool measurement contracts. The
-serial phase uses the synchronous public API with pool size and concurrency
-one, sequential execution, graph optimization `all`, explicit intra/inter-op
-thread counts of one, CPU arena and memory patterns enabled, and deterministic
-compute. It pre-creates one reusable input tensor, measures runtime load,
-session creation, input materialization, first inference, and native-to-Dart
-output copy separately, requires three consecutive batch-median changes within
-10 percent under a 100-run bound, records 100 warm samples, and completes three
-fixed one-second throughput windows. Every throughput cycle includes inference,
-output copy, exact-bit validation, and result disposal. Total-process
-current/peak RSS is sampled at eight phases; strict full CPU assignment uses a
-separate profiled session after serial timing.
-
-The pool phase measures the public `OrtSessionPool` surface with exactly two
-protocol-v4 workers and concurrency two. It first copies the 8 MiB fixture into
-an immutable isolate tensor. Each worker accepts at most one run, has a 32 MiB
-message bound and a 16 MiB aggregate input bound, and admits one exact
-8,388,629-byte reservation containing the fixture plus the closed request
-accounting. A first concurrent round starts both runs before awaiting either
-and must observe two outstanding runs and both reservations. Concurrent round
-duration then uses the same five-sample, three-transition, 10-percent
-stabilization rule under a 100-round bound.
-
-Each of three one-second pool windows runs two controller lanes through the
-full isolate round trip: controller input copy, worker decode and native tensor
-creation, inference, worker output copy and transfer, controller decode, Dart
-float32 output copy, and exact-bit validation. A lane stops admitting work
-after the monotonic target is reached; both lanes then drain, and the fragment
-records per-lane and total completions, duration, and observed concurrency.
-Seven ordered total-process RSS samples cover input preparation, pool startup,
-the first concurrent round, stabilization, throughput, pool close, and
-assignment evidence.
-
-The timed pool must have zero outstanding runs and input bytes before and after
-an idempotent double close. After all pool timing, a different strict two-worker
-pool admits two simultaneous profiled runs so each worker returns one full-CPU
-assignment receipt. It also drains, closes idempotently, and removes every
-private profile artifact. The target publishes only after both the serial
-phase and bounded pool phase settle. Its one path-free line begins
-with `FONIX_CPU_BENCHMARK_FRAGMENT=`, has exact purpose
-`measurement-only-target-fragment`, uses target-fragment V1, and repeats
-the challenge and positive target-process ID. A cold-runtime sample remains
-meaningful only when a host collector launches a fresh final-application
-process.
-
-`tool/ci/collect_cpu_benchmark.py` implements that host boundary for macOS
-arm64 and Linux x86_64. It launches exactly five fresh direct children, binds
-each fragment to a distinct challenge and the observed PID, records bounded
-device, OS, driver/firmware, power, thermal, total-process RSS, and process CPU
-observations, then publishes only after every process and identity check
-settles. Its exact output inventory is five raw `fragment-NN.json` files,
-`host-observations.json`, and `cpu-benchmark-collection.json`. The host sidecar
-is raw schema-1 measurement input; the derived serial-and-pool collection is V1
-and identifies the closed collector contract as
-`fonix-cpu-benchmark-collector-v1`.
-
-The pinned Flutter 3.47 macOS Release bootstrap has one closed stderr
-allowance, followed by one LF:
-
-```text
-[IMPORTANT:flutter/shell/platform/embedder/embedder_surface_metal_impeller.mm(53)] Using the Impeller rendering backend (MetalSDF).
-```
-
-The line is required exactly; a missing, changed, prefixed, or suffixed line
-fails collection. Linux requires empty stderr until exact target-host evidence
-adopts a different closed contract.
-
-The collector requires the executable, shim, runtime, resolver manifest, and
-every provider dependency to be exact regular-file members of one canonical
-measured application tree. It also binds the native lock, resolver and embedded
-build manifests, package/runtime/API identities, protocol/schema/tool bytes,
-and the closed repository source manifest. The tree is observed unchanged
-around the launches, and the target-reported runtime basename must select one
-unique packaged member. The shim reports its embedded build contract. These
-checks do not independently prove that the exact supplied shim, runtime, or
-provider bytes were loaded; that stronger claim requires the platform loader
-audit. The separately recorded source tree is not compiled-source provenance,
-packaged runtime equivalence to an upstream archive still requires the platform
-audit, and no distribution archive is claimed.
-
-Run collection and independent replay with the current command boundaries:
-
-```bash
-python3 -B tool/ci/collect_cpu_benchmark.py \
-  --repository /absolute/path/to/fonix \
-  --application-root /absolute/path/to/final-application-tree \
-  --executable /absolute/path/to/final-executable \
-  --shim-artifact /absolute/path/to/packaged-fonix-shim \
-  --runtime-artifact /absolute/path/to/packaged-onnxruntime \
-  --resolver-manifest /absolute/path/to/packaged-resolver-manifest \
-  --output-directory /absolute/new/cpu-benchmark-collection
-
-python3 -B tool/ci/validate_cpu_benchmark_collection.py \
-  --collection-directory /absolute/cpu-benchmark-collection \
-  --repository /absolute/path/to/fonix \
-  --application-root /absolute/path/to/final-application-tree \
-  --executable /absolute/path/to/final-executable \
-  --shim-artifact /absolute/path/to/packaged-fonix-shim \
-  --runtime-artifact /absolute/path/to/packaged-onnxruntime \
-  --resolver-manifest /absolute/path/to/packaged-resolver-manifest \
-  --output /absolute/new/cpu-benchmark-validation.json
-```
-
-Repeat `--provider-dependency` for each packaged provider dependency; an exact
-Linux Xvfb display may be supplied with `--display` to the collector. Both
-output locations must not exist. The offline validator reopens the exact
-seven-file inventory, validates the closed schemas and identities, and
-independently rederives the complete collection from the raw fragments and
-host sidecar. Its output is validation-record V1 with
-`claimStatus: measurement-only` and
-`validationScope: offline-consistency-only`. It is distinct from collection
-V1 and from the older generic receipt and
-`validate_benchmark_receipt.py` flow above.
-
-The active contract contains exactly four V1 templates: the protocol descriptor,
-target-fragment schema, collection schema, and validation schema. Protocol,
-fragment, collection, validation, and collector identities all use V1. Replay
-registers exactly three schemas and follows one closed reference chain:
-validation to collection to the self-contained target schema. Every file
-identity is pinned and rechecked around replay. There is no legacy schema
-registry, alias, or compatibility branch.
-
-Before this formal contract, the repository contained an unreleased schema-1
-serial fragment prototype. Two later checkpoints were mistakenly assigned
-higher version numbers while the package was still unpublished. Those bytes
-remain only in Git history and are not active protocols, accepted artifact
-formats, evidence, or compatibility obligations.
-
-After either command reserves its final output, it never unlinks or recursively
-cleans that output on a publication or durability failure. An incomplete
-collection directory or validation file is invalid evidence and intentionally
-blocks automatic retry; retain it for diagnosis or remove it explicitly before
-a deliberate retry. This fail-safe rule avoids deleting a concurrently
-substituted same-user path.
-
-The collection derives one closed comparability status. Only
-`baseline-comparable`, meaning complete and stable recorded power and thermal
-observations, is eligible to enter a later baseline or threshold review.
-`incomplete` records missing observations, while `non-comparable` records
-observed power-mode change or thermal drift. Both remain useful raw
-measurements, but neither is eligible for comparison. The complete raw bundle
-must be retained and independently reopened for every later evaluation; the
-V1 validation record is not a substitute for those samples.
-
-The macOS observer reads the public `NSProcessInfo` thermal-state enum and
-dynamic low-power-mode boolean. It also invokes the absolute `/usr/bin/pmset`
-through the bounded-process boundary, requires the same closed active source
-before and after `-g custom`, parses the bounded configured-profile set, and
-selects the nonempty profile matching that source. Profile headers are closed;
-after stripping required leading indentation, each bounded setting contains
-printable ASCII with horizontal tabs permitted. Trailing spaces or tabs, other
-control bytes, and exact duplicate settings are rejected. The observer sorts
-those exact remaining lines only to make the fingerprint order-independent. It
-does not interpret any `pmset` key, including `lowpowermode` or `powermode`.
-Evidence receives only a domain-separated SHA-256 profile digest together with
-the closed source and current API-reported Low Power label; raw settings, paths,
-and values remain withheld. The API boolean and configured-profile fingerprint
-are paired observations with no equality condition.
-
-The four API-reported Apple thermal values are `nominal`, `fair`, `serious`,
-and `critical`. Apple's `nominal` case can also mean the current thermal state
-could not be determined, so it is not a positive thermal-health attestation.
-Foundation likewise reports Low Power `off` when the state is unknown or
-unsupported, so that label is API-reported rather than a positive attestation
-of support or a disabled state. A stable elevated thermal value may be
-matchable across the five launches but still requires explicit review.
-`baseline-comparable` means only that all ten surrounding observations were
-available and stable enough to serve as matchable input to a later baseline
-or threshold review. It does not approve a baseline. Missing APIs or
-malformed, ambiguous, or source-drifting `pmset` output remain
-`incomplete`; observed changes remain `non-comparable`. Linux continues to
-expose its bounded CPU-governor label but reports thermal state as unavailable.
-
-Focused formal-V1 Python coverage passes 104/104 cases: 31 derivation/core, 41
-collector, and 32 independent replay-validator tests. These cases cover the
-three-schema reference graph, rejection of non-V1 identities, raw preservation,
-process-lifetime peak RSS, two-worker assignment parity, authentic second
-admission, occupancy-drain settlement, environment derivation, and hostile
-publication/replay inputs. The complete Python suite passes 829/829, the
-current Flutter SDK root suite passes 226 tests with 54 explicit
-environment-gated skips, and a clean external-copy reference app passes
-analysis and 90/90 tests, including all 18 formal-V1 benchmark cases. The exact
-ORT 1.27.1 two-worker integration passes 1/1.
-
-Formal target checkpoint (2026-08-09): the collection used the macOS arm64
-Release reference application and the source snapshot at commit
-`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`, whose 49,397-byte source manifest
-has SHA-256
-`afe8536f7ad019ceaf9cd362a17ae68d84ef944411239cdc9d6ca165083b4eb5`.
-The collector completed five fresh challenge/PID-bound launches and bound one
-66,704,118-byte canonical application tree with SHA-256
-`efe4719d8fa2f3a2fe1f59edb0df146519cf7968635ac30ec129f33da886ae5f`.
-It emitted a 182,071-byte collection with SHA-256
-`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`.
-The complete seven-file, 238,837-byte raw bundle has SHA-256
-`976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`.
-Independent replay validated that bundle and emitted a 9,763-byte record with
-SHA-256 `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
-The raw bundle and validation record currently exist only at
-`/private/tmp/fonix-cpu-v1-collection-20260809-a` and
-`/private/tmp/fonix-cpu-v1-validation-20260809-a.json`. `/private/tmp` is not
-durable evidence storage. No future retention or replay-availability claim may
-rely on these local files until an approved durable external store receives the
-exact bytes and their hashes are reverified.
-
-The exact macOS 26.5.2 arm64, bundled ORT 1.27.1 CPU tuple recorded serial warm
-inference p50/p95/p99 of 2,269/2,318/2,410 microseconds across 500 samples.
-Its 15 serial windows completed 3,131 runs at an aggregate 208.239 runs/s;
-window p50/p95/p99 were 208.039/209.488/209.488 runs/s. The two-worker
-full-isolate-roundtrip phase completed 2,082 runs across 15 windows at an
-aggregate 137.573 runs/s; window p50/p95/p99 were
-139.502/143.273/143.273 runs/s. Serial and pool peak total-process RSS maxima
-were 261,062,656 and 490,176,512 bytes. Both strict pool assignment receipts
-and the serial assignment receipt reported full CPU assignment with no
-fallback; zero-accounting and idempotent-close checks passed.
-
-The host observations were stable `nominal` and AC-power Low Power `off`, so
-the collection reports `baseline-comparable`. That status only makes these raw
-measurements eligible for a later baseline review. Apple can report `nominal`
-or Low Power `off` when state is undetermined or unsupported. The fragments
-and host observations are not independently authenticated, the supplied native
-members do not prove their loaded bytes, the source manifest is not compiled
-provenance, and no distribution archive is claimed. The replay remains
-`measurement-only` and `offline-consistency-only`. Earlier prototype bundles
-remain non-V1 historical evidence. This exact result establishes no baseline,
-threshold, performance guarantee, provider qualification, platform-support
-promotion, release approval, Linux result, distribution artifact, or
-cross-target evidence.
+This is a convenient local measurement, not a receipt protocol. Record the exact device, OS, runtime artifact, build mode, thread settings, and power or thermal state alongside results that will be compared. Provider qualification still needs its normal assignment, parity, fallback, and target-device evidence.
 
 ## 8.12 CI matrix
 
@@ -801,11 +511,10 @@ The checked-in pull-request/push workflow currently runs:
   SDKs; these pure-Dart jobs resolve only the root package, while the separate
   platform application gates resolve `example/` with their selected Flutter
   toolchain;
-- deterministic reconstruction of the reviewed public Dart API and native C
-  ABI records on the minimum SDK, followed by isolated binding regeneration
-  and an exact diff;
-- Python CI-script and standalone verifier tests, the C source-quality gate,
-  release-evidence checks, and the closed source checksum;
+- reconstruction of the reviewed native C ABI record on the minimum SDK,
+  followed by isolated binding regeneration and an exact diff;
+- Python CI-script and standalone verifier tests plus the C source-quality
+  gate;
 - deterministic Phase-3 fixture-byte checks on Linux, macOS, and Windows;
 - warning-as-error native CTests on Linux x64 and macOS arm64 with the
   documented Address/UndefinedBehavior sanitizers, a separate Linux x64 TSan
@@ -995,8 +704,8 @@ The planned scoped pre-1.0 release requires:
 - the exact sherpa compatibility matrix for each advertised Android
   composition;
 - final artifact inspection for every advertised package type;
-- SBOM/notices/checksums/signing and the independently owned licensing and
-  security approvals;
+- licenses, notices, release-artifact checksums, signing, and the normal
+  security review for the chosen distribution channel;
 - clean-machine install/run tests for every advertised target; and
 - a reproducibility record.
 
@@ -1007,10 +716,9 @@ mandatory. An unqualified `Release-ready` or 1.0 claim additionally requires
 all Tier-1 packages and sample apps, including the deferred Windows lane, and
 every other five-platform release gate.
 
-The API/ABI baseline checks are shared portable regressions, so both remain
-mandatory even though Windows execution and Android QNN qualification are
-deferred. They expose declaration drift for review but do not satisfy the
-detached API/ABI approval or any target-execution record.
+The native ABI baseline check is a shared portable regression even though
+Windows execution and Android QNN qualification are deferred. Dart API changes
+are reviewed through analysis, tests, the code diff, and the reference app.
 
 ## 8.13 Suggested CI job names
 
@@ -1041,7 +749,6 @@ provider-nv-tensorrt-rtx-plugin
 provider-vitisai
 provider-qnn
 artifact-audit
-release-sbom
 ```
 
 Jobs should use descriptive skip/unavailable states rather than silently passing without hardware.

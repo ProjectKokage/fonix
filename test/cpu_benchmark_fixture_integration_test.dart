@@ -5,9 +5,6 @@ import 'package:fonix/fonix.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-const String _modelSha256 =
-    '19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0';
-
 void main() {
   final String? runtimePath = Platform.environment['FONIX_TEST_REAL_ORT_PATH'];
 
@@ -54,7 +51,7 @@ void main() {
           runtime: runtime,
           modelPath: modelPath,
           allowedRoot: p.dirname(modelPath),
-          modelId: 'cpu-benchmark-matmul-sha256-$_modelSha256',
+          modelId: 'cpu-benchmark-matmul',
         );
         expect(session.inputs.single.name, 'input');
         expect(session.outputs.single.name, 'output');

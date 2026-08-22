@@ -39,7 +39,7 @@ development slice.
    corpus, and measured baselines for rows intended to be advertised; and
 3. finish scoped pre-1.0 release engineering for the qualified targets: hosted
    target lanes where feasible, artifact reproducibility, final-package audits,
-   SBOM/notices/checksums, security policy, licensing, signing, clean-machine
+   notices/checksums, security policy, licensing, signing, clean-machine
    installation, and explicit support-matrix promotion. This can close the
    in-scope lanes, but the five-OS product cannot become globally
    `Release-ready` or 1.0 while its Tier-1 Windows target-host gate is deferred
@@ -88,7 +88,7 @@ deferred and unclaimed. This integration does not alter platform support.
 
 - Create package/repository structure.
 - Adopt strict Dart analysis and C formatting/linting.
-- Add `native/versions.lock.yaml` schema and parser.
+- Add the `native/versions.lock.yaml` parser and validation tests.
 - Add the authoritative `src/dort.h` and ABI-version function.
 - Configure build hook to compile/load a no-op shim on one host platform.
 - Configure FFI generation and regeneration check.
@@ -194,7 +194,7 @@ claims.
 - Windows secure DLL layout/search (source/cross-build regression gate only
   while target-host work is deferred).
 - Final artifact audit scripts and sample apps.
-- Licenses/notices/SBOM scaffold.
+- License and notice packaging.
 
 ### Acceptance
 
@@ -266,44 +266,9 @@ Strict native tests cover the 1024-entry registry, races, and cancellation of a
 blocking `Run`; Dart tests use real isolates and include an opt-in cross-isolate
 real-shim registry proof plus real ORT CPU inference.
 
-The 2026-08-09 formal CPU benchmark V1 checkpoint combines the synchronous
-serial measurement and the bounded public-pool measurement in one first
-protocol. It fixes `OrtSessionPool` size and concurrency at two, worker protocol
-at version 4, one 8 MiB-fixture request reservation per worker, concurrent
-stabilization, three two-lane one-second full-isolate-roundtrip windows, two
-strict worker assignment receipts outside timing, seven ordered total-process
-RSS phases, zero request/byte accounting, and idempotent close. Protocol,
-target fragment, collection, validation, and collector identities are all V1.
-The four active templates are the V1 descriptor and three V1 schemas; offline
-replay uses only the validation-to-collection-to-target schema chain.
+The reference application provides a small opt-in desktop CPU benchmark: three warm-up runs, ten measured synchronous inferences, exact output comparison, and raw microsecond samples with simple summary statistics. It is a local measurement path, not a receipt, baseline, qualification, or release gate. Measure pool throughput directly when a concrete performance question requires it.
 
-Pool startup cleanup has one important ownership boundary. If a later worker
-fails, `OrtSessionPool.spawn` awaits close for every earlier worker whose spawn
-returned successfully. A worker whose own startup timed out retires through the
-worker controller's internal late-ready protocol; the pool-level spawn future
-does not await that later cleanup receipt after the worker spawn has already
-returned its authoritative timeout. Do not describe partial pool startup as a
-single pool-wide join over that unreturned child.
-
-Focused formal-V1 Python coverage passes 104/104 cases: 31 derivation/core, 41
-collector, and 32 independent replay-validator tests. It includes
-process-lifetime peak-RSS, two-worker assignment-parity, authentic
-second-admission, occupancy-drain, schema-graph, non-V1 rejection, and replay
-regressions. The complete Python suite passes 829/829, the current Flutter SDK
-root suite passes 226 tests with 54 explicit environment-gated skips, and a
-clean external-copy reference app passes analysis and 90/90 tests, including
-18/18 benchmark cases. The exact ORT 1.27.1 two-worker test passes 1/1. The
-collector completed five fresh macOS arm64 Release reference-application
-launches and independent replay against the source snapshot at commit
-`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. Its raw bundle, collection, and
-validation record have SHA-256 values
-`976a0d5fb6dc7cafa69d7ac50f518200a520cae7996b7d68a59d414202ce3a93`,
-`139673b4a24c3ce5cb962b39b1180697b1ab1c9a9b619e03bad70ad8e1f20866`,
-and `d19167221f3de677f5f15f05d7d829d3b4fe6a50095f244a4005cc26b5f674bc`.
-Earlier prototype bundles cannot be relabeled as V1. Phase 5 now has one exact
-formal macOS target measurement, but no reviewed baseline, threshold,
-performance guarantee, provider qualification, support promotion, or release
-claim.
+Pool startup cleanup has one important ownership boundary. If a later worker fails, `OrtSessionPool.spawn` awaits close for every earlier worker whose spawn returned successfully. A worker whose own startup timed out retires through the worker controller late-ready protocol; the pool-level spawn future does not wait for a child whose authoritative startup result already returned.
 
 ## Phase 6: mobile EPs
 
@@ -313,7 +278,7 @@ claim.
 - Typed CPU/XNNPACK/CoreML/NNAPI convenience options.
 - Provider state diagnostics and ORT profiling capture.
 - CoreML cache and deployment-target policy.
-- Explicit assignment/fallback policy composition and benchmark receipts.
+- Explicit assignment/fallback policy composition and target measurements.
 - Mobile model usability tooling in development workflow.
 
 ### Acceptance
@@ -472,7 +437,7 @@ and MIGraphX. Native fake-table tests cover registration, TensorRT ordering,
 DirectML constraints, cleanup, and CPU independence; Windows profiling also
 has a secure target-host CTest contract. No heavy provider artifact is in the
 current lock and no GPU/NPU target assignment, parity, dependency package, or
-benchmark receipt exists.
+benchmark measurement exists.
 
 Windows target-host provider and package qualification in this phase is
 deferred with the rest of the Windows target roadmap. Keep the provider
@@ -508,196 +473,50 @@ build, physical device, HTP assignment, or redistribution decision exists.
 Do not schedule target qualification until those exact inputs exist; continue
 running the existing contract, static linkage, and tamper gates.
 
-## Phase 10: scoped release stabilization and future 1.0
+## Phase 10: release stabilization and future 1.0
 
-The work below applies first to the exact tuples selected for the scoped
-pre-1.0 release. It does not satisfy the separate global 1.0 acceptance while
-Windows target-host qualification is deferred.
+The work below applies to the exact tuples selected for a release. It does not
+satisfy the separate global 1.0 acceptance while Windows target-host
+qualification is deferred.
 
 ### Work
 
-- Freeze/review public Dart API and shim ABI.
+- Review the public Dart API and freeze the shim ABI.
 - Complete composite value and error behavior.
 - Fuzz/native robustness testing.
 - Full support matrix and migration guide.
-- Reproducible release pipeline, signing, SBOM, notices.
-- Performance regression thresholds.
+- Reproducible release pipeline, signing, licenses, and notices.
+- Performance measurements for any performance claim.
 - Security response process.
 
-### Scoped pre-1.0 acceptance
+### Pre-1.0 release checks
 
 - Every exact advertised target/provider gate passes.
 - Deferred and unadvertised tuples remain explicitly unsupported.
 - No unresolved critical/high ownership/packaging defect affects an advertised
   tuple or shared boundary.
 - Compatibility floor and each advertised sherpa matrix are documented.
-- Licensing, security, signing, SBOM/notices, and publication approval cover
-  the exact release contents.
+- Licensing, security, signing, and notices cover the exact release contents.
 - The release can be reconstructed from archived source/lock/build evidence.
 
 ### Global 1.0 acceptance (deferred)
 
 - All Tier 1 and advertised provider gates pass.
-- 1.0 API/ABI policy approved.
+- 1.0 API/ABI policy documented.
 - Every shared correctness and release condition above passes across the
   complete Tier-1 matrix.
 
-Implementation checkpoint (2026-08-06): the composite value surface, strict
-JSON protocols, public diagnostics, support/migration matrix, deterministic
-source/SBOM/release evidence, native sanitizer suites, and offline benchmark
-receipt validator are implemented. The benchmark validator recomputes bounded
-statistics and emits only a `measurement-only` aggregate. A 1.0 release remains
-blocked on the explicit target/provider rows above, project licensing, private
-security contact, signing/publication authority, reviewed stable performance
-baselines/thresholds, and API/ABI release approval.
+Implementation status: the composite value surface, strict JSON protocols, public diagnostics, support matrix, native sanitizer suites, lifecycle hardening, allocation-failure coverage, and platform/package gates are implemented as described in their owning reports. The native C ABI remains a reviewed compatibility boundary. Dart API changes use ordinary pre-1.0 code review, analysis, tests, and reference-app coverage.
 
-The 2026-08-08 scoped-release stabilization checkpoint freezes the resolved
-public Dart declaration surface and the structural native C ABI/export surface
-in separate canonical review records. Minimum-SDK CI reconstructs both records
-before binding regeneration. These drift gates support review and versioning;
-they do not classify compatibility, prove a target binary, or replace the
-external API/ABI approval required by the scoped candidate gate.
+Release work uses ordinary Git source export and the real artifact, package, target, licensing, notices, signing, and distribution checks. Repository-wide source checksum manifests, custom SBOM generators, synthetic approval bundles, and formal benchmark receipt protocols are not part of the implementation.
 
-The 2026-08-08 shared-runtime hardening checkpoint makes published value-graph
-validation read-only under concurrent sessions, retains failed native profiling
-disable state until retry or owner disposal while blocking run-options reuse,
-bounds isolate string retention even for empty strings, accounts for requested
-output names in the worker request limit, and retires a worker
-through a later valid cleanup-only ready port after malformed startup
-ownership. Focused regressions cover each ownership and resource boundary;
-the shared-value regression is mandatory in a separate Linux x64 TSan CI lane
-and also passed locally with AppleClang TSan.
-
-The follow-up portable-lifecycle checkpoint moves native termination set/unset
-calls outside the process-wide cancellation-registry lock while serializing
-same-token settlement, preserves retry ownership after either native failure,
-and permanently exhausts rather than wraps the monotonic token space. Worker
-startup errors now require a retirement acknowledgement, uncaught errors and
-exit share one ordered lifecycle port, and active input reservations remain
-held until observed exit. The strict JSON pre-decoder enforces its exact
-container-depth bound even for empty leaves and has a deterministic mutation
-corpus. Provider discovery and model/custom-metadata fault tests now require
-bounded partial owners to be released on error and prove an oversized returned
-count cannot authorize entry iteration.
-
-The follow-up native-allocation checkpoints route wrapper-requested heap,
-aligned, and returned canonical-path owners through one internal seam while
-leaving the public ABI and production activation unchanged. The bounded POSIX
-regression now enumerates 76 portable success-path fail-Nth points: the prior
-63 build-manifest, runtime, provider, run-options/profiling, session,
-external-data, tensor, and composite points plus eight synchronous-run and one
-each run-result, cancellation-registration, buffer-lease, tensor-lease, and
-tensor-info points. A separate status target covers its object, operation, and
-message allocations; field-copy OOM preserves the original domain and numeric
-codes instead of erasing the primary error. The provisioned exact ORT 1.27.1
-matrix independently enumerates 50 dense, string, ZipMap sequence/map,
-optional Some/None, string-element, and tensor-info branch points.
-Every injected failure neutralizes outputs, releases partial owners, and
-permits a clean retry. A fake ORT `Run` also returns an owned output with an
-error; the shim releases it exactly once, preserves the authoritative ORT
-error, and recovers on the next successful run.
-POSIX profiling now binds its effective-user-owned root and randomized private
-child to retained descriptors and device/inode identities. Exact profile bytes
-are withheld until bounded non-recursive cleanup succeeds; replacement,
-permission loss, and unexpected nonempty children retain a retryable owner and
-block run-options reuse.
-Normal and Address/UndefinedBehavior sanitizer suites pass on the development
-host. A follow-up bounded seeded-lifecycle checkpoint composes graceful close,
-crash, queued and active cancellation, backpressure, mixed pool settlement,
-and idempotent worker/pool shutdown across eight unique explicit-gate traces.
-Every trace settles to zero Dart run/input reservations, closed sessions, and
-one controller connection-closure initiation per worker. Worker request IDs
-now admit positive `INT64_MAX` once and then permanently exhaust without wrap;
-pools skip that worker while retaining retriable backpressure from another
-live saturated peer and fail closed when every size-capable peer is permanently
-unavailable. Portable synchronous-run, lease, string-accessor, and
-status-diagnostic allocation paths are now enumerated; target-specific
-allocation paths and pool throughput/RSS measurements continue within this
-phase.
-
-The follow-up source-closure checkpoint validates release ZIP and gzip-compressed
-Git tar archives without extraction. It binds the archive's declared revision,
-closed member inventory, exact manifest-listed bytes, implied directories, and
-executable semantics to the current repository baseline through the same
-retained descriptor that passed the candidate size and SHA-256 check. Scoped
-approval requires the exact canonical derived closure record; the result is
-offline consistency evidence only, not archive provenance, reproducibility,
-signing, readiness, or publication authority.
-
-The follow-up semantic-evidence checkpoint makes scoped readiness closed and
-default-deny. Reference identity, media type, size, and SHA-256 establish only
-that a required record is present. Satisfaction additionally requires a
-repository-registered semantic contract; every present unregistered record is
-reported as unvalidated and blocks readiness. The first registered receipt
-contract is `macos-arm64-cpu-full-assignment-v1`, alongside the separately
-derived source-closure validation. A complete synthetic bundle therefore
-reports 55 present, 2 satisfied, 53 unvalidated, and 0 missing evidence slots
-and cannot become ready. The macOS contract validates exact closed receipt
-content but does not authenticate capture, clean-machine or final-package
-execution, signing, provider qualification, support, or release approval.
-
-Subsequent release-engineering slices should register one bounded semantic
-contract at a time for the remaining evidence inventory and add both accepted
-and hostile-content tests. Merely populating the remaining 53 files cannot
-advance readiness. Actual target-host, physical-device, final-package,
-licensing, signing, and approval evidence must still be collected through the
-owning external gates; semantic validation cannot manufacture provenance.
-
-The formal CPU benchmark V1 source checkpoint owns one reproducible 4.29-GFLOP
-static-weight MatMul with exact input/reference bytes and one bounded
-macOS/Linux final-application target path. Its serial phase separates runtime,
-session, input, inference, and output-copy timing; requires observed
-stabilization; records 100 warm samples and three one-second throughput
-windows; captures phase-labelled total RSS; profiles strict CPU assignment
-outside timing; and settles every owner. Its pool phase adds input preparation,
-two-worker startup, concurrent stabilization, three one-second two-lane
-full-isolate-roundtrip windows, strict per-worker CPU assignment outside
-timing, seven total-process RSS phases, zero accounting, and idempotent close.
-
-The V1 collector launches exactly five challenge/PID-bound fresh processes,
-retains their target fragments plus one raw host-observation sidecar, observes
-one canonical application tree unchanged around the launches, binds the unique
-target-reported runtime basename and native build contract, and derives one V1
-serial-and-pool collection. The V1 validator reopens the exact seven-file raw
-bundle and independently rederives that collection before emitting its
-`offline-consistency-only`, `measurement-only` record. It registers exactly the
-V1 validation, collection, and target schemas. The protocol descriptor is the
-fourth active template, not a schema-registry member.
-
-Comparability is closed to `baseline-comparable`, `incomplete`, or
-`non-comparable`; only the first may enter a later baseline/threshold review.
-The source binding is not compiled provenance, no distribution archive is
-claimed, supplied native members are not independent loaded-byte proof, and the
-validation record cannot replace the raw samples. The macOS observer combines
-the public `NSProcessInfo` thermal enum and current dynamic Low Power boolean
-with a bounded, source-stable, opaque `pmset` configured-profile fingerprint.
-It publishes only the closed source and a domain-separated profile digest; no
-`pmset` key is interpreted or compared with the API boolean. API-reported Low
-Power `off` can also mean unknown or unsupported. Apple `nominal` can include
-an undetermined state, stable elevated states still require review, the
-configured profile is not every dynamic power assertion, and Linux thermal
-observation remains unavailable.
-
-The earlier schema-1 serial fragment was an unreleased prototype, not a formal
-protocol. The two wrongly numbered intermediate checkpoints remain only in Git
-history and impose no active compatibility, migration, or evidence obligation.
-The formal V1 five-launch collection and replay used the macOS arm64 final
-application and the source snapshot at commit
-`7df0eee5bd191f0f6ee0f0e29b6ebab5c41ff8fc`. This binding is not compiled
-provenance. No earlier serial or pool bundle may be relabeled as V1 evidence.
-
-Controlled target baselines, reviewed thresholds, the Linux formal V1
-final-app run, and measurements for every other selected row remain open.
-The implemented source path makes no performance guarantee, qualification,
-support, or release claim. The phase
-inventory below remains the long-term program: Phase 9 target qualification
-and the Windows target-host portions of Phases 4, 8, and 10 remain deferred.
+A 1.0 release remains blocked on the explicit target/provider rows, the chosen distribution channel, signing, and reviewed performance expectations. Phase 9 target qualification and the Windows target-host portions of Phases 4, 8, and 10 remain deferred.
 
 ## Suggested issue breakdown
 
 Create independently reviewable issues:
 
-1. Lockfile schema and artifact verifier.
+1. Lockfile parser and artifact verifier.
 2. C ABI/status skeleton.
 3. Dart build-hook no-op asset.
 4. POSIX loader.
@@ -724,7 +543,7 @@ Create independently reviewable issues:
 22. Desktop provider flavors (non-Windows qualification may proceed; Windows
     target-host/provider qualification is deferred).
 23. QNN aligned build (target qualification deferred).
-24. SBOM/release automation.
+24. Release packaging and notices.
 
 Each issue must name acceptance tests and generated evidence.
 

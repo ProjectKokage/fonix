@@ -443,4 +443,4 @@ Header comments and declaration formatting alone do not change the structural
 record. Any other header or export drift fails until the ABI impact is
 reviewed and the canonical record is intentionally regenerated. A match does
 not prove a target binary's layout or compatibility and does not replace
-target ABI tests or external API/ABI approval.
+target ABI tests or normal compatibility review.

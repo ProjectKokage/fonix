@@ -96,8 +96,8 @@ Future<int> _runPackagedSmoke() async {
 
 Future<int> _runPackagedCpuBenchmark() async {
   try {
-    final CpuBenchmarkFragment fragment = await runDesktopCpuBenchmark();
-    stdout.writeln('$cpuBenchmarkFragmentPrefix${fragment.toJsonString()}');
+    final CpuBenchmarkResult result = await runDesktopCpuBenchmark();
+    stdout.writeln('$cpuBenchmarkResultPrefix${result.toJsonString()}');
     return 0;
   } on Object catch (error) {
     stderr.writeln('Fonix CPU benchmark failed (${error.runtimeType}).');

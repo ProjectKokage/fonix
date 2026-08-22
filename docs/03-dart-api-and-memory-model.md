@@ -580,37 +580,6 @@ substituted for that build fact.
 - Experimental APIs live under an explicit experimental library/annotation.
 - Provider option keys are versioned data, not stable Dart enum values unless the wrapper controls normalization for all supported ORT versions.
 
-The canonical review record for the resolved `package:fonix/fonix.dart`
-namespace is
-[`../release/public-dart-api-v1.json`](../release/public-dart-api-v1.json).
-It records each exported declaration's defining library, resolved nominal
-types throughout the declaration graph, signatures, modifiers, constructor
-redirect chains, extension-type erasure, properties, methods, evaluated public
-constants and optional defaults, ordered enum constants, and resolved
-library/declaration/parameter annotations with their canonical constant
-values. Type aliases retain both their declared identity and expanded target.
-The generator uses the exact minimum Dart 3.11.5 toolchain and analyzer
-14.1.0. Verify it after a locked dependency resolution with:
+While `publish_to: none` and the package is pre-1.0, Dart API changes are reviewed through the code diff, `dart analyze`, the package tests, and the committed reference application. Add a migration note when a change affects callers.
 
-```bash
-dart pub get --enforce-lockfile --no-example
-dart --packages=.dart_tool/package_config.json \
-  tool/ci/verify_public_dart_api.dart
-```
-
-Regenerate the record only as part of an intentional API review. Before it
-constructs the record, the gate resolves every regular Dart source below
-`lib/` within fixed entry bounds. Links, analysis or constant-evaluation
-errors, conditional imports/exports, environment-dependent constants, private
-`Symbol` values, and function-type formal/type-parameter metadata that the
-pinned analyzer cannot represent all fail closed. Instantiated generic
-function tear-off constants also fail closed because analyzer 14.1 does not
-expose their type arguments canonically. Constructor tear-offs retain their
-complete redirect chain, but fail closed when any hop has an explicit
-parameter default that analyzer 14.1 cannot expose canonically. Canonical
-constant encoding retains observable collection order, double bit patterns,
-enum ordinals, and both non-erased and erased extension-type identities. A
-clean comparison means the reviewed declaration surface did not drift; it does
-not decide
-whether a change is source/binary compatible, promise pre-1.0 stability,
-prove runtime behavior, or replace external API/ABI approval.
+The native C shim has an independent ABI because packaged native code can outlive a Dart build; [`../release/native-c-abi-v1.json`](../release/native-c-abi-v1.json) remains the review record for that boundary.

@@ -50,9 +50,6 @@ def _load_module(name: str, path: Path) -> Any:
 _COMMON = _load_module(
     "_fonix_linux_gate_common", _DIRECTORY / "run_macos_reference_app_gate.py"
 )
-_SOURCE_MANIFEST = _load_module(
-    "_fonix_linux_gate_source_manifest", _DIRECTORY / "source_checksum_manifest.py"
-)
 _AUDITOR = _load_module(
     "_fonix_linux_gate_auditor", _DIRECTORY / "audit_linux_application.py"
 )
@@ -617,73 +614,48 @@ def _tree_identity(root: Path, label: str) -> TreeIdentity:
     return TreeIdentity(file_count, byte_count, digest)
 
 
+def _git_source_revision(repository: Path) -> str:
+    status = _run(
+        ("git", "status", "--porcelain=v2", "--branch", "--untracked-files=no"),
+        cwd=repository,
+        operation="Fonix Git source state",
+    ).stdout.splitlines()
+    revisions = [line.removeprefix("# branch.oid ") for line in status if line.startswith("# branch.oid ")]
+    if (
+        len(revisions) != 1
+        or re.fullmatch(r"[0-9a-f]{40,64}", revisions[0]) is None
+        or any(line and not line.startswith("# ") for line in status)
+    ):
+        raise LinuxReferenceAppGateError(
+            "Fonix tracked source must be one clean Git revision"
+        )
+    return revisions[0]
+
+
 def _snapshot_source_epoch(repository: Path, destination: Path) -> tuple[Path, dict[str, object]]:
     if destination.exists() or destination.is_symlink():
         raise LinuxReferenceAppGateError("source epoch destination must not exist")
-    manifest_path = repository / "MANIFEST.sha256"
-    try:
-        initial_sha = _SOURCE_MANIFEST.check_manifest(repository, manifest_path)
-        manifest_bytes = _SOURCE_MANIFEST._regular_file_bytes(
-            manifest_path,
-            label="source checksum manifest",
-            maximum=_SOURCE_MANIFEST.MAX_MANIFEST_BYTES,
-        )
-        entries = _SOURCE_MANIFEST.parse_manifest(manifest_bytes)
-    except _SOURCE_MANIFEST.SourceManifestError as error:
-        raise LinuxReferenceAppGateError("live Fonix source is not one closed manifest epoch") from error
+    revision = _git_source_revision(repository)
+    archive = destination.with_suffix(".tar")
+    if archive.exists() or archive.is_symlink():
+        raise LinuxReferenceAppGateError("source archive staging path already exists")
     destination.mkdir(mode=0o700)
-    total = 0
     try:
-        for relative, expected_sha in entries:
-            source = _regular_file(
-                repository.joinpath(*relative.split("/")),
-                f"manifest source {relative}",
-                maximum=_SOURCE_MANIFEST.MAX_FILE_BYTES,
-            )
-            before = source.lstat()
-            contents = _SOURCE_MANIFEST._regular_file_bytes(
-                source,
-                label=f"manifest source {relative}",
-                maximum=_SOURCE_MANIFEST.MAX_FILE_BYTES,
-            )
-            after = source.lstat()
-            if (
-                hashlib.sha256(contents).hexdigest() != expected_sha
-                or (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_mode)
-                != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_mode)
-            ):
-                raise LinuxReferenceAppGateError(f"manifest source changed while freezing: {relative}")
-            total += len(contents)
-            if total > _SOURCE_MANIFEST.MAX_TOTAL_BYTES:
-                raise LinuxReferenceAppGateError("source epoch exceeds its byte bound")
-            target = destination.joinpath(*relative.split("/"))
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            with target.open("xb") as stream:
-                stream.write(contents)
-                stream.flush()
-                os.fsync(stream.fileno())
-            target.chmod(0o700 if before.st_mode & 0o111 else 0o600)
-        target_manifest = destination / "MANIFEST.sha256"
-        with target_manifest.open("xb") as stream:
-            stream.write(manifest_bytes)
-            stream.flush()
-            os.fsync(stream.fileno())
-        target_manifest.chmod(0o600)
-        if (
-            _SOURCE_MANIFEST.check_manifest(destination, target_manifest) != initial_sha
-            or _SOURCE_MANIFEST.check_manifest(repository, manifest_path) != initial_sha
-        ):
-            raise LinuxReferenceAppGateError("source manifest identity changed during snapshot")
-        tree = _tree_identity(destination, "frozen source epoch")
+        _run(
+            ("git", "archive", "--format=tar", f"--output={archive}", revision),
+            cwd=repository,
+            operation="Fonix Git source export",
+        )
+        _regular_file(archive, "Fonix Git source archive", maximum=MAX_ARCHIVE_BYTES)
+        shutil.unpack_archive(archive, destination, "tar")
+        archive.unlink()
+        if not any(destination.iterdir()) or _git_source_revision(repository) != revision:
+            raise LinuxReferenceAppGateError("Fonix Git source changed during export")
     except BaseException:
+        archive.unlink(missing_ok=True)
         shutil.rmtree(destination, ignore_errors=True)
         raise
-    return destination, {
-        "manifestSha256": initial_sha,
-        "fileCount": tree.file_count,
-        "byteCount": tree.byte_count,
-        "treeSha256": tree.tree_sha256,
-    }
+    return destination, {"gitRevision": revision}
 
 
 def _load_pinned_archive(lock_path: Path) -> PinnedArchive:
@@ -1213,7 +1185,7 @@ def _load_frozen_linux_auditor(repository: Path) -> Any:
     auditor_path = _regular_file(
         repository / "tool/ci/audit_linux_application.py",
         "frozen Linux application auditor",
-        maximum=_SOURCE_MANIFEST.MAX_FILE_BYTES,
+        maximum=_AUDITOR.MAX_FILE_BYTES,
     )
     return _load_module(
         "_fonix_linux_gate_frozen_auditor",

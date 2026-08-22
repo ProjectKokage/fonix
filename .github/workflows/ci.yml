@@ -62,10 +62,6 @@ jobs:
           python-version: "3.12.10"
       - name: Resolve the committed dependency graph
         run: dart pub get --enforce-lockfile --no-example
-      - name: Verify the reviewed public Dart API baseline
-        run: >-
-          dart --packages=.dart_tool/package_config.json
-          tool/ci/verify_public_dart_api.dart
       - name: Verify the reviewed native C ABI baseline
         run: >-
           python -B tool/ci/verify_native_c_abi_baseline.py
@@ -96,56 +92,6 @@ jobs:
         run: >-
           python -B -m unittest discover
           -s tool/tests -p 'test_*.py' -v
-
-  release-evidence:
-    name: Offline deterministic release-evidence verification
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - name: Set up Python 3.12.10
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: "3.12.10"
-      - name: Test offline release metadata, SPDX, and tamper rejection
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -B -m unittest discover \
-            -s tool/ci/tests -p 'test_release_evidence.py' -v
-          python -B -m unittest discover \
-            -s tool/ci/tests -p 'test_scoped_release_scope.py' -v
-          python -B -m unittest discover \
-            -s tool/ci/tests -p 'test_scoped_release_approval.py' -v
-          python -B -m unittest discover \
-            -s tool/ci/tests -p 'test_validate_source_release_archive.py' -v
-      - name: Validate the committed scoped pre-1.0 policy
-        run: >-
-          python -B tool/ci/validate_scoped_release_scope.py
-          --repository .
-          --scope release/scoped-pre-1.0-v1.json
-          --output ${{ runner.temp }}/fonix-scoped-scope-validation.json
-      - name: Verify the deterministic closed source manifest
-        run: >-
-          python -B tool/ci/source_checksum_manifest.py check
-          --repository . --manifest MANIFEST.sha256
-      - name: Validate the closed source release archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/fonix-source.tar.gz"
-          record="$RUNNER_TEMP/fonix-source-validation.json"
-          git -c tar.umask=0022 archive --format=tar.gz --output="$archive" HEAD
-          archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
-          python -B tool/ci/validate_source_release_archive.py \
-            --repository . \
-            --archive "$archive" \
-            --media-type application/gzip \
-            --archive-sha256 "$archive_sha256" \
-            --output "$record"
 
   phase3-fixture-bytes:
     name: Phase-3 deterministic fixture bytes (${{ matrix.host }})

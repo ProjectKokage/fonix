@@ -3,8 +3,6 @@
 ## API and ownership
 
 - [ ] Public API change is documented and versioned.
-- [ ] The minimum-SDK public Dart API baseline reproduces exactly; any drift
-      was classified and intentionally reviewed before regeneration.
 - [ ] Every synchronous native owner has idempotent `dispose()`; every isolate
       session/pool has idempotent awaited `close()`.
 - [ ] Finalizer behavior is a safety net and has stress coverage.
@@ -30,10 +28,10 @@
 
 - [ ] Every native artifact is pinned and SHA-256 verified.
 - [ ] Archive extraction is traversal-safe.
-- [ ] A release source archive passes the closed no-extraction member,
-      revision, content, executable-mode, and bound checks.
+- [ ] Tracked release source is exported from one clean revision with
+      `git archive`.
 - [ ] Lockfile/build manifest is updated.
-- [ ] Licenses/notices/SBOM are updated.
+- [ ] Licenses and notices are updated.
 - [ ] No moving `latest` URL/version resolution is used.
 - [ ] Clean/offline or mirrored build behavior is tested as relevant.
 
@@ -92,26 +90,14 @@
 - [ ] Failure/diagnostics logs are redacted.
 - [ ] Support matrix and reference snapshot are updated when needed.
 
-## Scoped release candidate
+## Release
 
-- [ ] The frozen scope-only policy validates against the exact source and lock
-      baseline; unsupported and deferred rows are unchanged.
-- [ ] Every selected composition has target-execution, provider-assignment,
-      final-package, SBOM, audit, reproducibility, notices, and signing
-      records in one external evidence root.
-- [ ] Source closure, Dart, binding, native/sanitizer,
-      lifecycle/cancellation, QNN contract/tamper, and Windows
-      source/cross-build/loader-security regression records are present.
-- [ ] `shared-source-closure` exactly matches the canonical record derived from
-      the same retained source-archive descriptor that passed size and SHA-256
-      verification.
-- [ ] Detached API/ABI, licensing, security, signing, and publication approval
-      statements and externally produced signature-verification receipts bind
-      the exact canonical candidate subject.
-- [ ] The expected candidate-bundle SHA-256 arrived through the independently
-      controlled release channel; no bundle or approval was committed to the
-      source tree.
-- [ ] `validate_scoped_release_approval.py --require-scoped-ready` passes with
-      a new external output and reports no blockers.
-- [ ] The scoped result is not described as five-platform, unqualified
-      `Release-ready`, or 1.0 evidence.
+- [ ] Every advertised composition has passed its target-execution,
+      provider-assignment, final-package, audit, and signing checks.
+- [ ] Downloaded, provisioned, and final release artifacts have verified size
+      and SHA-256 identities.
+- [ ] The source archive, licenses, notices, support matrix, migration notes,
+      and known limitations are included.
+- [ ] The chosen distribution channel's install and signing flow was tested.
+- [ ] Unsupported and deferred rows remain explicit; narrow evidence is not
+      described as five-platform, unqualified `Release-ready`, or 1.0 support.

@@ -6,7 +6,6 @@ import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
 const _lockPath = 'native/versions.lock.yaml';
-const _schemaPath = 'native/versions.lock.schema.json';
 
 void main() {
   group('active native version lock', () {
@@ -60,39 +59,6 @@ void main() {
       );
 
       lock.verifyVendoredInputs(Directory.current);
-    });
-
-    test('schema is valid JSON Schema metadata', () {
-      final schema = _object(jsonDecode(File(_schemaPath).readAsStringSync()));
-      final definitions = _object(schema[r'$defs']);
-
-      expect(
-        schema[r'$schema'],
-        'https://json-schema.org/draft/2020-12/schema',
-      );
-      expect(schema['additionalProperties'], isFalse);
-      expect(
-        definitions,
-        containsPair('artifactContainer', isA<Map<String, Object?>>()),
-      );
-      expect(definitions, contains('artifactNotice'));
-
-      final releaseTargetsSchema = _object(
-        _object(schema['properties'])['release_targets'],
-      );
-      expect(releaseTargetsSchema['uniqueItems'], isTrue);
-      final schemaTargetIdentities =
-          _list(_object(definitions['releaseTarget'])['enum']).map((value) {
-            final target = _object(value);
-            return '${target['os']}/${target['architecture']}/'
-                '${target['variant']}/${target['flavor']}';
-          }).toSet();
-      final lock = NativeVersionsLock.parse(File(_lockPath).readAsStringSync());
-      expect(
-        schemaTargetIdentities,
-        lock.releaseTargets.map((target) => target.identity).toSet(),
-      );
-      expect(_list(_object(definitions['target'])['allOf']), hasLength(5));
     });
 
     test('fails release validation while the Tier-1 matrix is incomplete', () {

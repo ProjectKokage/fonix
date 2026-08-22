@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -671,7 +672,7 @@ class IosReferenceSourcePreparationTest(unittest.TestCase):
                     "final int status = await _runPackagedCpuBenchmark();",
                     "exit(status);",
                     "Future<int> _runPackagedCpuBenchmark() async {",
-                    "stdout.writeln('$cpuBenchmarkFragmentPrefix${fragment.toJsonString()}');",
+                    "stdout.writeln('$cpuBenchmarkResultPrefix${result.toJsonString()}');",
                     "Fonix CPU benchmark failed (${error.runtimeType}).",
                 ]
             ),
@@ -1164,19 +1165,32 @@ class IosSourceEpochTest(unittest.TestCase):
         executable.parent.mkdir()
         executable.write_text("print('ok')\n", encoding="utf-8")
         executable.chmod(0o755)
-        manifest = run_ios_reference_app_gate._SOURCE_MANIFEST.build_manifest(
-            self.repository
+        subprocess.run(("git", "init", "-q"), cwd=self.repository, check=True)
+        subprocess.run(
+            ("git", "config", "user.email", "fonix-test@example.invalid"),
+            cwd=self.repository,
+            check=True,
         )
-        (self.repository / "MANIFEST.sha256").write_bytes(manifest)
+        subprocess.run(
+            ("git", "config", "user.name", "Fonix Test"),
+            cwd=self.repository,
+            check=True,
+        )
+        subprocess.run(("git", "add", "."), cwd=self.repository, check=True)
+        subprocess.run(
+            ("git", "commit", "-q", "-m", "fixture"),
+            cwd=self.repository,
+            check=True,
+        )
 
-    def test_snapshot_freezes_closed_manifest_bytes_and_executable_state(self) -> None:
+    def test_snapshot_exports_clean_git_revision_and_executable_state(self) -> None:
         gate = run_ios_reference_app_gate
         snapshot, evidence = gate._snapshot_source_epoch(
             self.repository, self.root / "source_epoch"
         )
         frozen = (snapshot / "tool/runner.py").read_bytes()
         self.assertTrue((snapshot / "tool/runner.py").stat().st_mode & 0o111)
-        self.assertRegex(evidence["manifestSha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(evidence["gitRevision"], r"^[0-9a-f]{40,64}$")
         self.assertNotIn(str(snapshot), json.dumps(evidence))
         (self.repository / "tool/runner.py").write_text(
             "print('mutated')\n", encoding="utf-8"
@@ -1197,12 +1211,15 @@ class IosSourceEpochTest(unittest.TestCase):
         self.assertFalse(first.files["file"]["executable"])
         self.assertTrue(second.files["file"]["executable"])
 
-    def test_snapshot_rejects_manifest_mismatch(self) -> None:
+    def test_snapshot_rejects_dirty_tracked_source(self) -> None:
         gate = run_ios_reference_app_gate
         (self.repository / "pubspec.yaml").write_text(
             "name: tampered\n", encoding="utf-8"
         )
-        with self.assertRaisesRegex(gate.IosReferenceAppGateError, "closed stable epoch"):
+        with self.assertRaisesRegex(
+            gate.IosReferenceAppGateError,
+            "clean Git revision",
+        ):
             gate._snapshot_source_epoch(
                 self.repository, self.root / "source_epoch"
             )
@@ -2518,8 +2535,7 @@ class IosRunGateOrchestrationTest(unittest.TestCase):
             (destination / "example").mkdir()
             (destination / "native").mkdir()
             return destination, {
-                "manifestSha256": "4" * 64,
-                **gate._tree_evidence(source_tree),
+                "gitRevision": "4" * 40,
             }
 
         def prepare(**kwargs: object) -> tuple[dict[str, int], str]:

@@ -32,7 +32,7 @@ Before modifying code, read `README.md` and every numbered document in `docs/`. 
 
 Do not begin with all EPs at once. Work in the following order and keep every stage green:
 
-1. Repository scaffold, lockfile schema, and no-op C shim loaded through Dart build hooks.
+1. Repository scaffold, validated native lock, and no-op C shim loaded through Dart build hooks.
 2. Runtime loader, shim ABI query, ORT version query, and C API negotiation.
 3. CPU-only environment/session/run path with dense numeric tensors.
 4. Deterministic ownership, error translation, metadata, strings, dynamic shapes, and resource tests.

@@ -13,13 +13,11 @@ matrix: `dart-first` and `sherpa-first` captures on API 35 arm64-v8a/4 KiB and
 16 KiB emulators. Implementation commit
 `8a9b6812c17237aeab7ec6d933f23932668c4b33` corrected the source inventory
 and made the committed-tree evidence reproducible. This remains exact-tuple
-evidence rather than redistribution, release approval, or support promotion.
+evidence rather than redistribution, a release decision, or support promotion.
 
 The passing gate ran on macOS arm64 with Flutter revision
-`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It bound the
-36,887-byte source `MANIFEST.sha256` file with SHA-256
-`3728b31a38c246328cbeda7af14a7ba502489f6e89046371d2c22d29f264efd2`
-and produced:
+`bd1e75d918605c91b411e8789fb911e6c9a84534` and OpenJDK 21.0.12. It was bound
+to Fonix commit `8a9b6812c17237aeab7ec6d933f23932668c4b33` and produced:
 
 - a 45,070,602-byte APK with SHA-256
   `35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`;

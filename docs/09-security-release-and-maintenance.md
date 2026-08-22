@@ -102,7 +102,8 @@ linkage; retain build-time/link-map evidence for those stronger claims.
 - Support offline/mirrored builds without weakening verification.
 - Do not print credentials or signed URLs.
 - Keep caches content-addressed and revalidate before use.
-- Run artifact scanners/SBOM generation on release inputs and outputs.
+- Run the chosen distribution channel's artifact and dependency scanners on
+  release inputs and outputs.
 
 ## 9.6 Cache security and correctness
 
@@ -170,7 +171,7 @@ Custom code loading is an advanced attack surface. Initial policy:
 - exact runtime ABI compatibility;
 - no loading from model-controlled paths;
 - no unloading while sessions may reference the code;
-- complete license/SBOM entry;
+- complete license and dependency inventory;
 - separate Android single-runtime compatibility tests.
 
 A plugin EP must not cause a second ORT runtime to be loaded.
@@ -179,7 +180,7 @@ A plugin EP must not cause a second ORT runtime to be loaded.
 
 Maintain:
 
-- dependency inventory/SBOM;
+- dependency inventory;
 - ORT/provider version-to-artifact mapping;
 - supported release branches;
 - security contact and private reporting path;
@@ -193,364 +194,52 @@ When a native security update is released:
 2. Pin the fixed release/source revision.
 3. Rebuild all affected flavors.
 4. Re-run platform/provider/sherpa tests.
-5. Publish checksums/SBOM/advisory.
+5. Publish checksums, affected dependency information, and the advisory.
 6. State whether applications must rebuild or only update a package.
 
 Do not recommend substituting an ORT `.so`/DLL into an existing application without rebuilding/testing all native consumers.
 
 ## 9.10 Versioning model
 
-Track four independent versions:
+Fonix versions the Dart package, native shim ABI, required ONNX Runtime API, and native artifact tuple separately. A Dart breaking change needs a migration note; an incompatible C boundary increments the shim ABI; raising the ORT API floor requires rerunning the sherpa compatibility matrix.
 
-1. Dart package semantic version.
-2. Shim ABI integer/version.
-3. Required ONNX Runtime C API floor.
-4. Bundled/aligned ONNX Runtime and provider artifact versions.
-
-Example diagnostics:
-
-```json
-{
-  "dartPackage": "0.2.0",
-  "shimAbi": 1,
-  "requiredOrtApi": 27,
-  "negotiatedOrtApi": 27,
-  "runtimeVersion": "1.28.0",
-  "artifactFlavor": "mobile",
-  "runtimeOwner": "sherpa"
-}
-```
-
-Rules:
-
-- Dart breaking API change: package major bump after 1.0.
-- Incompatible shim ABI: bump shim ABI and support explicit mismatch error; package version follows impact.
-- Raising required ORT API: compatibility change requiring a release note and sherpa matrix update.
-- Bundled ORT patch/minor update: package release with full regression/manifest change even if Dart API is unchanged.
-- Provider SDK update: new flavor artifact and qualification evidence.
-
-The committed public Dart API and native C ABI baselines are deterministic
-review inputs for these decisions. A proposed change must reproduce both
-records first, classify any drift against the versioning rules above, and
-regenerate a record only after that classification is accepted. An unchanged
-record is not a compatibility proof for a target binary, while an updated
-record is not approval by itself.
+The package is pre-1.0 and `publish_to: none`. Dart API changes are reviewed through the diff, analysis, tests, and the reference application. The native C ABI keeps its canonical review record because packaged native libraries need an explicit compatibility boundary.
 
 ## 9.11 Release contents
 
-A scoped pre-1.0 release may include only exact target/provider tuples that are
-explicitly advertised and evidence-backed. Deferred Android QNN and Windows
-target-host/provider/final-package/installer/clean-machine rows remain
-unsupported and are not completion gates for that narrower release; their
-source/static/security regressions remain mandatory. Unqualified
-`Release-ready` and 1.0 retain the complete Tier-1/five-platform meaning and
-therefore still require the deferred Windows lane.
+A release includes only the target and provider tuples that were actually tested. Include:
 
-Every release must include:
+- the Dart and shim source, exported with ordinary `git archive`;
+- generated bindings and the native artifact lock;
+- SHA-256 checksums for downloaded, provisioned, and distributed binary artifacts;
+- the project license and applicable third-party licenses and notices;
+- the supported target/provider matrix, minimum versions, migration notes, and known limitations; and
+- the relevant build, package-audit, target-test, and signing results.
 
-- Dart source and generated bindings;
-- shim source/header;
-- native artifact lockfile and checksums;
-- license and third-party notices;
-- SBOM for each binary flavor;
-- supported platform/architecture/provider matrix;
-- minimum OS/toolchain/application requirements;
-- sherpa-onnx compatibility records;
-- migration notes;
-- benchmark/qualification summary with links to the complete raw CI artifacts;
-  for CPU collections this means the exact seven-file raw bundle, because
-  the formal V1 offline validation record cannot substitute for the samples;
-- known limitations;
-- debug symbol retention/location policy.
-
-Do not publish a flavor whose artifact hashes or dependency licenses are unknown.
+Do not publish a flavor whose binary origin, checksum, or license is unknown. A source export does not need a second manifest of hashes: Git already owns the tracked bytes and revision.
 
 ## 9.12 Release checklist
 
-1. Update dated upstream snapshot and determine whether compatibility floor changes.
-2. Review ORT release security/breaking changes.
-3. Refresh lockfile URLs/hashes/toolchains.
-4. Reconstruct and review the public Dart API and native C ABI baselines, then
-   regenerate bindings and verify the shim ABI.
-5. Rebuild every affected target/flavor.
-6. Run every exact target matrix selected for advertising. Run the complete
-   Tier-1 matrix for unqualified `Release-ready` or 1.0.
-7. Run advertised EP qualification.
-8. Run exact sherpa coexistence matrix and final Android artifact audit.
-9. Generate SBOM/notices/checksums.
-10. Scan artifacts for unexpected symbols/dependencies/secrets.
-11. Build/install/run every advertised sample application from a clean
-    environment.
-12. Sign artifacts/packages as required.
-13. Publish release notes with compatibility impact.
-14. Archive manifests, build logs, symbols, and test evidence.
+1. Review the selected ORT, sherpa, provider, Dart, Flutter, NDK, and platform versions.
+2. Update the native lock only for an intentional artifact change.
+3. Run analysis, package tests, binding regeneration, native tests, and the native ABI check.
+4. Build and audit every package type that will be distributed.
+5. Run every advertised target/provider composition on its required host or device.
+6. Verify downloaded and final release artifact checksums.
+7. Include the required licenses, notices, support matrix, and migration notes.
+8. Sign, install, and exercise the artifacts through the chosen distribution channel.
+9. Publish the source with ordinary `git archive` when the license or channel requires source delivery.
 
-## 9.13 Maintenance/update procedure
+## 9.13 Maintenance and updates
 
-At least for every intended package release and scheduled dependency review:
+For every dependency update, inspect the current upstream release and security notes, C API level, selected binary contents, provider compatibility, sherpa ownership, and platform toolchain requirements. Update the dated reference snapshot and rerun the affected package and target gates. “Latest” belongs in this review workflow, never in runtime resolution.
 
-- inspect current official ORT release and C API version;
-- inspect current sherpa Android build scripts and selected published artifacts;
-- inspect relevant provider compatibility matrices;
-- inspect Dart/Flutter FFI/build-hook changes;
-- inspect Android NDK/AGP/page-size requirements;
-- update `docs/12-reference-snapshot.md` with date and source revisions;
-- decide whether to keep or raise the compatibility-floor API;
-- maintain at least one overlap window when raising the floor, or publish a separate compatibility flavor;
-- re-run all packaging/load-order tests before changing defaults.
+## 9.14 Integrity boundaries
 
-“Latest” belongs in the update workflow, not in runtime/build resolution.
+Use SHA-256 where bytes cross a real artifact boundary: downloads, provisioned native runtimes, caches, external SDK inputs, final packages, and retained target evidence. Verify size and hash before promoting downloaded bytes into the artifact cache.
 
-## 9.14 Offline deterministic audit evidence
+Use Git for tracked source and bundled test fixtures. Clean source copies are ordinary `git archive` exports of one clean revision. Do not maintain a repository-wide checksum manifest, hash a validator to validate another validator, or treat a self-consistent receipt bundle as proof that a target run occurred.
 
-`tool/ci/source_checksum_manifest.py` owns the closed source checksum manifest.
-Generate `MANIFEST.sha256` only after the release-candidate tree has stopped
-changing, then verify it without network access:
+## 9.15 Publication decisions
 
-```bash
-python3 -B tool/ci/source_checksum_manifest.py generate \
-  --repository . --output MANIFEST.sha256
-python3 -B tool/ci/source_checksum_manifest.py check \
-  --repository . --manifest MANIFEST.sha256
-```
-
-Generation rejects unknown top-level entries, links, unsafe paths, special
-files, and configured size/count overflows. Verification requires the exact
-sorted manifest bytes and the exact current closed source file set; it is not a
-best-effort check of only the paths already listed.
-CI also creates a compressed `git archive HEAD` and passes its path to
-`tool/ci/validate_source_release_archive.py`; the validator opens it once and
-passes the retained descriptor to its inspection core. It does not extract or
-execute content from that archive. The validator requires the declared Git
-revision, exact manifest-listed regular files plus `MANIFEST.sha256`, exact
-contents and executable semantics, and the canonical implied directory set.
-It rejects unsafe, duplicate, aliased, special, over-limit, or trailing archive
-structure and emits a deterministic path-free `source-closure-only` record.
-That record establishes offline consistency with the current repository
-baseline only. Git archive metadata is not an authenticated provenance or
-publication authority.
-
-The standalone path uses an external archive and a new external output:
-
-```bash
-git -c tar.umask=0022 archive --format=tar.gz \
-  --output=/absolute/external/fonix-source.tar.gz HEAD
-python3 -B tool/ci/validate_source_release_archive.py \
-  --repository . \
-  --archive /absolute/external/fonix-source.tar.gz \
-  --media-type application/gzip \
-  --archive-sha256 "$EXPECTED_SOURCE_ARCHIVE_SHA256" \
-  --output /absolute/external/new-source-closure.json
-```
-
-For one lock-selected native artifact, generate audit metadata and an SPDX 2.3
-JSON SBOM from the resolver's staged directory:
-
-```bash
-python3 -B tool/ci/generate_release_sbom.py \
-  --repository . \
-  --staged-directory /path/to/fresh/resolver-output \
-  --artifact-id onnxruntime-1.27.1-macos-arm64-cpu \
-  --sbom-output /path/to/audit/fonix.spdx.json \
-  --metadata-output /path/to/audit/fonix-release-audit.json
-```
-
-The generator is offline and deterministic. It rejects duplicate JSON keys,
-unknown fields, lock/manifest drift, unsafe paths, links, extra staged files,
-and staged byte size or hash drift. Its independent lock decoder also enforces
-the exact schema-v2 Tier-1 CPU target set, OS-specific architecture and variant
-combinations, artifact membership in that set, and equality between the shim's
-required ORT API and the compatibility floor. A lock marked `release` must
-cover every Tier-1 target with artifacts and record every provider's reported
-name. The current set includes separate arm64 and x86_64 iOS simulator
-identities even though the pinned XCFramework member is universal; the scoped
-release policy keeps both simulator tuples unsupported for distribution.
-Replacing a baseline row, introducing a non-CPU release flavor, or using
-an architecture or variant from another platform is rejected before audit
-metadata is emitted. Artifact declarations also have a closed selected-member
-set at every archive depth: expected member paths and license IDs are unique,
-notice depths cannot exceed the declared container chain, and every declared
-symlink must resolve through an acyclic declared chain to an expected regular
-file. The generator records the locked Dart dependency graph, exact ORT source
-and compatibility inputs, selected artifact bytes, and notice identities
-without embedding checkout or staging paths.
-
-These files are unreleased audit metadata only. They are not release approval,
-signing evidence, provider qualification, or authorization to publish or
-distribute. Audit generation may succeed while readiness remains false. In
-particular, the absent root `LICENSE` is a fail-closed readiness blocker; this
-tool does not infer a Fonix license from the ONNX Runtime license or notices.
-`--require-release-ready` therefore fails after writing the audit documents
-until the separately owned release gates are established, and this command
-must never be used to invent or bypass those gates.
-
-`--require-release-ready` retains the unqualified Tier-1/five-platform meaning;
-a scoped release must use a separately explicit advertised-scope approval and
-must not reinterpret or weaken that flag.
-
-## 9.15 Scoped pre-1.0 policy boundary
-
-[`release/scoped-pre-1.0-v1.json`](../release/scoped-pre-1.0-v1.json) is the
-machine-readable scope-only policy for the current CPU pre-1.0 work. Validate
-it offline with:
-
-```bash
-python3 -B tool/ci/validate_scoped_release_scope.py \
-  --repository . \
-  --scope release/scoped-pre-1.0-v1.json \
-  --output /path/to/new/scoped-scope-validation.json
-```
-
-The validator binds the policy to the exact native-lock bytes, package version,
-shim ABI, required ORT API, all nine baseline targets, and each selected
-locked artifact. The schema embeds the exact policy as its top-level `const`,
-and the validator pins both the schema bytes and the two helper validators it
-uses for native-lock and sherpa-lock semantics. The target array is canonical
-and closed: iOS device, macOS
-arm64, Android arm64-v8a, and Linux x86_64 are selected CPU candidates; iOS
-arm64 and x86_64 simulators, Android x86_64, Linux arm64, and Windows x64
-remain explicitly unsupported. Android arm64 has distinct application-owned
-ORT 1.27.1 and
-sherpa-owned process compositions; the latter binds `sherpa_onnx` 1.13.4 and
-ORT 1.27.0 rather than inheriting the application-owned baseline. Only CPU
-full-assignment may be advertised by this policy version. Android QNN and the
-complete Windows target-host-through-clean-machine path are separate exact
-deferred capabilities.
-
-The output is deterministic, path-free validation metadata with the policy,
-schema, validator, lock, package, exact selected-target, and five-composition
-identities. It says `scope-only`; neither
-the input nor output has a readiness, approval, signing, or publication field.
-Selection therefore creates a bounded evidence worklist and nothing more. A
-separate externally controlled candidate-approval manifest must bind the final
-packages, target/runtime receipts, SBOMs, shared gates, and independent
-licensing, security, signing, API/ABI, and publication approvals before a
-scoped release can be called ready. That approval gate is distinct from, and
-cannot weaken, global `--require-release-ready`.
-
-## 9.16 Scoped candidate evidence and approval gate
-
-The external bundle contract is
-[`templates/ci/scoped_release_approval.schema.json`](../templates/ci/scoped_release_approval.schema.json).
-Keep the candidate bundle, every referenced evidence byte, approval statement,
-detached signature, verification receipt, and validation output outside the
-source repository. The release authority must communicate the expected bundle
-SHA-256 out of band. Validate one candidate with:
-
-```bash
-python3 -B tool/ci/validate_scoped_release_approval.py \
-  --repository . \
-  --scope release/scoped-pre-1.0-v1.json \
-  --bundle /absolute/external/candidate.json \
-  --bundle-sha256 "$EXPECTED_BUNDLE_SHA256" \
-  --evidence-root /absolute/external/evidence \
-  --output /absolute/external/new-validation.json \
-  --require-scoped-ready
-```
-
-The candidate statement repeats the frozen scope and current source baseline,
-then inventories the exact five selected compositions. Each composition has
-separate bounded record sets for target execution, provider assignment, final
-packages, SBOMs, audits, reproducibility, notices, and signing. Shared records
-cover source closure, Dart analysis/tests, binding reproduction, native
-sanitizers, lifecycle/cancellation stress, the deferred QNN contract/tamper
-suite, and the deferred Windows source/cross-build/loader-security suite. The
-candidate subject is the SHA-256 of canonical JSON for that statement.
-
-The source archive is not treated as an opaque hash-only attachment. After its
-reference size and SHA-256 pass, the validator borrows the same retained,
-no-follow file descriptor for bounded archive inspection. It then rechecks the
-descriptor, path, and evidence-root identities before committing evidence
-accounting. The `shared-source-closure` record must be byte-for-byte equal to
-the canonical record derived from that inspection, including the exact
-inventory and validator/schema pins. Neither the archive revision comment nor
-that derived record authenticates who produced the archive.
-
-Schema version 1 freezes the record IDs, order, and media type as well as the
-categories. In particular, the standalone Android composition requires both
-API-24 device execution and AAB-derived split-install execution, APK and AAB
-packages, and separate APK/AAB audits. The sherpa-owned composition requires
-the four exact `dart-first`/`sherpa-first` by 4 KiB/16 KiB target records, its
-CPU-assignment aggregate, APK and AAB, the static APK/AAB audit, and the
-four-record validation aggregate. A missing exact record is a named blocker;
-an unknown, duplicate, reordered, or media-substituted record is malformed.
-The other selected targets likewise require their frozen clean-machine or
-device execution, CPU assignment, final archive, SPDX SBOM, package audit,
-reproducibility, notices, and distribution-signing records.
-
-Semantic evidence validation is closed and default-deny. The report declares
-`semanticValidationMode: "closed-default-deny-v1"` and keeps four canonical,
-ordered classifications distinct:
-
-- `presentEvidenceSlotIds` lists references that passed identity, media-type,
-  size, SHA-256, and retained-descriptor checks;
-- `satisfiedEvidenceSlotIds` lists only present records whose repository-
-  registered semantic contract also passed;
-- `missingEvidenceSlotIds` lists absent required references; and
-- `unvalidatedEvidenceSlotIds` lists present records for which no semantic
-  contract is registered.
-
-Presence and a valid hash never imply satisfaction. An absent record produces
-`missing-evidence:<slot>`, while a present unregistered record produces
-`unvalidated-evidence:<slot>`; both block readiness in canonical evidence order
-before approval blockers are appended. If a registered record is present but
-does not match its exact semantic contract, the bundle is malformed and no
-readiness result is published. Detached approvals cannot override these
-failures. A fully populated synthetic bundle consequently reports 55 present,
-2 satisfied, 53 unvalidated, and 0 missing slots and remains blocked under
-`--require-scoped-ready`. Its two satisfied slots are the canonically derived
-`shared-source-closure` record and the exact macOS CPU-assignment receipt below.
-
-The first registered receipt contract is
-`macos-arm64-cpu-full-assignment-v1`, bound only to evidence record
-`macos-arm64-cpu-full-assignment`. The exact schema is
-[`macos_cpu_assignment_receipt_v1.schema.json`](../templates/ci/macos_cpu_assignment_receipt_v1.schema.json);
-the validator pins its SHA-256 as
-`81b16c9db50136206aaa9c0b3bafd048e74589f46d731a8a5087570b893aaa77`
-and repeats that digest as `macosCpuAssignmentReceiptSchemaSha256` in the
-result. It accepts only this strict object and rejects extra keys, type
-substitutions, changed values, and changed array shapes:
-
-```json
-{
-  "schemaVersion": 1,
-  "status": "passed",
-  "runtimeVersion": "1.27.1",
-  "runtimeSource": "bundled",
-  "runtimeOwner": "wrapper",
-  "artifactFlavor": "cpu",
-  "platform": "macos",
-  "architecture": "arm64",
-  "shimBuildId": "onnxruntime-1.27.1-macos-arm64-cpu",
-  "artifactSha256": "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6",
-  "modelSha256": "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10",
-  "outputValues": [1, 4, 9, 16, 25, 36],
-  "activeProviders": ["cpu"],
-  "fullCpuAssignment": true,
-  "doubleClose": "passed"
-}
-```
-
-This contract validates the closed content of the supplied receipt only. It
-does not authenticate the capture, the actor or machine that produced it,
-clean-machine or final-package execution, final-package identity or signing,
-provider qualification, support, or release approval. Those claims require
-their own external evidence and authority.
-
-Five detached approval domains are required for readiness: API/ABI, licensing,
-security, signing, and publication. Each approval statement binds the exact
-candidate subject, decision, time, approver, key, and signature algorithm. Its
-external verification receipt must bind the exact statement and signature
-bytes. This repository deliberately contains neither approval identities nor a
-candidate bundle. The validator verifies the closed inventory, hashes, external
-receipt bindings, and out-of-band bundle digest; it does not implement or claim
-the external authority's cryptographic signature verification.
-
-A well-formed incomplete or explicitly rejected bundle produces a
-deterministic, path-free result with ordered blockers. Malformed JSON, identity
-drift, byte drift, unsafe paths, links, repository-contained inputs, reordered
-scope, QNN/Windows overclaim, output aliasing, or an existing output fail
-without a readiness result. `--require-scoped-ready` additionally returns
-failure when any blocker remains. A successful scoped result is limited to the
-four selected targets and five CPU compositions; it neither promotes excluded
-rows nor changes the global five-platform `--require-release-ready` gate.
+The project owner chooses the advertised targets, distribution channel, signing identity, and release date. Those are ordinary release decisions, not a machine-generated approval protocol. Local static checks and simulator runs keep their narrow meaning and cannot be relabeled as physical-device, clean-machine, signing, or distribution evidence.

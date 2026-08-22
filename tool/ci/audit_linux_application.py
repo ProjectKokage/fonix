@@ -48,22 +48,6 @@ MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10
 MODEL_SIZE_BYTES = 130
 XNNPACK_MODEL_SHA256 = "c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482"
 XNNPACK_MODEL_SIZE_BYTES = 311
-CPU_BENCHMARK_MODEL_SHA256 = (
-    "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0"
-)
-CPU_BENCHMARK_MODEL_SIZE_BYTES = 4_194_629
-CPU_BENCHMARK_INPUT_SHA256 = (
-    "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
-)
-CPU_BENCHMARK_INPUT_SIZE_BYTES = 8_388_608
-CPU_BENCHMARK_OUTPUT_SHA256 = (
-    "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
-)
-CPU_BENCHMARK_OUTPUT_SIZE_BYTES = 8_388_608
-CPU_BENCHMARK_METADATA_SHA256 = (
-    "7c089a5a6c6cd444eb802bb0066a2fae054e54a1b924cffac7c53b80bd9c7c8a"
-)
-CPU_BENCHMARK_METADATA_SIZE_BYTES = 3_481
 
 APPLICATION_EXECUTABLE = "fonix_reference"
 SHIM_NAME = "libfonix_shim.so"
@@ -520,34 +504,6 @@ def _validate_repository_assets(repository: Path, application: Path) -> dict[str
         XNNPACK_MODEL_SIZE_BYTES,
         "XNNPACK model",
     )
-    for relative, sha256, size_bytes in (
-        (
-            "models/cpu_benchmark_matmul.onnx",
-            CPU_BENCHMARK_MODEL_SHA256,
-            CPU_BENCHMARK_MODEL_SIZE_BYTES,
-        ),
-        (
-            "models/cpu_benchmark_matmul.input.f32le",
-            CPU_BENCHMARK_INPUT_SHA256,
-            CPU_BENCHMARK_INPUT_SIZE_BYTES,
-        ),
-        (
-            "models/cpu_benchmark_matmul.output.f32le",
-            CPU_BENCHMARK_OUTPUT_SHA256,
-            CPU_BENCHMARK_OUTPUT_SIZE_BYTES,
-        ),
-        (
-            "models/cpu_benchmark_matmul.json",
-            CPU_BENCHMARK_METADATA_SHA256,
-            CPU_BENCHMARK_METADATA_SIZE_BYTES,
-        ),
-    ):
-        _require_identity(
-            packaged / relative,
-            sha256,
-            size_bytes,
-            f"CPU benchmark asset {relative}",
-        )
     version = _strict_json(
         (application / "data/flutter_assets/version.json").read_bytes(),
         "Flutter version asset",

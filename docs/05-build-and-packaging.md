@@ -718,17 +718,15 @@ Required checks:
 - duplicate native library paths;
 - Android one-ORT rule;
 - 16 KB alignment;
-- license/notice/SBOM presence;
+- license and notice presence;
 - sample application load and inference.
 
 Use the supplied Android inspection templates as a starting point and add analogous platform scripts.
 
-The release source archive has a stricter boundary than downloaded native
-inputs: validate it directly without extraction. The source-archive validator
-accepts only the closed Git ZIP or gzip-compressed Git tar contracts and binds
-the exact manifest inventory, contents, revision metadata, directories, and
-executable modes. Native dependency archives may still require safe staged
-extraction before their format-specific binary audits.
+Export release source from one clean revision with ordinary `git archive`.
+Git owns tracked source identity; downloaded native dependency archives still
+require size and SHA-256 verification plus safe staged extraction before their
+format-specific binary audits.
 
 ## 5.15 Release reproducibility
 
@@ -739,7 +737,7 @@ A release record must contain:
 - build commands/configuration;
 - toolchain/container image digests where used;
 - artifact checksums;
-- SBOM and notices;
+- licenses and notices;
 - test/benchmark hardware and results;
 - final application artifact inspection reports;
 - known limitations and supported flavor matrix.

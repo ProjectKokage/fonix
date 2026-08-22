@@ -1176,7 +1176,7 @@ def _validate_static_gate_report(
     pubspec_identity: FileIdentity,
     fixture_identities: Mapping[str, FileIdentity],
     runtime_fixture_identities: Mapping[str, FileIdentity],
-) -> tuple[FileIdentity, FileIdentity, FileIdentity]:
+) -> tuple[FileIdentity, FileIdentity, str]:
     report_identity = _identity(
         report_path,
         "Android staged-build gate report",
@@ -1195,7 +1195,7 @@ def _validate_static_gate_report(
             "mode",
             "abi",
             "buildType",
-            "sourceManifestSha256",
+            "sourceRevision",
             "sourceCopy",
             "stagedSource",
             "flutterRevision",
@@ -1216,14 +1216,7 @@ def _validate_static_gate_report(
         },
         "Android staged-build gate report",
     )
-    source_manifest = (
-        Path(__file__).resolve().parents[2] / staged_build_gate.MANIFEST
-    )
-    source_manifest_identity = _identity(
-        source_manifest,
-        "Fonix source checksum manifest",
-        staged_build_gate.MAX_SOURCE_MANIFEST_BYTES,
-    )
+    source_revision = report["sourceRevision"]
     if (
         type(report["schemaVersion"]) is not int
         or report["schemaVersion"] != 1
@@ -1231,7 +1224,8 @@ def _validate_static_gate_report(
         or report["mode"] != "runtime-provisioned"
         or report["abi"] != ABI
         or report["buildType"] != BUILD_TYPE
-        or report["sourceManifestSha256"] != source_manifest_identity.sha256
+        or not isinstance(source_revision, str)
+        or re.fullmatch(r"[0-9a-f]{40,64}", source_revision) is None
         or report["flutterRevision"]
         != staged_build_gate.VALIDATED_FLUTTER_REVISION
         or report["targetEvidence"] is not None
@@ -1561,7 +1555,7 @@ def _validate_static_gate_report(
     return (
         report_identity,
         static_manifest_identity,
-        source_manifest_identity,
+        source_revision,
     )
 
 
@@ -1911,7 +1905,7 @@ def _write_evidence_and_validate(
     apk_identity: FileIdentity,
     static_gate_report_identity: FileIdentity,
     static_manifest_identity: FileIdentity,
-    source_manifest_identity: FileIdentity,
+    source_revision: str,
     adb_identity: FileIdentity,
     apkanalyzer_identity: FileIdentity,
     harness_contract: Mapping[str, Any],
@@ -2135,7 +2129,7 @@ def _write_evidence_and_validate(
             "finalApk": apk_identity.to_json(),
             "stagedBuildGateReport": static_gate_report_identity.to_json(),
             "staticPackageManifest": static_manifest_identity.to_json(),
-            "sourceManifest": source_manifest_identity.to_json(),
+            "sourceRevision": source_revision,
             "harnessContract": harness_identity.to_json(),
             "pubspecLock": pubspec_identity.to_json(),
             **{
@@ -2231,7 +2225,7 @@ def run_target_gate(
     (
         static_gate_report_identity,
         static_manifest_identity,
-        source_manifest_identity,
+        source_revision,
     ) = _validate_static_gate_report(
         arguments.static_gate_report,
         arguments.static_package_manifest,
@@ -2536,20 +2530,6 @@ def run_target_gate(
         raise AndroidSherpaTargetGateError(
             "apkanalyzer executable changed during target run"
         )
-    source_manifest_path = (
-        Path(__file__).resolve().parents[2] / staged_build_gate.MANIFEST
-    )
-    if (
-        _identity(
-            source_manifest_path,
-            "Fonix source checksum manifest postflight",
-            staged_build_gate.MAX_SOURCE_MANIFEST_BYTES,
-        )
-        != source_manifest_identity
-    ):
-        raise AndroidSherpaTargetGateError(
-            "Fonix source checksum manifest changed during target run"
-        )
     if (
         _identity(
             arguments.pubspec_lock,
@@ -2581,7 +2561,7 @@ def run_target_gate(
         apk_identity=apk_identity,
         static_gate_report_identity=static_gate_report_identity,
         static_manifest_identity=static_manifest_identity,
-        source_manifest_identity=source_manifest_identity,
+        source_revision=source_revision,
         adb_identity=adb_identity,
         apkanalyzer_identity=apkanalyzer_identity,
         harness_contract=harness_contract,

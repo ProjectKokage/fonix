@@ -1,18 +1,15 @@
 {
   "schemaVersion": 1,
-  "id": "cpu-benchmark-matmul-sha256-19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0",
+  "id": "cpu-benchmark-matmul-v1",
   "generator": {
     "path": "assets/models/generate_cpu_benchmark_matmul.py",
     "version": "cpu-benchmark-matmul-v1",
-    "sizeBytes": 20969,
-    "sha256": "5730c2193acc8bd9fb3fd52fb9c973d46a512e2bd56c4d815caca49fe4e16ec2",
     "dependencies": "python-standard-library-only"
   },
   "model": {
     "path": "assets/models/cpu_benchmark_matmul.onnx",
     "encoding": "onnx-protobuf",
     "sizeBytes": 4194629,
-    "sha256": "19bc0466ef8627df9764b40d947ff2c7cfa978c7daa6952ca9553c700a6dbcf0",
     "onnxIrVersion": 8,
     "opset": 17,
     "operator": "MatMul"
@@ -27,8 +24,7 @@
     "data": {
       "path": "assets/models/cpu_benchmark_matmul.input.f32le",
       "encoding": "ieee754-binary32-little-endian",
-      "sizeBytes": 8388608,
-      "sha256": "2025466d19e8aa6a9820266d0622d7b154059b61a1051b9edf1d020bf127c36a"
+      "sizeBytes": 8388608
     }
   },
   "initializer": {
@@ -39,8 +35,7 @@
       1024
     ],
     "storage": "embedded-onnx-raw-data",
-    "rawDataSizeBytes": 4194304,
-    "rawDataSha256": "038f3d7840fc1ae2eb5c3df337d18828d87e3618a982f826572ceed81cd896fd"
+    "rawDataSizeBytes": 4194304
   },
   "matrixMultiplication": {
     "leftShape": [
@@ -71,8 +66,7 @@
     "referenceData": {
       "path": "assets/models/cpu_benchmark_matmul.output.f32le",
       "encoding": "ieee754-binary32-little-endian",
-      "sizeBytes": 8388608,
-      "sha256": "c79ff7588eadd3d82ba4a5028955ed02b98a72b11da828131b33075c781a40fb"
+      "sizeBytes": 8388608
     }
   },
   "determinism": {
@@ -109,5 +103,5 @@
     "infinityPolicy": "forbid",
     "reason": "All operands, products, partial sums, and outputs are exact integers with magnitude below 2^24."
   },
-  "claimBoundary": "Representative deterministic CPU timing workload for measurement receipt generation only. Its dimensions are a calibration starting point, not a latency, throughput, real-time, support, provider-qualification, regression-threshold, portability, or release claim."
+  "claimBoundary": "Representative deterministic workload for local CPU timing only. Its dimensions are a calibration starting point, not a latency, throughput, real-time, support, provider-qualification, regression-threshold, portability, or release claim."
 }

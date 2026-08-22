@@ -1,3 +1,14 @@
+## Unreleased
+
+- Removed the custom public-Dart-API snapshot, scoped release-approval bundle,
+  repository source-checksum manifest, custom SBOM generator, and their schema
+  and validation machinery. Ordinary analysis, tests, code review, licensing,
+  package inspection, and `git archive` remain.
+- Replaced the formal CPU benchmark receipt protocol with a small opt-in local
+  benchmark that reports its raw timing samples and summary statistics.
+- Kept SHA-256 checks at external artifact and package boundaries; Git owns
+  the identity of tracked source and benchmark fixture files.
+
 ## 0.1.0-dev.1
 
 - Made the lock-selected macOS arm64 runtime default to bundled so a
