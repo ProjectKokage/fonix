@@ -1304,9 +1304,13 @@ def _macho_slice_facts(data: bytes, binary: Path) -> dict[str, Any]:
 
 
 def _ios_framework_owner(relative_path: str) -> str:
-    for framework in _IOS_FRAMEWORKS:
-        if relative_path == framework or relative_path.startswith(f"{framework}/"):
-            return framework
+    parts = relative_path.split("/")
+    if (
+        len(parts) >= 2
+        and parts[0] == "Frameworks"
+        and parts[1].casefold().endswith(".framework")
+    ):
+        return "/".join(parts[:2])
     return "application"
 
 
@@ -1541,6 +1545,7 @@ def _inventory_ios_application(
     executable: str,
     *,
     platform: str,
+    application_profile: str = "reference",
     architecture: str,
     platform_number: int,
     maximum_os: tuple[int, int, int],
@@ -1549,9 +1554,17 @@ def _inventory_ios_application(
     nm: str,
     dyld_info: str,
 ) -> dict[str, Any]:
-    profile_name, binary_profile, rpath_aliases = _ios_native_profile(
+    profile_name, reference_binary_profile, rpath_aliases = _ios_native_profile(
         application, platform, executable
     )
+    if application_profile not in {"reference", "consumer"}:
+        raise AppleApplicationAuditError("unsupported iOS application profile")
+    if application_profile == "reference":
+        binary_profile = reference_binary_profile
+        binary_profile[executable]["minimumOs"] = maximum_os
+    else:
+        profile_name = f"{platform}-consumer"
+        binary_profile = reference_binary_profile
     framework_paths: set[str] = set()
     macho_paths: list[Path] = []
     for parent, directories, files in _walk_application(
@@ -1605,20 +1618,40 @@ def _inventory_ios_application(
                         "iOS Mach-O inventory exceeds the audit bound"
                     )
 
-    expected_frameworks = set(_IOS_FRAMEWORKS)
-    if framework_paths != expected_frameworks:
+    required_frameworks = set(_IOS_FRAMEWORKS)
+    if (
+        application_profile == "reference"
+        and framework_paths != required_frameworks
+    ):
         raise AppleApplicationAuditError(
             "iOS app framework inventory is not closed; "
-            f"expected={sorted(expected_frameworks)}, actual={sorted(framework_paths)}"
+            f"expected={sorted(required_frameworks)}, actual={sorted(framework_paths)}"
         )
-    expected_macho_paths = set(binary_profile)
+    if application_profile == "consumer" and not required_frameworks.issubset(
+        framework_paths
+    ):
+        raise AppleApplicationAuditError(
+            "iOS consumer app is missing required Flutter/Fonix frameworks; "
+            f"required={sorted(required_frameworks)}, actual={sorted(framework_paths)}"
+        )
+    required_macho_paths = set(binary_profile)
     actual_macho_paths = {
         path.relative_to(application).as_posix() for path in macho_paths
     }
-    if actual_macho_paths != expected_macho_paths:
+    if (
+        application_profile == "reference"
+        and actual_macho_paths != required_macho_paths
+    ):
         raise AppleApplicationAuditError(
             "iOS app Mach-O inventory is not closed; "
-            f"expected={sorted(expected_macho_paths)}, actual={sorted(actual_macho_paths)}"
+            f"expected={sorted(required_macho_paths)}, actual={sorted(actual_macho_paths)}"
+        )
+    if application_profile == "consumer" and not required_macho_paths.issubset(
+        actual_macho_paths
+    ):
+        raise AppleApplicationAuditError(
+            "iOS consumer app is missing required Flutter/Fonix Mach-O binaries; "
+            f"required={sorted(required_macho_paths)}, actual={sorted(actual_macho_paths)}"
         )
 
     binary_records: list[dict[str, Any]] = []
@@ -1643,42 +1676,63 @@ def _inventory_ios_application(
                 f"{relative}"
             )
         facts = _macho_slice_facts(slices[architecture], binary)
-        expected_facts = binary_profile[relative]
-        if binary_floor != expected_facts["minimumOs"]:
-            raise AppleApplicationAuditError(
-                f"iOS Mach-O deployment floor is not exact for {relative}; "
-                f"expected={expected_facts['minimumOs']}, actual={binary_floor}"
-            )
-        for field in (
-            "cpuSubtype",
-            "fileType",
-            "headerFlags",
-            "dylibId",
-            "dependencyMetadataSha256",
-            "loadCommandKindsSha256",
-        ):
-            if facts.get(field) != expected_facts[field]:
+        expected_facts = binary_profile.get(relative)
+        exact_facts_required = (
+            application_profile == "reference" or relative == _IOS_SHIM_PATH
+        )
+        if application_profile == "consumer" and relative == executable:
+            if binary_floor != maximum_os:
                 raise AppleApplicationAuditError(
-                    f"iOS Mach-O {field} is not exact for {relative}; "
-                    f"expected={expected_facts[field]!r}, actual={facts.get(field)!r}"
+                    "iOS consumer Runner deployment floor differs from the "
+                    "declared/plist floor"
                 )
+        if exact_facts_required:
+            if expected_facts is None:
+                raise AppleApplicationAuditError(
+                    f"iOS exact Mach-O profile is missing for {relative}"
+                )
+            if binary_floor != expected_facts["minimumOs"]:
+                raise AppleApplicationAuditError(
+                    f"iOS Mach-O deployment floor is not exact for {relative}; "
+                    f"expected={expected_facts['minimumOs']}, actual={binary_floor}"
+                )
+            for field in (
+                "cpuSubtype",
+                "fileType",
+                "headerFlags",
+                "dylibId",
+                "dependencyMetadataSha256",
+                "loadCommandKindsSha256",
+            ):
+                if facts.get(field) != expected_facts[field]:
+                    raise AppleApplicationAuditError(
+                        f"iOS Mach-O {field} is not exact for {relative}; "
+                        f"expected={expected_facts[field]!r}, "
+                        f"actual={facts.get(field)!r}"
+                    )
         dependencies = set(
             _array(facts.get("dynamicDependencies"), "Mach-O dynamic dependencies")
         )
-        expected_dependencies = set(expected_facts["dependencies"])
-        if dependencies != expected_dependencies:
+        if any("onnxruntime" in dependency.casefold() for dependency in dependencies):
             raise AppleApplicationAuditError(
-                f"iOS Mach-O dependencies are not closed for {relative}; "
-                f"missing={sorted(expected_dependencies - dependencies)}, "
-                f"extra={sorted(dependencies - expected_dependencies)}"
+                f"iOS app has a dynamic ONNX Runtime dependency: {relative}"
             )
         rpaths = _array(facts.get("rpaths"), "Mach-O RPATHs")
-        expected_rpaths = list(expected_facts["rpaths"])
-        if rpaths != expected_rpaths:
-            raise AppleApplicationAuditError(
-                f"iOS Mach-O ordered RPATHs are not exact for {relative}; "
-                f"expected={expected_rpaths!r}, actual={rpaths!r}"
-            )
+        if exact_facts_required:
+            assert expected_facts is not None
+            expected_dependencies = set(expected_facts["dependencies"])
+            if dependencies != expected_dependencies:
+                raise AppleApplicationAuditError(
+                    f"iOS Mach-O dependencies are not closed for {relative}; "
+                    f"missing={sorted(expected_dependencies - dependencies)}, "
+                    f"extra={sorted(dependencies - expected_dependencies)}"
+                )
+            expected_rpaths = list(expected_facts["rpaths"])
+            if rpaths != expected_rpaths:
+                raise AppleApplicationAuditError(
+                    f"iOS Mach-O ordered RPATHs are not exact for {relative}; "
+                    f"expected={expected_rpaths!r}, actual={rpaths!r}"
+                )
         facts["dynamicDependencies"] = sorted(dependencies)
         facts["rpaths"] = [rpath_aliases.get(path, path) for path in rpaths]
         binary_records.append(
@@ -1693,7 +1747,12 @@ def _inventory_ios_application(
         )
 
     frameworks = []
-    for framework in _IOS_FRAMEWORKS:
+    framework_inventory = (
+        list(_IOS_FRAMEWORKS)
+        if application_profile == "reference"
+        else sorted(framework_paths)
+    )
+    for framework in framework_inventory:
         owned_binaries = [
             record["path"]
             for record in binary_records
@@ -1781,8 +1840,18 @@ def _audit_unsigned_ios_device_signing(
         raise AppleApplicationAuditError(
             "unsigned iOS development app must not embed a provisioning profile"
         )
+    framework_records = [
+        _object(record, "iOS framework record")
+        for record in _array(
+            native_inventory.get("frameworks"), "native inventory frameworks"
+        )
+    ]
+    framework_paths = [
+        _string(record.get("path"), "iOS framework path")
+        for record in framework_records
+    ]
     expected_signature_directories = {
-        f"{framework}/_CodeSignature" for framework in _IOS_FRAMEWORKS
+        f"{framework}/_CodeSignature" for framework in framework_paths
     }
     actual_signature_directories = set(
         _named_application_entries(application, "_CodeSignature")
@@ -1809,21 +1878,33 @@ def _audit_unsigned_ios_device_signing(
     _require_unsigned_code_object(codesign, application / executable, "root executable")
     _require_unsigned_code_object(codesign, application, "root application bundle")
 
-    nested_frameworks: list[dict[str, Any]] = []
-    for framework in _IOS_FRAMEWORKS:
-        binary_name = Path(framework).stem
-        binary_relative = f"{framework}/{binary_name}"
-        record = _object(
-            by_path.get(binary_relative), f"{framework} Mach-O record"
-        )
-        if record.get("codeSignatureLoadCommands") != 1:
+    for relative, record in sorted(by_path.items()):
+        if relative == executable:
+            continue
+        if _object(record, "nested Mach-O record").get(
+            "codeSignatureLoadCommands"
+        ) != 1:
             raise AppleApplicationAuditError(
-                f"expected nested ad-hoc signature is missing: {binary_relative}"
+                f"expected nested ad-hoc signature is missing: {relative}"
             )
+        _require_adhoc_code_object(codesign, application / relative, relative)
+
+    nested_frameworks: list[dict[str, Any]] = []
+    for framework_record, framework in zip(
+        framework_records, framework_paths, strict=True
+    ):
+        owned_binaries = _array(
+            framework_record.get("machOBinaries"), f"{framework} Mach-O binaries"
+        )
+        if len(owned_binaries) != 1:
+            raise AppleApplicationAuditError(
+                f"iOS framework signature inventory is ambiguous: {framework}"
+            )
+        binary_relative = _string(
+            owned_binaries[0], f"{framework} Mach-O binary"
+        )
         framework_path = application / framework
-        binary_path = application / binary_relative
         _require_adhoc_code_object(codesign, framework_path, framework)
-        _require_adhoc_code_object(codesign, binary_path, binary_relative)
         nested_frameworks.append(
             {
                 "path": framework,
@@ -1864,7 +1945,13 @@ def _audit_strict_ios_signing(
             )
         _run((codesign, "--verify", "--strict", str(application / relative)))
         verified_code_objects.append(relative)
-    for framework in _IOS_FRAMEWORKS:
+    for framework_record in _array(
+        native_inventory.get("frameworks"), "native inventory frameworks"
+    ):
+        framework = _string(
+            _object(framework_record, "iOS framework record").get("path"),
+            "iOS framework path",
+        )
         _run((codesign, "--verify", "--strict", str(application / framework)))
         verified_code_objects.append(framework)
     _run((codesign, "--verify", "--strict", str(application)))
@@ -3253,6 +3340,8 @@ def _validate_reference_shim_hook_metadata(
     application: Path,
     repository: Path,
     platform: str,
+    *,
+    application_minimum_os: tuple[int, int, int],
 ) -> dict[str, Any]:
     _regular_file(packaged_shim, "packaged iOS shim")
     reference_shim = _regular_file(reference_shim, "prepackage reference shim")
@@ -3395,12 +3484,53 @@ def _validate_reference_shim_hook_metadata(
     ):
         raise AppleApplicationAuditError("Fonix hook workspace pubspec path is wrong")
     defines = _object(workspace.get("defines"), "Fonix hook workspace defines")
-    if defines != {
-        "runtime_mode": "linked",
-        "artifact_cache": ".fonix-artifact-cache",
-        "application_minimum_os": "15.1",
-    }:
-        raise AppleApplicationAuditError("Fonix hook workspace defines are wrong")
+    known_defines = {
+        "runtime_mode",
+        "android_runtime_owner",
+        "artifact_cache",
+        "artifact_mirror",
+        "application_minimum_os",
+        "process_runtime_basenames",
+        "process_runtime_build_info",
+    }
+    unknown_defines = set(defines) - known_defines
+    if unknown_defines:
+        raise AppleApplicationAuditError(
+            "Fonix hook workspace defines contain unknown fields: "
+            f"{sorted(unknown_defines)}"
+        )
+    hook_minimum_os = _version(
+        _string(
+            defines.get("application_minimum_os"),
+            "Fonix hook application minimum OS",
+        ),
+        "Fonix hook application minimum OS",
+    )
+    if hook_minimum_os != application_minimum_os:
+        raise AppleApplicationAuditError(
+            "Fonix hook application minimum OS differs from the declared app floor"
+        )
+    runtime_mode = defines.get("runtime_mode")
+    if runtime_mode is not None and _string(
+        runtime_mode, "Fonix hook runtime mode"
+    ).strip().lower() != "linked":
+        raise AppleApplicationAuditError("Fonix hook runtime mode is not linked")
+    artifact_sources = [
+        key for key in ("artifact_cache", "artifact_mirror") if key in defines
+    ]
+    if not artifact_sources:
+        raise AppleApplicationAuditError(
+            "Fonix hook workspace defines have no artifact cache or mirror"
+        )
+    for key in artifact_sources:
+        _string(defines.get(key), f"Fonix hook {key}")
+    android_owner = defines.get("android_runtime_owner")
+    if android_owner is not None and _string(
+        android_owner, "Fonix hook Android runtime owner"
+    ).strip().lower() not in {"sherpa", "application"}:
+        raise AppleApplicationAuditError(
+            "Fonix hook Android runtime owner is unsupported"
+        )
     _require_keys(
         hook_output,
         {"assets", "assets_for_linking", "dependencies", "status", "timestamp"},
@@ -3464,6 +3594,7 @@ def _audit_ios_reference_shim(
         application,
         repository,
         platform,
+        application_minimum_os=maximum_os,
     )
     reference_shim = _regular_file(reference_shim, "prepackage reference shim")
     build_artifact = _object(
@@ -3610,9 +3741,14 @@ def audit_application(
     dyld_info: str = "/usr/bin/dyld_info",
     codesign: str = "/usr/bin/codesign",
     signature_policy: str = _STRICT_SIGNATURE_POLICY,
+    ios_application_profile: str = "reference",
 ) -> dict[str, Any]:
     contract = _platform_contract(platform)
     signature_policy = _signature_policy(platform, signature_policy)
+    if platform == "macos" and ios_application_profile != "reference":
+        raise AppleApplicationAuditError(
+            "the iOS consumer profile is unavailable for macOS"
+        )
     if not application.is_dir() or application.is_symlink():
         raise AppleApplicationAuditError("--app must be a non-symlink directory")
     manifest, manifest_path, notice_path, locked_minimum = audit_packaged_metadata(
@@ -3622,11 +3758,7 @@ def audit_application(
     declared_minimum = _version(
         declared_minimum_os, "declared application minimum OS"
     )
-    if platform != "macos" and declared_minimum != locked_minimum:
-        raise AppleApplicationAuditError(
-            "declared iOS application minimum OS must exactly match the selected lock tuple"
-        )
-    if platform == "macos" and declared_minimum < locked_minimum:
+    if declared_minimum < locked_minimum:
         raise AppleApplicationAuditError(
             "declared application minimum OS is below the selected lock tuple"
         )
@@ -3636,7 +3768,7 @@ def audit_application(
     plist_floor = _version(plist_floor_text, f"Info.plist {floor_key}")
     if platform != "macos" and plist_floor != declared_minimum:
         raise AppleApplicationAuditError(
-            "final iOS Info.plist deployment floor must exactly match the declared/locked floor"
+            "final iOS Info.plist deployment floor must exactly match the declared floor"
         )
     if platform == "macos" and (
         plist_floor < declared_minimum or plist_floor < locked_minimum
@@ -3666,6 +3798,7 @@ def audit_application(
             application,
             executable,
             platform=platform,
+            application_profile=ios_application_profile,
             architecture=architecture,
             platform_number=contract["machoPlatform"],
             maximum_os=ios_maximum_os,
@@ -3902,6 +4035,7 @@ def audit_application_and_optional_probe(
     clang: str = "/usr/bin/clang",
     codesign: str = "/usr/bin/codesign",
     signature_policy: str = _STRICT_SIGNATURE_POLICY,
+    ios_application_profile: str = "reference",
 ) -> dict[str, Any]:
     """Audit one application in-process and optionally run its macOS probe.
 
@@ -3922,6 +4056,7 @@ def audit_application_and_optional_probe(
         dyld_info=dyld_info,
         codesign=codesign,
         signature_policy=signature_policy,
+        ios_application_profile=ios_application_profile,
     )
     if cpu_probe_model is None:
         return report
@@ -3950,6 +4085,15 @@ def _parser() -> argparse.ArgumentParser:
         choices=("macos", "ios-device", "ios-simulator"),
     )
     parser.add_argument("--application-minimum-os", required=True)
+    parser.add_argument(
+        "--ios-application-profile",
+        choices=("reference", "consumer"),
+        default="reference",
+        help=(
+            "reference keeps the exact Fonix sample-app inventory; consumer "
+            "audits every Mach-O while permitting additional app frameworks"
+        ),
+    )
     parser.add_argument(
         "--signature-policy",
         choices=_SIGNATURE_POLICIES,
@@ -4014,6 +4158,7 @@ def main(argv: list[str] | None = None) -> int:
             clang=arguments.clang,
             codesign=arguments.codesign,
             signature_policy=arguments.signature_policy,
+            ios_application_profile=arguments.ios_application_profile,
         )
         print(json.dumps(report, sort_keys=True))
         return 0

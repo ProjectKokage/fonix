@@ -217,6 +217,13 @@ creates the sample from scratch and records the exact pinned Flutter revision,
 14.0 app/hook floors, arm64-only configuration, packaged identity/notices, and
 numeric CPU result.
 
+The Apple auditor defaults to the exact Fonix reference-app inventory. A real
+consumer app with additional native frameworks selects
+`--ios-application-profile consumer`; that profile still inventories every
+Mach-O and signature, requires the declared, plist, Runner, hook, and packaged
+Fonix identities to agree, and rejects a separately packaged or dynamically
+linked ONNX Runtime.
+
 The same job separately invokes
 `tool/ci/run_macos_reference_app_gate.py` for the committed `example/` source.
 That gate copies the template outside the package checkout, verifies the exact

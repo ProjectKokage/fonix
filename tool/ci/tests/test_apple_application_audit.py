@@ -955,6 +955,8 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         application: Path,
         *,
         minimum_os_overrides: dict[str, str] | None = None,
+        maximum_os: tuple[int, int, int] = (15, 1, 0),
+        application_profile: str = "reference",
     ) -> dict[str, object]:
         minimum_os = {
             path: ".".join(str(part) for part in version[:2])
@@ -965,7 +967,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         def otool_output(command: tuple[str, ...]) -> str:
             binary = Path(command[-1])
             relative = binary.relative_to(application).as_posix()
-            return _ios_otool_output(minimum_os[relative])
+            return _ios_otool_output(minimum_os.get(relative, "15.1"))
 
         with mock.patch.object(
             audit_apple_application,
@@ -984,9 +986,10 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
                 application,
                 "Runner",
                 platform="ios-device",
+                application_profile=application_profile,
                 architecture="arm64",
                 platform_number=2,
-                maximum_os=(15, 1, 0),
+                maximum_os=maximum_os,
                 repository=Path("/repository"),
                 otool="otool",
                 nm="nm",
@@ -1156,11 +1159,19 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         self.assertEqual(report["signatureDetails"]["rootBundle"], "verified")
         run.assert_not_called()
 
-    def test_ios_declared_and_plist_floors_must_be_exactly_locked(self) -> None:
+    def test_ios_declared_and_plist_floors_must_match_and_meet_lock(self) -> None:
+        report, _ = self._audit_report(
+            signature_policy="strict",
+            declared_minimum_os="16.0",
+            plist_minimum_os="16.0",
+        )
+        self.assertEqual(report["declaredMinimumOs"], "16.0")
+        self.assertEqual(report["plistMinimumOs"], "16.0")
+
         for declared_minimum_os, plist_minimum_os in (
-            ("16.0", "16.0"),
             ("15.1", "16.0"),
             ("15.0", "15.1"),
+            ("16.0", "15.1"),
         ):
             with self.subTest(
                 declared=declared_minimum_os, plist=plist_minimum_os
@@ -1201,6 +1212,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         )
         self.assertEqual(parsed.signature_policy, "strict")
         self.assertEqual(parsed.reference_shim, Path("/tmp/libfonix_shim.dylib"))
+        self.assertEqual(parsed.ios_application_profile, "reference")
 
     def test_profiles_require_exact_four_macho_configuration(self) -> None:
         application = Path("/tmp/build/ios/iphonesimulator/Runner.app")
@@ -1280,6 +1292,66 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
             ],
             1,
         )
+
+    def test_accepts_runner_floor_above_locked_framework_floor(self) -> None:
+        temporary, application = _ios_application()
+        self.addCleanup(temporary.cleanup)
+
+        inventory = self._inventory(
+            application,
+            minimum_os_overrides={"Runner": "18.6"},
+            maximum_os=(18, 6, 0),
+        )
+
+        by_path = {
+            entry["path"]: entry for entry in inventory["machOBinaries"]
+        }
+        self.assertEqual(by_path["Runner"]["minimumOs"], "18.6.0")
+        self.assertEqual(
+            by_path[audit_apple_application._IOS_SHIM_PATH]["minimumOs"],
+            "15.1.0",
+        )
+
+    def test_consumer_profile_audits_additional_frameworks(self) -> None:
+        temporary, application = _ios_application()
+        self.addCleanup(temporary.cleanup)
+        extra = application / "Frameworks/Extra.framework/Extra"
+        extra.parent.mkdir()
+        extra.write_bytes(
+            _macho_bytes(
+                signed=True,
+                dylib_id="@rpath/Extra.framework/Extra",
+                file_type=audit_apple_application._MACHO_DYLIB_FILE_TYPE,
+            )
+        )
+
+        inventory = self._inventory(
+            application,
+            application_profile="consumer",
+        )
+
+        self.assertEqual(inventory["profile"], "ios-device-consumer")
+        self.assertIn(
+            "Frameworks/Extra.framework",
+            {entry["path"] for entry in inventory["frameworks"]},
+        )
+
+    def test_consumer_profile_rejects_dynamic_ort_dependency(self) -> None:
+        temporary, application = _ios_application()
+        self.addCleanup(temporary.cleanup)
+        extra = application / "Frameworks/Extra.framework/Extra"
+        extra.parent.mkdir()
+        extra.write_bytes(
+            _macho_bytes(
+                signed=True,
+                dependencies=("@rpath/onnxruntime.framework/onnxruntime",),
+                dylib_id="@rpath/Extra.framework/Extra",
+                file_type=audit_apple_application._MACHO_DYLIB_FILE_TYPE,
+            )
+        )
+
+        with self.assertRaises(audit_apple_application.AppleApplicationAuditError):
+            self._inventory(application, application_profile="consumer")
 
     def test_rejects_missing_or_extra_macho(self) -> None:
         for mutation in ("missing", "extra"):
@@ -2075,9 +2147,46 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
             application,
             repository,
             "ios-device",
+            application_minimum_os=(15, 1, 0),
         )
 
         self.assertEqual(result["invocationId"], "0123456789")
+        self.assertEqual(result["status"], "validated")
+
+    def test_reference_hook_provenance_accepts_consumer_ios_defines(self) -> None:
+        fixture = _hook_reference_fixture()
+        (
+            temporary,
+            application,
+            repository,
+            packaged,
+            reference,
+            input_path,
+            _,
+            hook_input,
+            _,
+        ) = fixture
+        self.addCleanup(temporary.cleanup)
+        user_defines = hook_input["user_defines"]
+        assert isinstance(user_defines, dict)
+        workspace = user_defines["workspace_pubspec"]
+        assert isinstance(workspace, dict)
+        defines = workspace["defines"]
+        assert isinstance(defines, dict)
+        del defines["runtime_mode"]
+        defines["android_runtime_owner"] = "sherpa"
+        defines["application_minimum_os"] = "18.6"
+        input_path.write_text(json.dumps(hook_input), encoding="utf-8")
+
+        result = audit_apple_application._validate_reference_shim_hook_metadata(
+            packaged,
+            reference,
+            application,
+            repository,
+            "ios-device",
+            application_minimum_os=(18, 6, 0),
+        )
+
         self.assertEqual(result["status"], "validated")
 
     def test_reference_hook_provenance_rejects_same_inode_copy_and_app_path(
@@ -2104,6 +2213,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
                         application,
                         repository,
                         "ios-device",
+                        application_minimum_os=(15, 1, 0),
                     )
 
     def test_reference_hook_provenance_rejects_noncanonical_path(self) -> None:
@@ -2130,6 +2240,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
                     application,
                     repository,
                     "ios-device",
+                    application_minimum_os=(15, 1, 0),
                 )
 
     def test_reference_hook_provenance_rejects_metadata_contract_drift(self) -> None:
@@ -2214,6 +2325,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
                         application,
                         repository,
                         "ios-device",
+                        application_minimum_os=(15, 1, 0),
                     )
 
     def test_strict_signing_verifies_every_binary_framework_and_bundle(self) -> None:
@@ -2227,7 +2339,14 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
                     "Frameworks/Flutter.framework/Flutter",
                     audit_apple_application._IOS_SHIM_PATH,
                 )
-            ]
+            ],
+            "frameworks": [
+                {
+                    "path": framework,
+                    "machOBinaries": [f"{framework}/{Path(framework).stem}"],
+                }
+                for framework in audit_apple_application._IOS_FRAMEWORKS
+            ],
         }
         with mock.patch.object(
             audit_apple_application, "_run", return_value=""

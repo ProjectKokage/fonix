@@ -16,7 +16,7 @@ d3eaba29cb925137a845eb96ab092e2bad12540973416f3f257fbe69143439dd  ./docs/04-nati
 a74669e22db0188646733889166885fb7abbb52f3bcbac7ba327286b85dec796  ./docs/05-build-and-packaging.md
 e573d1317adfb6aadda10d8026250b11ced78b542e450cffd384c38373cd29be  ./docs/06-execution-providers.md
 7d549f8c56358970c3553c2df6b5300ff1b29926e992d58b214477b94b113fc5  ./docs/07-android-sherpa-onnx-coexistence.md
-461998acccd5202ce86dfd57d8f1588b2519f2e641d835c64cbd82ed62c408ed  ./docs/08-testing-benchmarking-and-ci.md
+204abdaaa7483a6107759f1c5b21115c260cd57452cee1e9f2c08a8a94076c96  ./docs/08-testing-benchmarking-and-ci.md
 18d5bc0037f4ee008b378594b665ccf8fa4858a183ba5ef99a1ea694cc6b53a6  ./docs/09-security-release-and-maintenance.md
 6d2f29b52d2a41295523f76f5d0552601ed7a0460f8bc91f69da8091db38c5ea  ./docs/10-implementation-plan.md
 7b7324e55a581cae8e094fe0d6163eca11706655b64f6a6e96ae76704e75cd92  ./docs/11-decisions-and-open-questions.md
@@ -369,7 +369,7 @@ e45d1b045cddd1c7f4ea48d7089710296b60556d423d2ccda1e014ce4f4e4901  ./tool/ci/andr
 fe30827abaa9c28ba815a981837c7cd140615ce404cc9ab6c6489187f4eb908d  ./tool/ci/android_static_package_manifest.py
 6e92143dce07062d5ae41abca70216c5bfbfa51fc849e21eaea5dd879a788659  ./tool/ci/apple/packaged_cpu_probe.c
 a9ece536ae1a5adfac6638756eeb55aeda589b5d8b40e667099f0de5a5f6d0a2  ./tool/ci/audit_android_application.py
-cb36b352127264fe93d32fd88263ff3aa2d861b4752da06c459701f0465f7410  ./tool/ci/audit_apple_application.py
+4db434d3ee37cce94fdff1b40fc5ec89bb59d3989698a8432ad05c555050277e  ./tool/ci/audit_apple_application.py
 cb3c8477355477f54a01992f090b0fcec06845b19fadcaf213c1720cda7794bd  ./tool/ci/audit_desktop_bundle.py
 e8739fcda788f2ce37f60959be14a7c2202154c93a9a2730564a1161e521ff7e  ./tool/ci/audit_linux_application.py
 1db838b524bb195d4387865818604e9a94a0dedff65e6068d4beff7dcfd317cb  ./tool/ci/bounded_process.py
@@ -399,7 +399,7 @@ a12ce5dec0f723dd3b985645f89dad421cdc465b91353496dd375dd9dd1479cf  ./tool/ci/test
 6dc6cff99ae5f52378d0dd0a1ede6fe92f50c683d2e922d216cbc5b773e04ae3  ./tool/ci/tests/test_android_reference_app_gate.py
 3b3f7c5153ffd550607959c7d3ef64042f17ef04168418fb715d5581260fba7d  ./tool/ci/tests/test_android_sherpa_reference_app_gate.py
 10ec6b101468dfcd39c5e0390d5899d64b92ed9cfb21f73a126a3a5b3ecefa6d  ./tool/ci/tests/test_android_static_package_manifest.py
-98c076b146ea29c3a9f1802d622df3869a7c853ff29a0e42bf9269a768dbbfff  ./tool/ci/tests/test_apple_application_audit.py
+00d291b3a5b3ef5c85feb3eeb66e5b62d8c06a8e06784a6f185ac8ad17a04012  ./tool/ci/tests/test_apple_application_audit.py
 962e89a537f879ebbb27f56579b7990eafc52256ee9879c9748cb5472a47fb9d  ./tool/ci/tests/test_benchmark_receipt.py
 589b0de9f73a43427bfb769293063a7527fb6b77d693b71ac48b2cc572219e73  ./tool/ci/tests/test_bounded_process.py
 5b6b4c9a2460f05c96da98c0ff455a15945d6bd04122a117e75c6db1aab9121b  ./tool/ci/tests/test_c_source_quality.py
