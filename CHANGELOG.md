@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Use `code_assets` 2, `hooks` 2.2, and `native_toolchain_c` 0.19.4 for
+  application build-hook compatibility; retain shim ABI 1, ORT API 27,
+  and the existing pinned runtime artifacts.
+
 - Removed the custom public-Dart-API snapshot, scoped release-approval bundle,
   repository source-checksum manifest, custom SBOM generator, and their schema
   and validation machinery. Ordinary analysis, tests, code review, licensing,
