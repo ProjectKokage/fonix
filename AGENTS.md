@@ -75,6 +75,10 @@ Report executed checks, ABI/runtime/platform impact and remaining evidence gaps.
 
 ## Delivery
 
+Branch names must not begin with `codex` (case-insensitive), including
+`codex/` and `codex-`. Rename tool-generated defaults before committing or
+pushing; use a descriptive name such as `docs-agent-guides`.
+
 Use a task branch and review the complete diff. Make the smallest complete fix;
 obtain approval for material scope or recorded product/release decision changes.
 Commit only task files; push or publish only when requested, and merge only with
