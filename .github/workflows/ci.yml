@@ -292,13 +292,11 @@ jobs:
           python -B tool/ci/check_macos_runtime.py
           --runtime "${{ steps.ort.outputs.ort_path }}"
           --lock native/versions.lock.yaml
-      - name: Resolve, analyze, and test Flutter against the verified cache
+      - name: Seed the pinned Flutter package cache for the offline gates
+        # The reference gate analyzes and tests an external copy, keeping
+        # native artifact staging outside the source repository.
         working-directory: example
-        run: |
-          ln -s "${{ steps.ort.outputs.ort_archive_dir }}" .fonix-artifact-cache
-          "$RUNNER_TEMP/flutter/bin/flutter" pub get --enforce-lockfile
-          "$RUNNER_TEMP/flutter/bin/flutter" analyze --no-pub --fatal-infos
-          "$RUNNER_TEMP/flutter/bin/flutter" test --no-pub
+        run: '"$RUNNER_TEMP/flutter/bin/flutter" pub get --enforce-lockfile'
       - name: Exercise the offline bundled build hook with the pinned archive
         env:
           FONIX_TEST_MACOS_ORT_ARCHIVE_DIR: ${{ steps.ort.outputs.ort_archive_dir }}
