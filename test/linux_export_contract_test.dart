@@ -52,6 +52,26 @@ void main() {
     expect(source, isNot(contains('-Wl,--version-script=')));
   });
 
+  test('GNU readelf column heading is not a dynamic symbol', () {
+    final output = StringBuffer(
+      '  Num:    Value          Size Type    Bind   Vis      Ndx Name\n'
+      '    0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND\n'
+      '    1: 0000000000000000     0 OBJECT  GLOBAL DEFAULT  ABS '
+      '$fonixElfExportVersion\n',
+    );
+    var index = 2;
+    for (final symbol in expectedExports) {
+      output.writeln(
+        '    ${index++}: 0000000000001000 12 FUNC GLOBAL DEFAULT 11 '
+        '$symbol@@$fonixElfExportVersion',
+      );
+    }
+    expect(
+      _definedGlobalDynamicSymbols(output.toString()).keys.toSet(),
+      expectedExports,
+    );
+  });
+
   test(
     'native Linux x64 hook emits only FONIX_DORT_1.0 exports',
     () async {
@@ -102,7 +122,7 @@ Map<String, String> _definedGlobalDynamicSymbols(String output) {
   var versionDefinitionCount = 0;
   for (final line in output.split('\n')) {
     final fields = line.trim().split(RegExp(r'\s+'));
-    if (fields.length < 8 || !fields.first.endsWith(':')) {
+    if (fields.length < 8 || !RegExp(r'^\d+:$').hasMatch(fields.first)) {
       continue;
     }
     final binding = fields[4];

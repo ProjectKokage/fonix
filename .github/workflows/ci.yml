@@ -123,6 +123,8 @@ jobs:
         run: python -B tool/ci/run_phase3_fixture_tests.py check
 
   native-linux-x64-asan:
+    env:
+      CC: clang-18
     name: Linux x64 full native CTest with ASan and UBSan
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -135,8 +137,8 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12.10"
-      - name: Install the selected Linux linker
-        run: sudo apt-get update && sudo apt-get install -y lld
+      - name: Install the Linux Clang and LLD toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18
       - name: Verify runner architecture
         run: test "$(uname -m)" = x86_64
       - name: Build, enumerate, and run the sanitizer suite
@@ -152,6 +154,8 @@ jobs:
           --build-dir "$RUNNER_TEMP/fonix-bundled-linux"
 
   native-linux-x64-tsan:
+    env:
+      CC: clang-18
     name: Linux x64 full native CTest with TSan
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -164,8 +168,8 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12.10"
-      - name: Install the selected Linux linker
-        run: sudo apt-get update && sudo apt-get install -y lld
+      - name: Install the Linux Clang and LLD toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18
       - name: Verify runner architecture
         run: test "$(uname -m)" = x86_64
       - name: Build, enumerate, and run the thread-sanitizer suite
@@ -254,10 +258,17 @@ jobs:
           git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
           git -C "$RUNNER_TEMP/flutter" fetch --depth=1 origin bd1e75d918605c91b411e8789fb911e6c9a84534
           git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/flutter" fetch --depth=1 origin refs/tags/3.47.0-0.1.pre:refs/tags/3.47.0-0.1.pre
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse refs/tags/3.47.0-0.1.pre)" = bd1e75d918605c91b411e8789fb911e6c9a84534
           "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics
           "$RUNNER_TEMP/flutter/bin/flutter" precache --macos
       - name: Resolve the committed dependency graph
         run: dart pub get --enforce-lockfile --no-example
+      - name: Verify the native macOS process-identity hook
+        run: >-
+          dart test test/build_hook_test.dart
+          --plain-name "build hook embeds the app-supplied exact macOS process identity"
+          --reporter expanded --concurrency 1
       - name: Resolve and analyze the Flutter reference application
         working-directory: example
         run: |

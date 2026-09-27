@@ -43,7 +43,7 @@ Generate deterministic inputs and CPU reference outputs. Store model and expecte
 Standalone Dart CI analyzes `bin`, `hook`, `lib`, `test`, and `tool` with both
 the minimum and stable SDKs. The pinned Flutter lane resolves, analyzes, and
 tests the reference example, then uses that populated dependency cache for
-the offline final-application gate. Linux native jobs install the selected
+the offline final-application gate. Linux native jobs select Clang 18 and its
 LLD linker; MSVC builds explicitly enable C11 atomics. The generated Phase-3
 JSON manifest retains LF bytes on Windows as well as POSIX hosts.
 

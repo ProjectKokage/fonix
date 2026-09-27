@@ -270,6 +270,14 @@ def verify_bindings(
     with tempfile.TemporaryDirectory(prefix="fonix-ffigen-check-") as temporary:
         temporary_root = Path(temporary)
         write_isolated_package_config(temporary_root, language_version)
+        # Invoke the resolved generator directly. `dart run` adds a pub launcher
+        # whose Linux teardown can leave a member of the owned process group.
+        # Keep the strict process-group check and the committed package graph.
+        entrypoint = temporary_root / "ffigen.dart"
+        entrypoint.write_text(
+            "export 'package:ffigen/src/executables/ffigen.dart';\n",
+            encoding="utf-8",
+        )
         for index, config_name in enumerate(config_names):
             config_path = (repository / config_name).resolve(strict=True)
             if repository not in config_path.parents:
@@ -304,8 +312,9 @@ def verify_bindings(
             _run_tool(
                 [
                     str(dart_executable),
-                    "run",
-                    "ffigen",
+                    "--disable-dart-dev",
+                    f"--packages={repository / '.dart_tool/package_config.json'}",
+                    str(entrypoint),
                     "--config",
                     str(temporary_config),
                     "--verbose",

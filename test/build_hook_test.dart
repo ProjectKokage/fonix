@@ -1034,6 +1034,7 @@ void main() {
         },
       );
     },
+    skip: !Platform.isMacOS ? 'Requires a native macOS arm64 host.' : false,
   );
 
   test(

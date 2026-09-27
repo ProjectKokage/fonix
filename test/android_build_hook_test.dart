@@ -118,6 +118,8 @@ void main() {
         );
       }
     },
+    // Two native cross-builds plus ELF audits exceed the unit-test default.
+    timeout: const Timeout(Duration(minutes: 2)),
   );
 
   test(
