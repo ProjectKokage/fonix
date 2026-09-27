@@ -269,6 +269,12 @@ _IOS_DEPENDENCY_METADATA_SHA256 = {
         ),
     },
 }
+# Explicit consumer qualification; the historical reference profile stays pinned.
+# See docs/evidence/2026-09-28-ios27-consumer.md for the SDK/linker comparison.
+_IOS27_CONSUMER_PROFILE = "consumer-ios27"
+_IOS27_SHIM_DEPENDENCY_METADATA_SHA256 = (
+    "9add32b23d4d1e7ad5fff4b9ebe35deadb6a3dd7b4bd684de17987e4ae55ac1b"
+)
 _IOS_LOAD_COMMAND_KINDS_SHA256 = {
     "ios-device": {
         "Runner": "ba8bbc9870babc79cfb548ad7f722371160c3fc4a2b9209d14eebe2728fa2c76",
@@ -1314,6 +1320,33 @@ def _ios_framework_owner(relative_path: str) -> str:
     return "application"
 
 
+def _require_ios27_shim_build(data: bytes, platform_number: int) -> None:
+    """Check the build command after _macho_slice_facts validates its bounds."""
+    command_count = struct.unpack_from("<I", data, 16)[0]
+    offset = 32
+    builds = []
+    for _ in range(command_count):
+        command, size = struct.unpack_from("<II", data, offset)
+        if command == 0x32:  # LC_BUILD_VERSION
+            builds.append(data[offset : offset + size])
+        offset += size
+    expected = struct.pack(
+        "<IIIIIIII",
+        0x32,
+        32,
+        platform_number,
+        0x0F0100,
+        0x1B0000,
+        1,
+        3,
+        0x699D0100,
+    )  # iOS 15.1 floor, SDK 27.0, LD 27037.1
+    if builds != [expected]:
+        raise AppleApplicationAuditError(
+            "iOS 27 consumer shim requires the exact SDK 27.0 / LD 27037.1 build"
+        )
+
+
 def _ios_native_profile(
     application: Path, platform: str, executable: str
 ) -> tuple[str, dict[str, dict[str, Any]], dict[str, str]]:
@@ -1557,14 +1590,18 @@ def _inventory_ios_application(
     profile_name, reference_binary_profile, rpath_aliases = _ios_native_profile(
         application, platform, executable
     )
-    if application_profile not in {"reference", "consumer"}:
+    if application_profile not in {"reference", "consumer", _IOS27_CONSUMER_PROFILE}:
         raise AppleApplicationAuditError("unsupported iOS application profile")
     if application_profile == "reference":
         binary_profile = reference_binary_profile
         binary_profile[executable]["minimumOs"] = maximum_os
     else:
-        profile_name = f"{platform}-consumer"
+        profile_name = f"{platform}-{application_profile}"
         binary_profile = reference_binary_profile
+        if application_profile == _IOS27_CONSUMER_PROFILE:
+            binary_profile[_IOS_SHIM_PATH]["dependencyMetadataSha256"] = (
+                _IOS27_SHIM_DEPENDENCY_METADATA_SHA256
+            )
     framework_paths: set[str] = set()
     macho_paths: list[Path] = []
     for parent, directories, files in _walk_application(
@@ -1627,7 +1664,7 @@ def _inventory_ios_application(
             "iOS app framework inventory is not closed; "
             f"expected={sorted(required_frameworks)}, actual={sorted(framework_paths)}"
         )
-    if application_profile == "consumer" and not required_frameworks.issubset(
+    if application_profile != "reference" and not required_frameworks.issubset(
         framework_paths
     ):
         raise AppleApplicationAuditError(
@@ -1646,7 +1683,7 @@ def _inventory_ios_application(
             "iOS app Mach-O inventory is not closed; "
             f"expected={sorted(required_macho_paths)}, actual={sorted(actual_macho_paths)}"
         )
-    if application_profile == "consumer" and not required_macho_paths.issubset(
+    if application_profile != "reference" and not required_macho_paths.issubset(
         actual_macho_paths
     ):
         raise AppleApplicationAuditError(
@@ -1676,11 +1713,13 @@ def _inventory_ios_application(
                 f"{relative}"
             )
         facts = _macho_slice_facts(slices[architecture], binary)
+        if application_profile == _IOS27_CONSUMER_PROFILE and relative == _IOS_SHIM_PATH:
+            _require_ios27_shim_build(slices[architecture], platform_number)
         expected_facts = binary_profile.get(relative)
         exact_facts_required = (
             application_profile == "reference" or relative == _IOS_SHIM_PATH
         )
-        if application_profile == "consumer" and relative == executable:
+        if application_profile != "reference" and relative == executable:
             if binary_floor != maximum_os:
                 raise AppleApplicationAuditError(
                     "iOS consumer Runner deployment floor differs from the "
@@ -4087,11 +4126,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--application-minimum-os", required=True)
     parser.add_argument(
         "--ios-application-profile",
-        choices=("reference", "consumer"),
+        choices=("reference", "consumer", _IOS27_CONSUMER_PROFILE),
         default="reference",
         help=(
             "reference keeps the exact Fonix sample-app inventory; consumer "
-            "audits every Mach-O while permitting additional app frameworks"
+            "audits every Mach-O while permitting additional app frameworks; "
+            "consumer-ios27 additionally selects the qualified SDK 27.0 shim"
         ),
     )
     parser.add_argument(

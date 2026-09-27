@@ -8,3 +8,6 @@ example/android/gradle/wrapper/gradle-wrapper.jar binary
 # Preserve exact generated/external CRLF bytes without text normalization.
 example/android/gradlew.bat binary
 example/assets/fonix/android-arm64-v8a/ThirdPartyNotices.txt binary
+
+# The generated manifest is compared byte-for-byte on every host.
+test/fixtures/phase3_manifest.json text eol=lf

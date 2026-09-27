@@ -33,6 +33,7 @@ def _macho_bytes(
     file_type: int = audit_apple_application._MACHO_EXECUTE_FILE_TYPE,
     header_flags: int = 0,
     extra_command_kinds: tuple[int, ...] = (),
+    build_version: tuple[int, int, int, int, int, int] | None = None,
 ) -> bytes:
     commands: list[bytes] = []
     if dylib_id is not None:
@@ -91,6 +92,8 @@ def _macho_bytes(
             + b"\0" * (command_size - 12 - len(encoded))
         )
     commands.extend(struct.pack("<II", command, 8) for command in extra_command_kinds)
+    if build_version is not None:
+        commands.append(struct.pack("<IIIIIIII", 0x32, 32, *build_version))
     if signed:
         signature_offset = 32 + sum(len(command) for command in commands) + 16
         commands.append(
@@ -1352,6 +1355,100 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
 
         with self.assertRaises(audit_apple_application.AppleApplicationAuditError):
             self._inventory(application, application_profile="consumer")
+
+    def test_ios27_consumer_requires_exact_dependency_and_build_metadata(self) -> None:
+        # Independently transcribed SDK 27.0 .tbd versions, in linked image order.
+        dependencies = (
+            (
+                0xC,
+                "/System/Library/Frameworks/Foundation.framework/Foundation",
+                329449541,
+                19660800,
+            ),
+            (0xC, "/System/Library/Frameworks/CoreML.framework/CoreML", 65536, 65536),
+            (0xC, "/usr/lib/libc++.1.dylib", 144186112, 65536),
+            (0xC, "/usr/lib/libSystem.B.dylib", 89063424, 65536),
+            (
+                0xC,
+                "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+                329449541,
+                9830400,
+            ),
+            (0xC, "/usr/lib/libobjc.A.dylib", 14942208, 65536),
+        )
+        build = (2, 0x0F0100, 0x1B0000, 1, 3, 0x699D0100)
+        shim = audit_apple_application._IOS_SHIM_PATH
+        with mock.patch.dict(
+            _SYNTHETIC_IOS_BINARY_OPTIONS[shim],
+            dependencies=dependencies,
+            build_version=build,
+        ):
+            temporary, application = _ios_application()
+            self.addCleanup(temporary.cleanup)
+            inventory = self._inventory(
+                application, application_profile="consumer-ios27"
+            )
+            self.assertEqual(inventory["profile"], "ios-device-consumer-ios27")
+            for index, value in (
+                (0, 7),
+                (1, 0x0F0000),
+                (2, 0x1A0500),
+                (3, 0),
+                (4, 1),
+                (5, 0x699D0200),
+            ):
+                changed = list(build)
+                changed[index] = value
+                (application / shim).write_bytes(
+                    _synthetic_ios_macho(shim, build_version=tuple(changed))
+                )
+                with (
+                    self.subTest(build=changed),
+                    self.assertRaisesRegex(
+                        audit_apple_application.AppleApplicationAuditError,
+                        "exact SDK 27.0",
+                    ),
+                ):
+                    self._inventory(application, application_profile="consumer-ios27")
+            for field in (0, 2, 3):
+                changed_dependency = list(dependencies[0])
+                changed_dependency[field] += 1
+                (application / shim).write_bytes(
+                    _synthetic_ios_macho(
+                        shim,
+                        dependencies=(tuple(changed_dependency), *dependencies[1:]),
+                    )
+                )
+                with (
+                    self.subTest(field=field),
+                    self.assertRaises(
+                        audit_apple_application.AppleApplicationAuditError,
+                    ),
+                ):
+                    self._inventory(application, application_profile="consumer-ios27")
+
+    def test_ios27_profile_does_not_change_historical_reference(self) -> None:
+        for platform in ("ios-device", "ios-simulator"):
+            _, binaries, _ = audit_apple_application._ios_native_profile(
+                Path("/tmp/Runner.app"),
+                platform,
+                "Runner",
+            )
+            self.assertEqual(
+                binaries[audit_apple_application._IOS_SHIM_PATH][
+                    "dependencyMetadataSha256"
+                ],
+                "e9c4efc18cfe527272d6d4fdc4c0cee3518fae23cf4650ab8903a69b274abee1",
+            )
+
+    def test_ios27_consumer_rejects_unqualified_shim(self) -> None:
+        temporary, application = _ios_application()
+        self.addCleanup(temporary.cleanup)
+        with self.assertRaisesRegex(
+            audit_apple_application.AppleApplicationAuditError,
+            "exact SDK 27.0",
+        ):
+            self._inventory(application, application_profile="consumer-ios27")
 
     def test_rejects_missing_or_extra_macho(self) -> None:
         for mutation in ("missing", "extra"):

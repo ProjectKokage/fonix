@@ -48,6 +48,7 @@ if(APPLE)
     fonix_bundled_fake_ort PROPERTIES OUTPUT_NAME "onnxruntime.1"
   )
 elseif(WIN32)
+  target_sources(fonix_bundled_fake_ort PRIVATE fake_ort.def)
   set_target_properties(
     fonix_bundled_fake_ort PROPERTIES OUTPUT_NAME "onnxruntime" PREFIX ""
   )

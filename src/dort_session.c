@@ -2618,12 +2618,11 @@ static dort_status_t* dort_append_recursive_type_info(
     ONNXTensorElementDataType element_type =
         ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
     int64_t dimensions[DORT_MAX_TENSOR_RANK];
-    const char* symbolic[DORT_MAX_TENSOR_RANK];
+    const char* symbolic[DORT_MAX_TENSOR_RANK] = {NULL};
     size_t dimension_count = 0u;
     size_t index = 0u;
     int has_shape = 0;
     memset(dimensions, 0, sizeof(dimensions));
-    memset(symbolic, 0, sizeof(symbolic));
     ort_status = api->CastTypeInfoToTensorInfo(type_info, &tensor_info);
     if (ort_status == NULL && tensor_info == NULL) {
       return dort_status_create(
@@ -3143,13 +3142,12 @@ static dort_status_t* dort_append_io_metadata(
     ONNXType onnx_type = ONNX_TYPE_UNKNOWN;
     ONNXTensorElementDataType element_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
     int64_t dimensions[DORT_MAX_TENSOR_RANK];
-    const char* symbolic[DORT_MAX_TENSOR_RANK];
+    const char* symbolic[DORT_MAX_TENSOR_RANK] = {NULL};
     size_t dimension_count = 0u;
     size_t dimension_index = 0u;
     int validation = DORT_ERROR_NONE;
     int has_shape = 0;
     memset(dimensions, 0, sizeof(dimensions));
-    memset(symbolic, 0, sizeof(symbolic));
     ort_status = is_input
                      ? api->SessionGetInputTypeInfo(
                            session->session, index, &type_info)

@@ -52,6 +52,26 @@ void main() {
     expect(source, isNot(contains('-Wl,--version-script=')));
   });
 
+  test('GNU readelf column heading is not a dynamic symbol', () {
+    final output = StringBuffer(
+      '  Num:    Value          Size Type    Bind   Vis      Ndx Name\n'
+      '    0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND\n'
+      '    1: 0000000000000000     0 OBJECT  GLOBAL DEFAULT  ABS '
+      '$fonixElfExportVersion\n',
+    );
+    var index = 2;
+    for (final symbol in expectedExports) {
+      output.writeln(
+        '    ${index++}: 0000000000001000 12 FUNC GLOBAL DEFAULT 11 '
+        '$symbol@@$fonixElfExportVersion',
+      );
+    }
+    expect(
+      _definedGlobalDynamicSymbols(output.toString()).keys.toSet(),
+      expectedExports,
+    );
+  });
+
   test(
     'native Linux x64 hook emits only FONIX_DORT_1.0 exports',
     () async {
@@ -78,6 +98,20 @@ void main() {
             shim.path,
           ]);
           expect(result.exitCode, 0, reason: '${result.stderr}');
+          final versions = Process.runSync(readelf, <String>[
+            '--wide',
+            '--version-info',
+            shim.path,
+          ]);
+          expect(versions.exitCode, 0, reason: '${versions.stderr}');
+          expect(
+            RegExp(
+              r'Flags: none\s+Index:\s*2\s+Cnt:\s*1\s+Name: '
+              r'FONIX_DORT_1\.0\b',
+            ).allMatches('${versions.stdout}'),
+            hasLength(1),
+            reason: 'the ELF version-definition table must own the ABI version',
+          );
           final exports = _definedGlobalDynamicSymbols('${result.stdout}');
           expect(exports.keys.toSet(), expectedExports);
           expect(exports.values.toSet(), <String>{fonixElfExportVersion});
@@ -102,7 +136,7 @@ Map<String, String> _definedGlobalDynamicSymbols(String output) {
   var versionDefinitionCount = 0;
   for (final line in output.split('\n')) {
     final fields = line.trim().split(RegExp(r'\s+'));
-    if (fields.length < 8 || !fields.first.endsWith(':')) {
+    if (fields.length < 8 || !RegExp(r'^\d+:$').hasMatch(fields.first)) {
       continue;
     }
     final binding = fields[4];
@@ -124,7 +158,9 @@ Map<String, String> _definedGlobalDynamicSymbols(String output) {
     expect(exports, isNot(contains(symbol)), reason: 'duplicate: $symbol');
     exports[symbol] = version;
   }
-  expect(versionDefinitionCount, 1);
+  // GNU ld exports an ABS alias for a version; LLD records it only in the
+  // version-definition table, which the native check validates separately.
+  expect(versionDefinitionCount, lessThanOrEqualTo(1));
   return exports;
 }
 

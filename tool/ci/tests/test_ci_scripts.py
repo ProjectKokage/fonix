@@ -440,8 +440,91 @@ compiler-opts:
                 generated_output=Path.cwd() / "generated.dart",
             )
 
+    def test_explicit_libclang_stays_in_the_isolated_configuration(self) -> None:
+        source = (REPOSITORY / "ffigen.native_assets.yaml").read_text()
+        with tempfile.TemporaryDirectory() as temporary:
+            library = Path(temporary).resolve() / "clang library.so"
+            library.touch()
+            arguments = {
+                "repository": REPOSITORY,
+                "generated_output": Path(temporary) / "bindings.dart",
+                "libclang": library,
+            }
+            transformed, _ = verify_bindings.isolated_config(source, **arguments)
+            self.assertIn(f"llvm-path:\n  - {json.dumps(str(library))}", transformed)
+            self.assertEqual(
+                (REPOSITORY / "ffigen.native_assets.yaml").read_text(), source
+            )
+            with self.assertRaisesRegex(
+                verify_bindings.BindingVerificationError, "configured llvm-path"
+            ):
+                verify_bindings.isolated_config(
+                    source + "\nllvm-path:\n  - /reviewed/libclang.so\n", **arguments
+                )
+            library.unlink()
+            with self.assertRaisesRegex(
+                verify_bindings.BindingVerificationError, "existing absolute"
+            ):
+                verify_bindings.isolated_config(source, **arguments)
+
+
+class DumpbinDecorationTest(unittest.TestCase):
+    def test_msvc_local_export_annotations_preserve_exact_symbols(self) -> None:
+        for suffix in ("", " = dort_abi_version", " = @ILT+123(dort_abi_version)"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(
+                    check_windows_binary.parse_dumpbin_exports(
+                        "    1  0 00001000 dort_abi_version" + suffix
+                    ),
+                    frozenset({"dort_abi_version"}),
+                )
+        for suffix in (" = other", " = library.dort_abi_version", " = @ILT+123(other)"):
+            with self.subTest(suffix=suffix):
+                with self.assertRaises(check_windows_binary.WindowsBinaryError):
+                    check_windows_binary.parse_dumpbin_exports(
+                        "    1  0 00001000 dort_abi_version" + suffix
+                    )
+
 
 class NativeRunnerTest(unittest.TestCase):
+    def test_built_shim_ignores_test_copies_but_rejects_ambiguous_target(self) -> None:
+        for suite in ("posix", "windows-contract", "bundled"):
+            for system, library in (
+                ("Darwin", "libfonix_shim.dylib"),
+                ("Linux", "libfonix_shim.so"),
+                ("Windows", "fonix_shim.dll"),
+            ):
+                with (
+                    self.subTest(system=system, suite=suite),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    root = Path(temporary)
+                    target = root / (
+                        "bundle" if suite == "bundled" else "fonix_shim_build"
+                    )
+                    target.mkdir()
+                    fixture = root / "fake"
+                    fixture.mkdir()
+                    (fixture / library).write_bytes(b"test copy")
+                    with self.assertRaises(run_native_tests.NativeTestError):
+                        run_native_tests._find_built_shim(root, system, suite)
+                    output = target / library
+                    output.write_bytes(b"target")
+                    self.assertEqual(
+                        run_native_tests._find_built_shim(root, system, suite),
+                        output.resolve(),
+                    )
+                    config = target / "RelWithDebInfo"
+                    config.mkdir()
+                    (config / library).write_bytes(b"second target")
+                    with self.assertRaises(run_native_tests.NativeTestError):
+                        run_native_tests._find_built_shim(root, system, suite)
+                    output.unlink()
+                    self.assertEqual(
+                        run_native_tests._find_built_shim(root, system, suite),
+                        (config / library).resolve(),
+                    )
+
     def test_posix_commands_and_inventory_use_shared_process_bounds(self) -> None:
         cwd = Path("/tmp/fonix-native-bound-test")
         environment = {"LC_ALL": "C"}

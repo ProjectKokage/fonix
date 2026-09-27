@@ -32,7 +32,7 @@ target_include_directories(
 )
 target_link_libraries(fonix_windows_contract_test PRIVATE fonix_shim)
 if(MSVC)
-  target_compile_options(fonix_windows_contract_test PRIVATE /W4 /WX /utf-8)
+  target_compile_options(fonix_windows_contract_test PRIVATE /W4 /WX /utf-8 /experimental:c11atomics)
 else()
   message(FATAL_ERROR "The Windows CI contract currently requires MSVC")
 endif()
@@ -78,7 +78,7 @@ target_compile_definitions(
 target_link_libraries(fonix_windows_path_security_test PRIVATE bcrypt advapi32)
 if(MSVC)
   target_compile_options(
-    fonix_windows_path_security_test PRIVATE /W4 /WX /utf-8
+    fonix_windows_path_security_test PRIVATE /W4 /WX /utf-8 /experimental:c11atomics
   )
 else()
   message(FATAL_ERROR "The Windows path security test currently requires MSVC")
@@ -119,7 +119,7 @@ target_link_libraries(
 )
 if(MSVC)
   target_compile_options(
-    fonix_windows_profile_security_test PRIVATE /W4 /WX /utf-8
+    fonix_windows_profile_security_test PRIVATE /W4 /WX /utf-8 /experimental:c11atomics
   )
 else()
   message(FATAL_ERROR "The Windows profile security test currently requires MSVC")

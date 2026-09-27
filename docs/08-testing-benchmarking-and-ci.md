@@ -40,6 +40,13 @@ Generate deterministic inputs and CPU reference outputs. Store model and expecte
 
 ## 8.3 Dart unit tests
 
+Standalone Dart CI analyzes `bin`, `hook`, `lib`, `test`, and `tool` with both
+the minimum and stable SDKs. The pinned Flutter lane resolves, analyzes, and
+tests the reference example, then uses that populated dependency cache for
+the offline final-application gate. Linux native jobs select Clang 18 and its
+LLD linker; MSVC builds explicitly enable C11 atomics. The generated Phase-3
+JSON manifest retains LF bytes on Windows as well as POSIX hosts.
+
 Cover:
 
 - option validation and normalization;
@@ -223,6 +230,12 @@ consumer app with additional native frameworks selects
 Mach-O and signature, requires the declared, plist, Runner, hook, and packaged
 Fonix identities to agree, and rejects a separately packaged or dynamically
 linked ONNX Runtime.
+
+For the separately qualified SDK 27.0 shim, select `consumer-ios27` explicitly.
+Its [qualification and limits](evidence/2026-09-28-ios27-consumer.md) include
+the exact SDK/linker metadata, strict Simulator audit and CPU receipt, and
+static-only unsigned consumer device audit. It does not update or relax the
+historical reference gate's toolchain pins.
 
 The same job separately invokes
 `tool/ci/run_macos_reference_app_gate.py` for the committed `example/` source.
@@ -559,6 +572,11 @@ and the explicit non-POSIX contract.
 Binding regeneration uses 15-minute generation and five-minute formatting
 deadlines with 16 MiB per stream. Its POSIX environment removes every
 `DYLD_*` and `LD_*` key, selects the `C` locale, and suppresses tool analytics.
+The Linux binding job supplies its installed libclang 18 library explicitly
+and formats the generated file in a separate owned command. This avoids
+ffigen's `ldconfig` subprocess discovery and nested formatter; the direct
+generator still uses the committed package graph and the unchanged strict
+process-group settlement check.
 POSIX desktop `objdump` uses a 30-second, 1 MiB combined report boundary and a
 minimal `C`-locale environment. The macOS runtime checker bounds inspection,
 compilation, and provider execution at two, five, and two minutes with 8 MiB

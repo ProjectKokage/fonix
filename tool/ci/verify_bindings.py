@@ -190,6 +190,7 @@ def isolated_config(
     *,
     repository: Path,
     generated_output: Path,
+    libclang: Path | None = None,
 ) -> tuple[str, Path]:
     """Return an absolute-input config and its committed output path."""
 
@@ -229,6 +230,16 @@ def isolated_config(
         ),
         "compiler include for ONNX Runtime",
     )
+    if libclang is not None:
+        if not libclang.is_absolute() or not libclang.is_file():
+            raise BindingVerificationError(
+                "libclang must be an existing absolute library file"
+            )
+        if re.search(r"^llvm-path:", source, flags=re.MULTILINE):
+            raise BindingVerificationError(
+                "an explicit libclang cannot replace a configured llvm-path"
+            )
+        transformed += f"\nllvm-path:\n  - {_yaml_string(libclang)}\n"
     return transformed, committed_output
 
 
@@ -259,6 +270,7 @@ def verify_bindings(
     config_names: tuple[str, ...] = DEFAULT_CONFIGS,
     *,
     dart: str = "dart",
+    libclang: Path | None = None,
 ) -> None:
     repository = repository.resolve(strict=True)
     dart_executable = shutil.which(dart) if not Path(dart).is_absolute() else dart
@@ -270,6 +282,14 @@ def verify_bindings(
     with tempfile.TemporaryDirectory(prefix="fonix-ffigen-check-") as temporary:
         temporary_root = Path(temporary)
         write_isolated_package_config(temporary_root, language_version)
+        # Invoke the resolved generator directly. `dart run` adds a pub launcher
+        # whose Linux teardown can leave a member of the owned process group.
+        # Keep the strict process-group check and the committed package graph.
+        entrypoint = temporary_root / "ffigen.dart"
+        entrypoint.write_text(
+            "export 'package:ffigen/src/executables/ffigen.dart';\n",
+            encoding="utf-8",
+        )
         for index, config_name in enumerate(config_names):
             config_path = (repository / config_name).resolve(strict=True)
             if repository not in config_path.parents:
@@ -285,6 +305,7 @@ def verify_bindings(
                 source,
                 repository=repository,
                 generated_output=generated_output,
+                libclang=libclang,
             )
             generated_output.parent.mkdir(parents=True, exist_ok=True)
             if not committed_output.is_file():
@@ -304,8 +325,10 @@ def verify_bindings(
             _run_tool(
                 [
                     str(dart_executable),
-                    "run",
-                    "ffigen",
+                    "--disable-dart-dev",
+                    f"--packages={repository / '.dart_tool/package_config.json'}",
+                    str(entrypoint),
+                    "--no-format",
                     "--config",
                     str(temporary_config),
                     "--verbose",
@@ -352,6 +375,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Fonix repository root (defaults to the script's checkout)",
     )
     parser.add_argument(
+        "--libclang",
+        type=Path,
+        help="Absolute libclang library file; avoids generator subprocess discovery",
+    )
+    parser.add_argument(
         "--dart",
         default="dart",
         help="Dart executable name or absolute path",
@@ -362,7 +390,9 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        verify_bindings(arguments.repository, dart=arguments.dart)
+        verify_bindings(
+            arguments.repository, dart=arguments.dart, libclang=arguments.libclang
+        )
     except (BindingVerificationError, OSError) as error:
         print(f"binding verification failed: {error}", file=sys.stderr)
         return 1

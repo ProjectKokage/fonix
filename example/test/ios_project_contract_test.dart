@@ -402,7 +402,7 @@ void main() {
     );
     expect(
       sha256.convert(utf8.encode('$phaseBlock\n')).toString(),
-      '9307eae6d1a0b83d2ed30d00b9b04f00be5be1e1b17cdb371acc3760e0fef3c6',
+      'f51a769236a74db17e58358b343fe894bd3b5392b28077b35194d4ccc3867955',
     );
   });
 

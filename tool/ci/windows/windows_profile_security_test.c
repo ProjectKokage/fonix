@@ -87,7 +87,7 @@ static int fonix_has_protected_dacl(HANDLE handle) {
   DWORD owner_rights_sid_size = (DWORD)sizeof(owner_rights_sid);
   PSECURITY_DESCRIPTOR descriptor = NULL;
   PACL dacl = NULL;
-  ACL_SIZE_INFORMATION acl_information;
+  ACL_SIZE_INFORMATION acl_information = {0};
   BOOL dacl_present = FALSE;
   BOOL dacl_defaulted = TRUE;
   SECURITY_DESCRIPTOR_CONTROL control = 0u;
@@ -428,7 +428,7 @@ static int fonix_test_success(const wchar_t* root) {
   memset(&output, 0, sizeof(output));
   output.struct_size = (uint32_t)sizeof(output);
   if (!fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", path,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", path,
                           sizeof(path) / sizeof(path[0])) ||
       !fonix_write_file(path, profile_bytes, (DWORD)sizeof(profile_bytes))) {
     fprintf(stderr, "could not create the valid profile fixture\n");
@@ -462,7 +462,7 @@ static int fonix_test_extra_file(const wchar_t* root) {
   int success = 0;
   memset(&fixture, 0, sizeof(fixture));
   if (!fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", expected,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
                           sizeof(expected) / sizeof(expected[0])) ||
       !fonix_join_path(fixture.directory, L"unexpected.tmp", extra,
                        sizeof(extra) / sizeof(extra[0])) ||
@@ -484,7 +484,7 @@ static int fonix_test_expected_directory(const wchar_t* root) {
   int success = 0;
   memset(&fixture, 0, sizeof(fixture));
   if (!fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", expected,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
                           sizeof(expected) / sizeof(expected[0])) ||
       !CreateDirectoryW(expected, NULL)) {
     fprintf(stderr, "could not create the directory-entry fixture\n");
@@ -504,7 +504,7 @@ static int fonix_test_partial_name(const wchar_t* root) {
   int success = 0;
   memset(&fixture, 0, sizeof(fixture));
   if (!fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json.partial", partial,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json.partial", partial,
                           sizeof(partial) / sizeof(partial[0])) ||
       !fonix_write_file(partial, bytes, (DWORD)sizeof(bytes))) {
     fprintf(stderr, "could not create the partial-name fixture\n");
@@ -523,7 +523,7 @@ static int fonix_test_empty_file(const wchar_t* root) {
   int success = 0;
   memset(&fixture, 0, sizeof(fixture));
   if (!fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", expected,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
                           sizeof(expected) / sizeof(expected[0])) ||
       !fonix_write_file(expected, NULL, 0u)) {
     fprintf(stderr, "could not create the empty profile fixture\n");
@@ -542,7 +542,7 @@ static int fonix_test_oversize_file(const wchar_t* root) {
   int success = 0;
   memset(&fixture, 0, sizeof(fixture));
   if (!fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", expected,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
                           sizeof(expected) / sizeof(expected[0])) ||
       !fonix_create_sized_file(
           expected, (uint64_t)DORT_MAX_PROVIDER_PROFILE_BYTES + 1u)) {
@@ -566,10 +566,31 @@ static int fonix_test_hard_link(const wchar_t* root,
   DeleteFileW(outside_file);
   if (!fonix_write_file(outside_file, bytes, (DWORD)sizeof(bytes)) ||
       !fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", expected,
-                          sizeof(expected) / sizeof(expected[0])) ||
-      !CreateHardLinkW(expected, outside_file, NULL)) {
-    fprintf(stderr, "could not create the hard-link profile fixture\n");
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
+                          sizeof(expected) / sizeof(expected[0]))) {
+    fprintf(stderr, "could not prepare the hard-link profile fixture\n");
+    goto cleanup;
+  }
+  /* The retained DELETE handle intentionally prevents CreateHardLinkW's
+   * incompatible directory open. Inject the fixture before retaining that
+   * handle again, so the reader must still reject a multiply linked file. */
+  if (!CloseHandle(fixture.directory_handle)) {
+    fprintf(stderr, "could not release the hard-link fixture handle\n");
+    goto cleanup;
+  }
+  fixture.directory_handle = NULL;
+  if (!CreateHardLinkW(expected, outside_file, NULL)) {
+    fprintf(stderr, "could not create the hard-link profile fixture (error %lu)\n",
+            (unsigned long)GetLastError());
+    goto cleanup;
+  }
+  fixture.directory_handle = CreateFileW(
+      fixture.directory, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | DELETE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (fixture.directory_handle == INVALID_HANDLE_VALUE) {
+    fixture.directory_handle = NULL;
+    fprintf(stderr, "could not retain the hard-link fixture directory\n");
     goto cleanup;
   }
   success = fonix_expect_finish_failure(&fixture, "hard-link profile file");
@@ -594,7 +615,7 @@ static int fonix_test_junction(const wchar_t* root,
   memset(&fixture, 0, sizeof(fixture));
   if (!fonix_write_file(outside_sentinel, bytes, (DWORD)sizeof(bytes)) ||
       !fonix_prepare_fixture(root, &fixture) ||
-      !fonix_profile_path(fixture.prefix, L"_123.json", expected,
+      !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
                           sizeof(expected) / sizeof(expected[0])) ||
       !fonix_create_junction(expected, outside_directory)) {
     fprintf(stderr, "could not create the junction profile fixture\n");

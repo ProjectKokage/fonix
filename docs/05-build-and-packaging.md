@@ -288,6 +288,13 @@ Do not label a reduced build as a general ONNX Runtime package.
 
 ## 5.8 iOS packaging
 
+Consumers built with Xcode 27.0 / SDK 27.0 can explicitly select
+`--ios-application-profile consumer-ios27`. It retains all consumer checks and
+requires the exact qualified shim SDK/linker and dependency metadata. The
+[September 28 qualification](evidence/2026-09-28-ios27-consumer.md) records the
+unsigned device audit and generated CPU Simulator result. The historical
+reference gate and the default profiles below keep their original pins.
+
 Preferred architecture:
 
 - build/package ORT and the shim as a correctly signed static framework/XCFramework or equivalent build-hook code assets accepted by Flutter/iOS tooling;
