@@ -75,9 +75,9 @@ jobs:
         run: >-
           strace -f -e trace=process -o "$RUNNER_TEMP/binding-processes.log"
           python -B tool/ci/verify_bindings.py
-      - name: Show failed generator process lifecycle
-        if: failure()
-        run: tail -200 "$RUNNER_TEMP/binding-processes.log"
+      - name: Show generator process lifecycle
+        if: always()
+        run: tail -300 "$RUNNER_TEMP/binding-processes.log"
 
 
   python-verifiers:

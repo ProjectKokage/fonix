@@ -183,6 +183,11 @@ int main(int argc, char** argv) {
   if (preload != NULL) {
     dlclose(preload);
   }
-  dlclose(shim);
+  /* A successful open installs the documented process-lifetime identity
+   * registry. Keep its owning shim mapped as Dart does; unloading the shim
+   * would orphan that registry while retaining the runtime library. */
+  if (!expect_success) {
+    dlclose(shim);
+  }
   return 0;
 }
