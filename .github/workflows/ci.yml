@@ -125,6 +125,7 @@ jobs:
   native-linux-x64-asan:
     env:
       CC: clang-18
+      CXX: clang++-18
     name: Linux x64 full native CTest with ASan and UBSan
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -156,6 +157,7 @@ jobs:
   native-linux-x64-tsan:
     env:
       CC: clang-18
+      CXX: clang++-18
     name: Linux x64 full native CTest with TSan
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -269,11 +271,6 @@ jobs:
           dart test test/build_hook_test.dart
           --plain-name "build hook embeds the app-supplied exact macOS process identity"
           --reporter expanded --concurrency 1
-      - name: Resolve and analyze the Flutter reference application
-        working-directory: example
-        run: |
-          "$RUNNER_TEMP/flutter/bin/flutter" pub get --enforce-lockfile
-          "$RUNNER_TEMP/flutter/bin/flutter" analyze --no-pub --fatal-infos
       - name: Download and verify only the lock-pinned ORT archive
         id: ort
         run: >-
@@ -287,10 +284,12 @@ jobs:
           python -B tool/ci/check_macos_runtime.py
           --runtime "${{ steps.ort.outputs.ort_path }}"
           --lock native/versions.lock.yaml
-      - name: Test the Flutter reference application against the verified cache
+      - name: Resolve, analyze, and test Flutter against the verified cache
         working-directory: example
         run: |
           ln -s "${{ steps.ort.outputs.ort_archive_dir }}" .fonix-artifact-cache
+          "$RUNNER_TEMP/flutter/bin/flutter" pub get --enforce-lockfile
+          "$RUNNER_TEMP/flutter/bin/flutter" analyze --no-pub --fatal-infos
           "$RUNNER_TEMP/flutter/bin/flutter" test --no-pub
       - name: Exercise the offline bundled build hook with the pinned archive
         env:

@@ -98,6 +98,20 @@ void main() {
             shim.path,
           ]);
           expect(result.exitCode, 0, reason: '${result.stderr}');
+          final versions = Process.runSync(readelf, <String>[
+            '--wide',
+            '--version-info',
+            shim.path,
+          ]);
+          expect(versions.exitCode, 0, reason: '${versions.stderr}');
+          expect(
+            RegExp(
+              r'Flags: none\s+Index:\s*2\s+Cnt:\s*1\s+Name: '
+              r'FONIX_DORT_1\.0\b',
+            ).allMatches('${versions.stdout}'),
+            hasLength(1),
+            reason: 'the ELF version-definition table must own the ABI version',
+          );
           final exports = _definedGlobalDynamicSymbols('${result.stdout}');
           expect(exports.keys.toSet(), expectedExports);
           expect(exports.values.toSet(), <String>{fonixElfExportVersion});
@@ -144,7 +158,9 @@ Map<String, String> _definedGlobalDynamicSymbols(String output) {
     expect(exports, isNot(contains(symbol)), reason: 'duplicate: $symbol');
     exports[symbol] = version;
   }
-  expect(versionDefinitionCount, 1);
+  // GNU ld exports an ABS alias for a version; LLD records it only in the
+  // version-definition table, which the native check validates separately.
+  expect(versionDefinitionCount, lessThanOrEqualTo(1));
   return exports;
 }
 
