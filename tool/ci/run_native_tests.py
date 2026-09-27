@@ -313,7 +313,9 @@ def _find_built_shim(build_directory: Path, system: str) -> Path:
     if library_name is None:
         raise NativeTestError(f"cannot identify a shim binary on {system}")
     candidates = []
-    for candidate in build_directory.rglob(library_name):
+    # CTests deliberately copy shims into hostile/relocation fixtures. Only the
+    # owning CMake target directory is an output, including multi-config builds.
+    for candidate in (build_directory / "fonix_shim_build").rglob(library_name):
         try:
             mode = candidate.lstat().st_mode
         except FileNotFoundError:

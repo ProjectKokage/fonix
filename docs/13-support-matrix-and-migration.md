@@ -41,6 +41,12 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 macOS x86_64, Windows arm64, Android armeabi-v7a, and every unlisted tuple
 have no locked baseline artifact and are not supported by this snapshot.
 
+The [September 28 SDK 27.0 consumer qualification](evidence/2026-09-28-ios27-consumer.md)
+adds a strict arm64 iOS 27.0 Simulator CPU receipt and an unsigned Kokage
+arm64 device package audit through the explicit `consumer-ios27` profile.
+The device result remains static-only; the historical reference profile and
+physical-device, provider, performance, and distribution gaps remain unchanged.
+
 ## 13.3 Execution-provider matrix
 
 | Provider | Configuration path | Highest current evidence | Qualification boundary |

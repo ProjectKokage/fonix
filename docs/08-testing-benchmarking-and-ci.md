@@ -224,6 +224,12 @@ Mach-O and signature, requires the declared, plist, Runner, hook, and packaged
 Fonix identities to agree, and rejects a separately packaged or dynamically
 linked ONNX Runtime.
 
+For the separately qualified SDK 27.0 shim, select `consumer-ios27` explicitly.
+Its [qualification and limits](evidence/2026-09-28-ios27-consumer.md) include
+the exact SDK/linker metadata, strict Simulator audit and CPU receipt, and
+static-only unsigned consumer device audit. It does not update or relax the
+historical reference gate's toolchain pins.
+
 The same job separately invokes
 `tool/ci/run_macos_reference_app_gate.py` for the committed `example/` source.
 That gate copies the template outside the package checkout, verifies the exact
