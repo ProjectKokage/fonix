@@ -567,10 +567,30 @@ static int fonix_test_hard_link(const wchar_t* root,
   if (!fonix_write_file(outside_file, bytes, (DWORD)sizeof(bytes)) ||
       !fonix_prepare_fixture(root, &fixture) ||
       !fonix_profile_path(fixture.prefix, L"_2026-09-28_01-00-00_000.json", expected,
-                          sizeof(expected) / sizeof(expected[0])) ||
-      !CreateHardLinkW(expected, outside_file, NULL)) {
+                          sizeof(expected) / sizeof(expected[0]))) {
+    fprintf(stderr, "could not prepare the hard-link profile fixture\n");
+    goto cleanup;
+  }
+  /* The retained DELETE handle intentionally prevents CreateHardLinkW's
+   * incompatible directory open. Inject the fixture before retaining that
+   * handle again, so the reader must still reject a multiply linked file. */
+  if (!CloseHandle(fixture.directory_handle)) {
+    fprintf(stderr, "could not release the hard-link fixture handle\n");
+    goto cleanup;
+  }
+  fixture.directory_handle = NULL;
+  if (!CreateHardLinkW(expected, outside_file, NULL)) {
     fprintf(stderr, "could not create the hard-link profile fixture (error %lu)\n",
             (unsigned long)GetLastError());
+    goto cleanup;
+  }
+  fixture.directory_handle = CreateFileW(
+      fixture.directory, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | DELETE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (fixture.directory_handle == INVALID_HANDLE_VALUE) {
+    fixture.directory_handle = NULL;
+    fprintf(stderr, "could not retain the hard-link fixture directory\n");
     goto cleanup;
   }
   success = fonix_expect_finish_failure(&fixture, "hard-link profile file");

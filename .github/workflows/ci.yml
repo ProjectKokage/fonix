@@ -69,8 +69,16 @@ jobs:
         run: >-
           python -B tool/ci/verify_native_c_abi_baseline.py
           --repository .
+      - name: Install process diagnostics
+        run: sudo apt-get update && sudo apt-get install -y strace
       - name: Compare isolated ffigen outputs
-        run: python -B tool/ci/verify_bindings.py
+        run: >-
+          strace -f -e trace=process -o "$RUNNER_TEMP/binding-processes.log"
+          python -B tool/ci/verify_bindings.py
+      - name: Show failed generator process lifecycle
+        if: failure()
+        run: tail -200 "$RUNNER_TEMP/binding-processes.log"
+
 
   python-verifiers:
     name: Python CI and Android verifier tests
