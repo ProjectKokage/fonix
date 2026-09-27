@@ -158,6 +158,7 @@ def _run(
                 maximum_stderr_bytes=MAX_COMMAND_OUTPUT_BYTES,
             )
         except BoundedProcessError as error:
+            _emit_output(CommandOutput(error.stdout or "", error.stderr or ""))
             raise NativeTestError(str(error)) from error
         _emit_output(output)
         return
@@ -304,7 +305,7 @@ def thread_sanitizer_environment(
     return environment
 
 
-def _find_built_shim(build_directory: Path, system: str) -> Path:
+def _find_built_shim(build_directory: Path, system: str, suite: str) -> Path:
     library_name = {
         "Darwin": "libfonix_shim.dylib",
         "Linux": "libfonix_shim.so",
@@ -315,7 +316,8 @@ def _find_built_shim(build_directory: Path, system: str) -> Path:
     candidates = []
     # CTests deliberately copy shims into hostile/relocation fixtures. Only the
     # owning CMake target directory is an output, including multi-config builds.
-    for candidate in (build_directory / "fonix_shim_build").rglob(library_name):
+    output_directory = "bundle" if suite == "bundled" else "fonix_shim_build"
+    for candidate in (build_directory / output_directory).rglob(library_name):
         try:
             mode = candidate.lstat().st_mode
         except FileNotFoundError:
@@ -452,7 +454,7 @@ def run_native_tests(
         timeout_seconds=CTEST_SUITE_TIMEOUT_SECONDS,
     )
 
-    shim = _find_built_shim(build_directory, host_system)
+    shim = _find_built_shim(build_directory, host_system, suite)
     print(
         f"Ran {len(discovered)} non-empty {suite} CTests; built shim: {shim}",
         flush=True,

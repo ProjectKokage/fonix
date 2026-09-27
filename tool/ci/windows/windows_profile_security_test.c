@@ -87,7 +87,7 @@ static int fonix_has_protected_dacl(HANDLE handle) {
   DWORD owner_rights_sid_size = (DWORD)sizeof(owner_rights_sid);
   PSECURITY_DESCRIPTOR descriptor = NULL;
   PACL dacl = NULL;
-  ACL_SIZE_INFORMATION acl_information;
+  ACL_SIZE_INFORMATION acl_information = {0};
   BOOL dacl_present = FALSE;
   BOOL dacl_defaulted = TRUE;
   SECURITY_DESCRIPTOR_CONTROL control = 0u;

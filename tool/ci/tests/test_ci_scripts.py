@@ -443,38 +443,42 @@ compiler-opts:
 
 class NativeRunnerTest(unittest.TestCase):
     def test_built_shim_ignores_test_copies_but_rejects_ambiguous_target(self) -> None:
-        for system, library in (
-            ("Darwin", "libfonix_shim.dylib"),
-            ("Linux", "libfonix_shim.so"),
-            ("Windows", "fonix_shim.dll"),
-        ):
-            with (
-                self.subTest(system=system),
-                tempfile.TemporaryDirectory() as temporary,
+        for suite in ("posix", "windows-contract", "bundled"):
+            for system, library in (
+                ("Darwin", "libfonix_shim.dylib"),
+                ("Linux", "libfonix_shim.so"),
+                ("Windows", "fonix_shim.dll"),
             ):
-                root = Path(temporary)
-                target = root / "fonix_shim_build"
-                target.mkdir()
-                fixture = root / "fake"
-                fixture.mkdir()
-                (fixture / library).write_bytes(b"test copy")
-                with self.assertRaises(run_native_tests.NativeTestError):
-                    run_native_tests._find_built_shim(root, system)
-                output = target / library
-                output.write_bytes(b"target")
-                self.assertEqual(
-                    run_native_tests._find_built_shim(root, system), output.resolve()
-                )
-                config = target / "RelWithDebInfo"
-                config.mkdir()
-                (config / library).write_bytes(b"second target")
-                with self.assertRaises(run_native_tests.NativeTestError):
-                    run_native_tests._find_built_shim(root, system)
-                output.unlink()
-                self.assertEqual(
-                    run_native_tests._find_built_shim(root, system),
-                    (config / library).resolve(),
-                )
+                with (
+                    self.subTest(system=system, suite=suite),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    root = Path(temporary)
+                    target = root / (
+                        "bundle" if suite == "bundled" else "fonix_shim_build"
+                    )
+                    target.mkdir()
+                    fixture = root / "fake"
+                    fixture.mkdir()
+                    (fixture / library).write_bytes(b"test copy")
+                    with self.assertRaises(run_native_tests.NativeTestError):
+                        run_native_tests._find_built_shim(root, system, suite)
+                    output = target / library
+                    output.write_bytes(b"target")
+                    self.assertEqual(
+                        run_native_tests._find_built_shim(root, system, suite),
+                        output.resolve(),
+                    )
+                    config = target / "RelWithDebInfo"
+                    config.mkdir()
+                    (config / library).write_bytes(b"second target")
+                    with self.assertRaises(run_native_tests.NativeTestError):
+                        run_native_tests._find_built_shim(root, system, suite)
+                    output.unlink()
+                    self.assertEqual(
+                        run_native_tests._find_built_shim(root, system, suite),
+                        (config / library).resolve(),
+                    )
 
     def test_posix_commands_and_inventory_use_shared_process_bounds(self) -> None:
         cwd = Path("/tmp/fonix-native-bound-test")
