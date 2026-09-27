@@ -440,6 +440,33 @@ compiler-opts:
                 generated_output=Path.cwd() / "generated.dart",
             )
 
+    def test_explicit_libclang_stays_in_the_isolated_configuration(self) -> None:
+        source = (REPOSITORY / "ffigen.native_assets.yaml").read_text()
+        with tempfile.TemporaryDirectory() as temporary:
+            library = Path(temporary).resolve() / "clang library.so"
+            library.touch()
+            arguments = {
+                "repository": REPOSITORY,
+                "generated_output": Path(temporary) / "bindings.dart",
+                "libclang": library,
+            }
+            transformed, _ = verify_bindings.isolated_config(source, **arguments)
+            self.assertIn(f"llvm-path:\n  - {json.dumps(str(library))}", transformed)
+            self.assertEqual(
+                (REPOSITORY / "ffigen.native_assets.yaml").read_text(), source
+            )
+            with self.assertRaisesRegex(
+                verify_bindings.BindingVerificationError, "configured llvm-path"
+            ):
+                verify_bindings.isolated_config(
+                    source + "\nllvm-path:\n  - /reviewed/libclang.so\n", **arguments
+                )
+            library.unlink()
+            with self.assertRaisesRegex(
+                verify_bindings.BindingVerificationError, "existing absolute"
+            ):
+                verify_bindings.isolated_config(source, **arguments)
+
 
 class DumpbinDecorationTest(unittest.TestCase):
     def test_msvc_local_export_annotations_preserve_exact_symbols(self) -> None:

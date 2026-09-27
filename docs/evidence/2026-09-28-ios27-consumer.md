@@ -9,7 +9,9 @@ The host was macOS 27.0 (26A428), Xcode 27.0 (27A266a), iPhoneOS and
 iPhoneSimulator SDK 27.0, LD 27037.1, Flutter 3.47.2 / Dart 3.13.2. Native inputs
 remain the checksum-pinned ORT 1.27.1 archives from `native/versions.lock.yaml`.
 The build-hook dependency update is `182c1c9`; the qualification uses the
-auditor and reference-app fixes accompanying this record.
+auditor and reference-app fixes accompanying this record. The final consumer
+rebuild and Simulator receipt include the portable zero-initialization fix from
+`3301822`; subsequent changes repair CI setup and test fixtures.
 
 ## Exact metadata change
 
@@ -57,7 +59,8 @@ comparisons remain mandatory. Unknown versions are rejected.
   or process-settlement check was skipped. This is a scoped qualification,
   not a pass of the unchanged, older-toolchain reference gate.
 - All 28 host native CTests pass with ASan/UBSan (AppleClang has no LSan).
-  The runner now selects only its owning `fonix_shim_build` output directory;
+  The runner now selects only its owning `fonix_shim_build` or `bundle` output
+  directory, according to the suite;
   deliberate copies made by hostile-path/relocation tests no longer make the
   final output lookup ambiguous. Multiple target outputs still fail.
 - Verifier regressions cover SDK/linker/platform/floor/dependency mutations,
@@ -68,9 +71,9 @@ Retained artifacts are in `/private/tmp/kokage-voice-performance/`:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `ios27-kokage-audit.json` | `d58b67b3f9ac52ef8244b1f06c38c670510857f53e560b5555665356f62a1cc7` |
-| `ios27-simulator-audit.json` | `d2d68d64e520d6aca9ae370bc6af477a83b39a5e0ff94a64f91d4e0173682ad3` |
-| Installed Simulator tree | `2c0a6b1dd8786ce3a0cb3469b915cfc5e4bc490ff09a411740231913b940a442` |
+| `final-ios-audit.json` | `84be0a8ba5719d1e9d405ff62f327bafaec838928fc29e78cca91c575a46cae0` |
+| `ios27-simulator-audit.json` | `b90d1fc1657d5096315b5f3af05ec738b3b5aecc6938d793212d5519d1ca909a` |
+| Installed Simulator tree | `70f649414e3ebc4fced82b59e6b15c3ab1db650726a8a64b077d6f690a3929cc` |
 
 The directory also retains the CPU receipt, generated diagnostic source/binary,
 qualification driver, full native and verifier logs, and the external example.

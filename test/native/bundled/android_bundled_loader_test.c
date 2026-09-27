@@ -93,7 +93,7 @@ void* fonix_test_dlopen(const char* file_name, int flags) {
 void* fonix_test_dlsym(void* handle, const char* symbol_name) {
   ++g_dlsym_calls;
   if (g_symbol_missing || handle != &g_runtime_handle_cookie ||
-      symbol_name == NULL || strcmp(symbol_name, "OrtGetApiBase") != 0) {
+      strcmp(symbol_name, "OrtGetApiBase") != 0) {
     g_loader_error_pending = 1;
     return NULL;
   }

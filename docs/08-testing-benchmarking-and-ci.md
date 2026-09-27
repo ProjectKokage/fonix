@@ -572,6 +572,11 @@ and the explicit non-POSIX contract.
 Binding regeneration uses 15-minute generation and five-minute formatting
 deadlines with 16 MiB per stream. Its POSIX environment removes every
 `DYLD_*` and `LD_*` key, selects the `C` locale, and suppresses tool analytics.
+The Linux binding job supplies its installed libclang 18 library explicitly
+and formats the generated file in a separate owned command. This avoids
+ffigen's `ldconfig` subprocess discovery and nested formatter; the direct
+generator still uses the committed package graph and the unchanged strict
+process-group settlement check.
 POSIX desktop `objdump` uses a 30-second, 1 MiB combined report boundary and a
 minimal `C`-locale environment. The macOS runtime checker bounds inspection,
 compilation, and provider execution at two, five, and two minutes with 8 MiB
