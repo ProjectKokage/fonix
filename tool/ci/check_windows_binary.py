@@ -11,7 +11,8 @@ import sys
 
 
 EXPORT_LINE = re.compile(
-    r"^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*$"
+    r"^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:\s+=\s+(?:@ILT\+\d+\(\1\)|\1))?\s*$"
 )
 DEF_SYMBOL = re.compile(r"^\s*(dort_[A-Za-z0-9_]+)\s*$")
 

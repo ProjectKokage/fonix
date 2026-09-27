@@ -25,6 +25,23 @@ if(FONIX_TEST_THREAD_SANITIZER AND (NOT UNIX OR MSVC))
   message(FATAL_ERROR "ThreadSanitizer native tests require a POSIX toolchain")
 endif()
 
+# Clang leaves sanitizer symbols unresolved in shared libraries unless the
+# shared runtime is selected. Keep --no-undefined and bind every test process
+# and shim to the same compiler-owned sanitizer runtime.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID STREQUAL "Clang"
+   AND (FONIX_TEST_SANITIZERS OR FONIX_TEST_THREAD_SANITIZER))
+  execute_process(
+    COMMAND "${CMAKE_C_COMPILER}" --print-runtime-dir
+    OUTPUT_VARIABLE _fonix_sanitizer_runtime_directory
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  add_link_options(
+    -shared-libsan
+    "-Wl,-rpath,${_fonix_sanitizer_runtime_directory}"
+  )
+endif()
+
 find_package(Threads REQUIRED)
 
 set(FONIX_RUNTIME_PROFILE external CACHE STRING "" FORCE)

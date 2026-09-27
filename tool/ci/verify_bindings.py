@@ -315,6 +315,7 @@ def verify_bindings(
                     "--disable-dart-dev",
                     f"--packages={repository / '.dart_tool/package_config.json'}",
                     str(entrypoint),
+                    "--no-format",
                     "--config",
                     str(temporary_config),
                     "--verbose",

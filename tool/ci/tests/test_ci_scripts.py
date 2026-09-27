@@ -441,6 +441,24 @@ compiler-opts:
             )
 
 
+class DumpbinDecorationTest(unittest.TestCase):
+    def test_msvc_local_export_annotations_preserve_exact_symbols(self) -> None:
+        for suffix in ("", " = dort_abi_version", " = @ILT+123(dort_abi_version)"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(
+                    check_windows_binary.parse_dumpbin_exports(
+                        "    1  0 00001000 dort_abi_version" + suffix
+                    ),
+                    frozenset({"dort_abi_version"}),
+                )
+        for suffix in (" = other", " = library.dort_abi_version", " = @ILT+123(other)"):
+            with self.subTest(suffix=suffix):
+                with self.assertRaises(check_windows_binary.WindowsBinaryError):
+                    check_windows_binary.parse_dumpbin_exports(
+                        "    1  0 00001000 dort_abi_version" + suffix
+                    )
+
+
 class NativeRunnerTest(unittest.TestCase):
     def test_built_shim_ignores_test_copies_but_rejects_ambiguous_target(self) -> None:
         for suite in ("posix", "windows-contract", "bundled"):
