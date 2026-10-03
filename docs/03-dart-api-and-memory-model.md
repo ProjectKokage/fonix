@@ -166,8 +166,8 @@ been retired; an incomplete retirement blocks run-options reuse and can be
 retried after the application repairs its owned root. `OrtRunResult.providerEvidence` and
 `OrtRunResult.providerDiagnostics` are immutable receipts for that exact run;
 session-level diagnostics never infer node assignment from successful session
-creation. Worker-isolate results carry the same copied receipts. Worker
-protocol version 4 installs the bounded startup timer before beginning
+creation. Worker-isolate results carry the same copied receipts. Since
+version 4, the worker protocol installs the bounded startup timer before beginning
 `Isolate.spawn`, then spawns the worker paused so the controller can establish
 ownership before native setup. After resume, the worker publishes one
 authoritative command port before fallible native setup, then requires the
