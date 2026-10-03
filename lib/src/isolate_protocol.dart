@@ -16,7 +16,7 @@ import 'tensor_type.dart';
 import 'utf16.dart';
 import 'version.dart';
 
-const int ortWorkerProtocolVersion = 4;
+const int ortWorkerProtocolVersion = 5;
 
 const int defaultWorkerMessageBytes = 64 * 1024 * 1024;
 
@@ -1510,8 +1510,56 @@ String? _workerNullableText(
   return raw;
 }
 
+/// The exception types a worker error keeps across the isolate boundary.
+///
+/// The names are wire values; add to the set, never rename.
+enum _WorkerErrorKind {
+  runtimeNotFound,
+  apiIncompatible,
+  providerUnavailable,
+  providerEvidence,
+  modelLoad,
+  invalidArgument,
+  run,
+  unsupportedValue,
+  dataAccess,
+  nativePackaging,
+  workerStartup,
+  workerCrashed,
+  workerProtocol,
+  workerClosed,
+  workerQueueFull,
+  runCancelled,
+  workerMessageTooLarge,
+  worker,
+  other,
+}
+
+_WorkerErrorKind _workerErrorKind(OrtException error) => switch (error) {
+  OrtRuntimeNotFoundException() => _WorkerErrorKind.runtimeNotFound,
+  OrtApiIncompatibleException() => _WorkerErrorKind.apiIncompatible,
+  OrtProviderUnavailableException() => _WorkerErrorKind.providerUnavailable,
+  OrtProviderEvidenceException() => _WorkerErrorKind.providerEvidence,
+  OrtModelLoadException() => _WorkerErrorKind.modelLoad,
+  OrtInvalidArgumentException() => _WorkerErrorKind.invalidArgument,
+  OrtRunException() => _WorkerErrorKind.run,
+  OrtUnsupportedValueException() => _WorkerErrorKind.unsupportedValue,
+  OrtDataAccessException() => _WorkerErrorKind.dataAccess,
+  OrtNativePackagingException() => _WorkerErrorKind.nativePackaging,
+  OrtWorkerStartupException() => _WorkerErrorKind.workerStartup,
+  OrtWorkerCrashedException() => _WorkerErrorKind.workerCrashed,
+  OrtWorkerProtocolException() => _WorkerErrorKind.workerProtocol,
+  OrtWorkerClosedException() => _WorkerErrorKind.workerClosed,
+  OrtWorkerQueueFullException() => _WorkerErrorKind.workerQueueFull,
+  OrtRunCancelledException() => _WorkerErrorKind.runCancelled,
+  OrtWorkerMessageTooLargeException() => _WorkerErrorKind.workerMessageTooLarge,
+  OrtWorkerException() => _WorkerErrorKind.worker,
+  _ => _WorkerErrorKind.other,
+};
+
 Map<String, Object?> encodeWorkerOrtError(OrtException error) =>
     <String, Object?>{
+      'kind': _workerErrorKind(error).name,
       'operation': boundedWorkerText(error.operation, 'worker_run'),
       'domain': error.domain.name,
       'code': error.code,
@@ -1525,6 +1573,7 @@ OrtException decodeWorkerOrtError(Object? raw) {
   requireWorkerKeys(
     encoded,
     required: const <String>{
+      'kind',
       'operation',
       'domain',
       'code',
@@ -1532,6 +1581,11 @@ OrtException decodeWorkerOrtError(Object? raw) {
       'message',
       'context',
     },
+  );
+  final _WorkerErrorKind kind = _workerEnum(
+    _WorkerErrorKind.values,
+    encoded['kind'],
+    'error kind',
   );
   final String operation = workerString(encoded, 'operation');
   final OrtErrorDomain domain = _workerEnum(
@@ -1544,57 +1598,125 @@ OrtException decodeWorkerOrtError(Object? raw) {
   if (rawOrtCode != null && rawOrtCode is! int) {
     throw const FormatException('Worker ORT code is invalid.');
   }
+  final int? ortCode = rawOrtCode as int?;
   final String message = workerString(encoded, 'message');
   final Map<String, Object?> context = _decodeWorkerContext(encoded['context']);
-  return switch (domain) {
-    OrtErrorDomain.loader => OrtRuntimeNotFoundException(
+  final OrtException error = switch (kind) {
+    _WorkerErrorKind.runtimeNotFound => OrtRuntimeNotFoundException(
       operation: operation,
       code: code,
       message: message,
       context: context,
     ),
-    OrtErrorDomain.ortApi => OrtApiIncompatibleException(
+    _WorkerErrorKind.apiIncompatible => OrtApiIncompatibleException(
       operation: operation,
       code: code,
       message: message,
       context: context,
     ),
-    OrtErrorDomain.provider => OrtProviderUnavailableException(
+    _WorkerErrorKind.providerUnavailable => OrtProviderUnavailableException(
       operation: operation,
       code: code,
       message: message,
-      ortCode: rawOrtCode as int?,
+      ortCode: ortCode,
       context: context,
     ),
-    OrtErrorDomain.ortStatus => OrtRunException(
-      operation: operation,
-      code: code,
-      message: message,
-      ortCode: rawOrtCode as int?,
-      context: context,
-    ),
-    OrtErrorDomain.unsupported => OrtUnsupportedValueException(
-      operation: operation,
-      code: code,
-      message: message,
-      ortCode: rawOrtCode as int?,
-      context: context,
-    ),
-    OrtErrorDomain.packaging => OrtNativePackagingException(
-      operation: operation,
-      code: code,
+    _WorkerErrorKind.providerEvidence => OrtProviderEvidenceException(
       message: message,
       context: context,
     ),
-    _ => OrtException(
+    _WorkerErrorKind.modelLoad => OrtModelLoadException(
+      operation: operation,
+      code: code,
+      message: message,
+      ortCode: ortCode,
+      context: context,
+    ),
+    _WorkerErrorKind.invalidArgument => OrtInvalidArgumentException(
+      operation: operation,
+      code: code,
+      message: message,
+      ortCode: ortCode,
+      context: context,
+    ),
+    _WorkerErrorKind.run => OrtRunException(
+      operation: operation,
+      code: code,
+      message: message,
+      ortCode: ortCode,
+      context: context,
+    ),
+    _WorkerErrorKind.unsupportedValue => OrtUnsupportedValueException(
+      operation: operation,
+      code: code,
+      message: message,
+      ortCode: ortCode,
+      context: context,
+    ),
+    _WorkerErrorKind.dataAccess => OrtDataAccessException(
+      operation: operation,
+      code: code,
+      message: message,
+      ortCode: ortCode,
+      context: context,
+    ),
+    _WorkerErrorKind.nativePackaging => OrtNativePackagingException(
+      operation: operation,
+      code: code,
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.workerStartup => OrtWorkerStartupException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.workerCrashed => OrtWorkerCrashedException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.workerProtocol => OrtWorkerProtocolException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.workerClosed => OrtWorkerClosedException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.workerQueueFull => OrtWorkerQueueFullException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.runCancelled => OrtRunCancelledException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.workerMessageTooLarge => OrtWorkerMessageTooLargeException(
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.worker => OrtWorkerException(
+      operation: operation,
+      code: code,
+      message: message,
+      context: context,
+    ),
+    _WorkerErrorKind.other => OrtException(
       operation: operation,
       domain: domain,
       code: code,
       message: message,
-      ortCode: rawOrtCode as int?,
+      ortCode: ortCode,
       context: context,
     ),
   };
+  // A kind fixes its domain, and some kinds fix their operation and code.
+  if (error.operation != operation ||
+      error.domain != domain ||
+      error.code != code ||
+      error.ortCode != ortCode) {
+    throw const FormatException('Worker error fields contradict its kind.');
+  }
+  return error;
 }
 
 Map<String, Object?> _messageSafeWorkerContext(Map<String, Object?> context) {

@@ -348,6 +348,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
           'type': 'ortError',
           'requestId': requestId,
           'error': <String, Object?>{
+            'kind': 'run',
             'operation': 'session_run',
             'domain': OrtErrorDomain.ortStatus.name,
             'code': 17,
@@ -476,6 +477,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'type': 'ortError',
         'requestId': requestId,
         'error': <String, Object?>{
+          'kind': 'run',
           'operation': 'session_run',
           'domain': OrtErrorDomain.ortStatus.name,
           'code': 17,
@@ -513,6 +515,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         'type': 'ortError',
         'requestId': requestId,
         'error': <String, Object?>{
+          'kind': 'run',
           'operation': 'session_run',
           'domain': OrtErrorDomain.ortStatus.name,
           'code': 17,

@@ -166,8 +166,8 @@ been retired; an incomplete retirement blocks run-options reuse and can be
 retried after the application repairs its owned root. `OrtRunResult.providerEvidence` and
 `OrtRunResult.providerDiagnostics` are immutable receipts for that exact run;
 session-level diagnostics never infer node assignment from successful session
-creation. Worker-isolate results carry the same copied receipts. Worker
-protocol version 4 installs the bounded startup timer before beginning
+creation. Worker-isolate results carry the same copied receipts. Since
+version 4, the worker protocol installs the bounded startup timer before beginning
 `Isolate.spawn`, then spawns the worker paused so the controller can establish
 ownership before native setup. After resume, the worker publishes one
 authoritative command port before fallible native setup, then requires the
@@ -394,6 +394,8 @@ Public calls throw typed exceptions. Every exception should include:
 - nested cause where a local validation or isolate error wraps another failure.
 
 Messages are diagnostic, not machine APIs. Applications should branch on exception type/code.
+
+An error raised inside a worker isolate reaches the caller as the same exception type. Worker protocol version 5 carries the type as a closed `kind` next to the operation, domain, code, optional ORT code, message and bounded context; a reply whose fields contradict its kind is a protocol failure. The `cause` object does not cross the boundary.
 
 Local errors such as use-after-dispose, invalid dimensions, duplicate input names, or unsupported platform mode should be detected before FFI.
 
