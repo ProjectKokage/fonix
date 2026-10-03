@@ -120,10 +120,12 @@ final class OrtIsolateSession {
     required this.maxPendingRuns,
     required this.maxMessageBytes,
     required this.maxOutstandingInputBytes,
+    required OrtResourceLimits limits,
     required int initialRequestId,
     required bool Function(int token) requestCancelToken,
     void Function(String event)? onControllerEventForTesting,
-  }) : _commandPort = commandPort,
+  }) : _limits = limits,
+       _commandPort = commandPort,
        _responsePort = responsePort,
        _lifecyclePort = lifecyclePort,
        _responseSubscription = responseSubscription,
@@ -172,6 +174,7 @@ final class OrtIsolateSession {
       maxMessageBytes: maxMessageBytes,
       maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
       startupTimeout: startupTimeout,
+      limits: effectiveOptions.limits,
     );
   }
 
@@ -191,6 +194,9 @@ final class OrtIsolateSession {
   final int maxPendingRuns;
   final int maxMessageBytes;
   final int maxOutstandingInputBytes;
+
+  /// The session's limits, which bound what a worker message may carry.
+  final OrtResourceLimits _limits;
 
   _PendingIsolateRun? _active;
   int _nextRequestId;
@@ -579,6 +585,7 @@ final class OrtIsolateSession {
             expectedSessionDiagnostics: diagnostics,
             expectedNames: request.outputNames,
             maxMessageBytes: maxMessageBytes,
+            limits: _limits,
           );
           request.complete(result);
           request.completeCancellation(
@@ -1063,6 +1070,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   required int maxMessageBytes,
   required int maxOutstandingInputBytes,
   required Duration startupTimeout,
+  required OrtResourceLimits limits,
   void Function(String event)? onControllerEventForTesting,
   bool Function(int token)? requestCancelTokenForTesting,
   void Function(bool, bool, bool, bool)? onParentStateForTesting,
@@ -1259,6 +1267,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       );
       final OrtDiagnostics diagnostics = _decodeWorkerFullDiagnostics(
         message['diagnostics'],
+        limits,
       );
       if (outputNames.isEmpty) {
         throw const FormatException('Worker session has no output names.');
@@ -1278,6 +1287,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
         maxPendingRuns: maxPendingRuns,
         maxMessageBytes: maxMessageBytes,
         maxOutstandingInputBytes: maxOutstandingInputBytes,
+        limits: limits,
         initialRequestId: initialRequestIdForTesting,
         onControllerEventForTesting: onControllerEventForTesting,
         requestCancelToken:
@@ -2726,6 +2736,7 @@ OrtIsolateRunResult _decodeWorkerResult(
   required OrtDiagnostics expectedSessionDiagnostics,
   required List<String> expectedNames,
   required int maxMessageBytes,
+  required OrtResourceLimits limits,
 }) {
   final Map<Object?, Object?> outputs = _workerMap(raw);
   if (outputs.length != expectedNames.length) {
@@ -2759,9 +2770,11 @@ OrtIsolateRunResult _decodeWorkerResult(
         rawProviderDiagnostics,
         evidence: evidence,
         budget: budget,
+        limits: limits,
       );
   final OrtDiagnostics fullDiagnostics = _decodeWorkerFullDiagnostics(
     rawDiagnostics,
+    limits,
   );
   budget.addUtf8(jsonEncode(fullDiagnostics.toJson()));
   if (jsonEncode(<Object?>[
@@ -2793,13 +2806,13 @@ OrtIsolateRunResult _decodeWorkerResult(
   );
 }
 
-OrtDiagnostics _decodeWorkerFullDiagnostics(Object? raw) {
+OrtDiagnostics _decodeWorkerFullDiagnostics(
+  Object? raw,
+  OrtResourceLimits limits,
+) {
   final Map<Object?, Object?> object = _workerMap(raw);
   try {
-    return OrtDiagnostics.fromJsonString(
-      jsonEncode(object),
-      limits: OrtResourceLimits.defaults,
-    );
+    return OrtDiagnostics.fromJsonString(jsonEncode(object), limits: limits);
   } on FormatException {
     rethrow;
   } on Object catch (error) {
@@ -2856,6 +2869,7 @@ List<OrtProviderDiagnostics> _decodeWorkerProviderDiagnostics(
   Object? raw, {
   required OrtProviderRunEvidence? evidence,
   required _WorkerMessageBudget budget,
+  required OrtResourceLimits limits,
 }) {
   if (raw is! List<Object?> || raw.length > 16) {
     throw const FormatException('Worker provider diagnostics are invalid.');
@@ -2900,7 +2914,7 @@ List<OrtProviderDiagnostics> _decodeWorkerProviderDiagnostics(
       );
     }
     final Map<Object?, Object?> rawOptions = _workerMap(object['options']);
-    if (rawOptions.length > OrtResourceLimits.defaults.maxProviderOptions) {
+    if (rawOptions.length > limits.maxProviderOptions) {
       throw const FormatException('Worker provider options are out of bounds.');
     }
     final Map<String, String> options = <String, String>{};
@@ -3810,7 +3824,15 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
   int? maxOutstandingInputBytes,
   Duration startupTimeout = const Duration(seconds: 5),
   int initialRequestId = 1,
+  int providerOptionCount = 0,
+  OrtResourceLimits limits = OrtResourceLimits.defaults,
 }) {
+  RangeError.checkValueInInterval(
+    providerOptionCount,
+    0,
+    128,
+    'providerOptionCount',
+  );
   final int effectiveMaxOutstandingInputBytes =
       maxOutstandingInputBytes ?? maxMessageBytes;
   _validateWorkerBounds(
@@ -3890,11 +3912,13 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
       'runtimeLibraryPath': runtimeLibraryPath,
       'startupLifecyclePort': startupLifecyclePort,
       'maxMessageBytes': maxMessageBytes,
+      'providerOptionCount': providerOptionCount,
     },
     maxPendingRuns: maxPendingRuns,
     maxMessageBytes: maxMessageBytes,
     maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
     startupTimeout: startupTimeout,
+    limits: limits,
     onControllerEventForTesting: onControllerEvent,
     requestCancelTokenForTesting: requestCancelToken,
     onParentStateForTesting: onParentState,
@@ -3915,6 +3939,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       'runtimeLibraryPath',
       'startupLifecyclePort',
       'maxMessageBytes',
+      'providerOptionCount',
     },
   );
   _requireWorkerVersion(startup);
@@ -3941,6 +3966,12 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     'maxMessageBytes',
     1,
     _maximumWorkerMessageBytes,
+  );
+  final int providerOptionCount = _workerBoundedInt(
+    startup,
+    'providerOptionCount',
+    0,
+    128,
   );
   final ReceivePort commands = ReceivePort();
   responsePort.send(<String, Object?>{
@@ -4022,7 +4053,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     'outputNames': const <String>['Y'],
     'diagnostics': scenario == 'startupMalformedReady'
         ? 'malformed-diagnostics'
-        : _syntheticWorkerDiagnostics(),
+        : _syntheticWorkerDiagnostics(providerOptionCount: providerOptionCount),
   };
   if (scenario == 'startupReadyMissingCommandPort') {
     readyMessage.remove('commandPort');
@@ -4361,7 +4392,9 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
   }
 }
 
-Map<String, Object?> _syntheticWorkerDiagnostics() => <String, Object?>{
+Map<String, Object?> _syntheticWorkerDiagnostics({
+  int providerOptionCount = 0,
+}) => <String, Object?>{
   'schemaVersion': 1,
   'dartPackageVersion': fonixPackageVersion,
   'shimAbiVersion': fonixShimAbiVersion,
@@ -4385,5 +4418,22 @@ Map<String, Object?> _syntheticWorkerDiagnostics() => <String, Object?>{
     'memoryPattern': true,
     'fallbackPolicy': OrtFallbackPolicy.report.name,
   },
-  'providers': const <Object?>[],
+  'providers': <Object?>[
+    if (providerOptionCount > 0)
+      OrtProviderDiagnostics(
+        wrapperId: 'synthetic',
+        registrationMechanism: OrtProviderRegistrationMechanism.generic,
+        registrationName: 'SyntheticExecutionProvider',
+        reportedName: null,
+        compiled: null,
+        discoverable: null,
+        registered: true,
+        active: null,
+        qualified: null,
+        options: <String, String>{
+          for (int index = 0; index < providerOptionCount; index += 1)
+            'option_$index': 'value',
+        },
+      ).toJson(),
+  ],
 };

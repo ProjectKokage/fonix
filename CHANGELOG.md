@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Fixed worker sessions rejecting their own diagnostics when a provider had
+  more options than the default limit. The controller decoded worker
+  diagnostics with `OrtResourceLimits.defaults`; it now uses the limits of the
+  session options, so a raised `maxProviderOptions` applies on both sides.
+
 - Use `code_assets` 2, `hooks` 2.2, and `native_toolchain_c` 0.19.4 for
   application build-hook compatibility; retain shim ABI 1, ORT API 27,
   and the existing pinned runtime artifacts.
