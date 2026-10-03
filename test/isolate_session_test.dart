@@ -5,8 +5,6 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fonix/fonix.dart';
-import 'package:fonix/src/isolate_protocol.dart'
-    show roundTripOrtWorkerSessionOptionsForTesting;
 import 'package:fonix/src/isolate_protocol_harness.dart'
     show spawnOrtIsolateProtocolHarnessForTesting;
 import 'package:fonix/src/isolate_session.dart'
@@ -14,11 +12,7 @@ import 'package:fonix/src/isolate_session.dart'
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-OrtIsolateTensor _tensor(List<double> values) =>
-    OrtIsolateTensor.fromFloat32List(
-      values: Float32List.fromList(values),
-      shape: <int>[values.length],
-    );
+import 'src/isolate_values.dart';
 
 final class _UnreadableList<T> extends ListBase<T> {
   _UnreadableList(this._length);
@@ -192,7 +186,7 @@ Future<int> _runSeededGracefulWorkerTrace(
       trace.add('submit:${index + 1}');
       return worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[seed.toDouble() + index]),
+          'X': float32IsolateTensor(<double>[seed.toDouble() + index]),
         },
       );
     });
@@ -207,7 +201,7 @@ Future<int> _runSeededGracefulWorkerTrace(
     expect(
       () => worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[99]),
+          'X': float32IsolateTensor(<double>[99]),
         },
       ),
       throwsA(isA<OrtWorkerQueueFullException>()),
@@ -284,7 +278,7 @@ Future<int> _runSeededCrashWorkerTrace(
       trace.add('submit:${index + 1}');
       return worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[seed.toDouble() + index]),
+          'X': float32IsolateTensor(<double>[seed.toDouble() + index]),
         },
       );
     });
@@ -297,7 +291,7 @@ Future<int> _runSeededCrashWorkerTrace(
     expect(
       () => worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[99]),
+          'X': float32IsolateTensor(<double>[99]),
         },
       ),
       throwsA(isA<OrtWorkerQueueFullException>()),
@@ -386,7 +380,7 @@ Future<int> _runSeededPoolTrace(
       trace.add('pool-submit:${index + 1}');
       return pool.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[seed.toDouble() + index]),
+          'X': float32IsolateTensor(<double>[seed.toDouble() + index]),
         },
       );
     });
@@ -401,7 +395,7 @@ Future<int> _runSeededPoolTrace(
     expect(
       () => pool.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[99]),
+          'X': float32IsolateTensor(<double>[99]),
         },
       ),
       throwsA(isA<OrtWorkerQueueFullException>()),
@@ -489,46 +483,6 @@ Future<int> _runSeededPoolTrace(
 }
 
 void main() {
-  group('worker option protocol', () {
-    test('preserves typed Core ML cache identity inputs', () {
-      final String root = p.join(
-        Directory.systemTemp.absolute.path,
-        'fonix-worker-cache-contract',
-      );
-      final String modelSha256 = List<String>.filled(64, 'a').join();
-      final OrtSessionOptions original = OrtSessionOptions(
-        artifactRoot: root,
-        providers: <OrtExecutionProvider>[
-          OrtExecutionProvider.coreMl(
-            modelFormat: OrtCoreMlModelFormat.mlProgram,
-            computeUnits: OrtCoreMlComputeUnits.cpuOnly,
-            requireStaticInputShapes: true,
-            enableOnSubgraphs: true,
-            cache: OrtCoreMlCacheConfiguration(
-              rootDirectory: root,
-              modelSha256: modelSha256,
-              applicationSchema: 'worker-v2',
-            ),
-            requirement: OrtProviderRequirement.requireFullAssignment,
-          ),
-          OrtExecutionProvider.cpu(),
-        ],
-        fallbackPolicy: OrtFallbackPolicy.rejectAny,
-      );
-
-      final OrtSessionOptions restored =
-          roundTripOrtWorkerSessionOptionsForTesting(original);
-      final OrtExecutionProvider coreMl = restored.providers.first;
-      expect(coreMl.options, original.providers.first.options);
-      expect(coreMl.requirement, OrtProviderRequirement.requireFullAssignment);
-      expect(coreMl.coreMlCache?.rootDirectory, root);
-      expect(coreMl.coreMlCache?.modelSha256, modelSha256);
-      expect(coreMl.coreMlCache?.applicationSchema, 'worker-v2');
-      expect(restored.artifactRoot, root);
-      expect(restored.fallbackPolicy, OrtFallbackPolicy.rejectAny);
-    });
-  });
-
   test('worker diagnostics are decoded with the session limits', () async {
     // The default limit is 64 provider options; a session may raise it.
     final OrtIsolateSession session =
@@ -548,110 +502,6 @@ void main() {
     );
   });
 
-  group('pointer-free isolate values', () {
-    test('copies typed input and preserves composite output structure', () {
-      final Float32List caller = Float32List.fromList(<double>[1, 2, 3]);
-      final OrtIsolateTensor tensor = OrtIsolateTensor.fromFloat32List(
-        values: caller,
-        shape: const <int>[3],
-      );
-      caller.fillRange(0, caller.length, 99);
-      expect(tensor.copyFloat32Data(), <double>[1, 2, 3]);
-
-      final OrtIsolateValue composite = OrtIsolateSequence(<OrtIsolateValue>[
-        tensor,
-        _tensor(<double>[4, 5, 6]),
-      ]);
-      expect(composite.kind, OrtValueKind.sequence);
-
-      final OrtIsolateOptional absent = OrtIsolateOptional.none(
-        elementType: OrtTypeInfo.sequence(
-          OrtTypeInfo.tensor(
-            elementType: OrtTensorElementType.string,
-            hasShape: true,
-            dimensions: <OrtDimension>[OrtDimension.fixed(2)],
-          ),
-        ),
-      );
-      expect(absent.value, isNull);
-      expect(absent.type.optionalElement, absent.elementType);
-    });
-
-    test('validates exact bytes, booleans, strings, and map cardinality', () {
-      expect(
-        () => OrtIsolateTensor.fromBytes(
-          elementType: OrtTensorElementType.float32,
-          bytes: Uint8List(3),
-          shape: const <int>[1],
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => OrtIsolateTensor.fromBytes(
-          elementType: OrtTensorElementType.boolean,
-          bytes: Uint8List.fromList(<int>[2]),
-          shape: const <int>[1],
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => OrtIsolateTensor.fromStrings(
-          values: const <String>['bad\u0000value'],
-          shape: const <int>[1],
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => OrtIsolateMap(
-          keys: OrtIsolateTensor.fromInt64List(
-            values: Int64List.fromList(<int>[1, 2]),
-            shape: const <int>[2],
-          ),
-          values: _tensor(<double>[1]),
-        ),
-        throwsArgumentError,
-      );
-    });
-
-    test('bounds lazy sequence elements before materializing them', () {
-      final OrtIsolateTensor element = _tensor(<double>[1]);
-      final OrtIsolateSequence maximum = OrtIsolateSequence(
-        List<OrtIsolateValue>.filled(1024, element),
-      );
-      expect(maximum.elements, hasLength(1024));
-
-      var observations = 0;
-      Iterable<OrtIsolateValue> endlessElements() sync* {
-        while (true) {
-          observations += 1;
-          yield element;
-        }
-      }
-
-      expect(() => OrtIsolateSequence(endlessElements()), throwsRangeError);
-      expect(observations, 1025);
-    });
-
-    test('rejects oversized string shapes before reading a lazy generator', () {
-      var observations = 0;
-      Iterable<String> unreadableStrings() sync* {
-        while (true) {
-          observations += 1;
-          yield '';
-        }
-      }
-
-      expect(
-        () => OrtIsolateTensor.fromStrings(
-          values: unreadableStrings(),
-          shape: const <int>[1024 * 1024 + 1],
-        ),
-        throwsRangeError,
-      );
-      expect(observations, 0);
-    });
-  });
-
   group('real isolate protocol controller', () {
     test('round-trips copied and transferable composite values', () async {
       final OrtIsolateSession worker =
@@ -660,8 +510,8 @@ void main() {
         expect(worker.diagnostics.runtimeVersion, 'synthetic');
         expect(worker.diagnostics.session, isNotNull);
         final OrtIsolateSequence input = OrtIsolateSequence(<OrtIsolateValue>[
-          _tensor(<double>[1, 2]),
-          _tensor(<double>[3, 4]),
+          float32IsolateTensor(<double>[1, 2]),
+          float32IsolateTensor(<double>[3, 4]),
         ]);
         final OrtIsolateRunResult result = await worker.run(
           inputs: <String, OrtIsolateValue>{'X': input},
@@ -712,12 +562,12 @@ void main() {
           );
       final OrtIsolateRun first = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[1]),
+          'X': float32IsolateTensor(<double>[1]),
         },
       );
       final OrtIsolateRun queued = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[2]),
+          'X': float32IsolateTensor(<double>[2]),
         },
       );
       final Future<void> cancelledResult = expectLater(
@@ -755,13 +605,13 @@ void main() {
           );
       final OrtIsolateRun active = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[1]),
+          'X': float32IsolateTensor(<double>[1]),
         },
       );
       expect(
         () => worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[2]),
+            'X': float32IsolateTensor(<double>[2]),
           },
         ),
         throwsA(isA<OrtWorkerQueueFullException>()),
@@ -781,7 +631,7 @@ void main() {
         expect(
           () => worker.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[1]),
+              'X': float32IsolateTensor(<double>[1]),
             },
             outputNames: outputs,
           ),
@@ -793,7 +643,7 @@ void main() {
         expect(
           () => pool.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[2]),
+              'X': float32IsolateTensor(<double>[2]),
             },
             outputNames: outputs,
           ),
@@ -905,12 +755,12 @@ void main() {
           );
       final OrtIsolateRun first = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[1]),
+          'X': float32IsolateTensor(<double>[1]),
         },
       );
       final OrtIsolateRun second = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[2]),
+          'X': float32IsolateTensor(<double>[2]),
         },
       );
       expect(worker.outstandingInputBytes, 26);
@@ -918,7 +768,7 @@ void main() {
       expect(
         () => worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[3]),
+            'X': float32IsolateTensor(<double>[3]),
           },
         ),
         throwsA(
@@ -948,7 +798,7 @@ void main() {
       expect(worker.outstandingInputBytes, 13);
       final OrtIsolateRun third = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[3]),
+          'X': float32IsolateTensor(<double>[3]),
         },
       );
       expect(worker.outstandingInputBytes, 26);
@@ -990,12 +840,12 @@ void main() {
         try {
           final OrtIsolateRun first = worker.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[1]),
+              'X': float32IsolateTensor(<double>[1]),
             },
           );
           final OrtIsolateRun second = worker.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[2]),
+              'X': float32IsolateTensor(<double>[2]),
             },
           );
           var firstSettled = false;
@@ -1057,7 +907,7 @@ void main() {
       try {
         final OrtIsolateRun run = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         var settled = false;
@@ -1098,12 +948,12 @@ void main() {
             );
         final OrtIsolateRun active = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final OrtIsolateRun queued = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[2]),
+            'X': float32IsolateTensor(<double>[2]),
           },
         );
         final Future<void> cancelledResult = expectLater(
@@ -1118,7 +968,7 @@ void main() {
         expect(worker.outstandingInputBytes, 13);
         final OrtIsolateRun replacement = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[3]),
+            'X': float32IsolateTensor(<double>[3]),
           },
         );
         await Future.wait<OrtIsolateRunResult>(<Future<OrtIsolateRunResult>>[
@@ -1140,7 +990,7 @@ void main() {
         expect(
           () => worker.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[1]),
+              'X': float32IsolateTensor(<double>[1]),
             },
           ),
           throwsA(
@@ -1197,19 +1047,19 @@ void main() {
       try {
         final OrtIsolateRun firstRun = pool.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final OrtIsolateRun secondRun = pool.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[2]),
+            'X': float32IsolateTensor(<double>[2]),
           },
         );
         expect(pool.outstandingRuns, 2);
         expect(
           () => pool.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[3]),
+              'X': float32IsolateTensor(<double>[3]),
             },
           ),
           throwsA(isA<OrtWorkerQueueFullException>()),
@@ -1242,7 +1092,7 @@ void main() {
           );
       final OrtIsolateRun firstRun = first.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[1]),
+          'X': float32IsolateTensor(<double>[1]),
         },
       );
       final OrtSessionPool pool = createOrtSessionPoolForTesting(
@@ -1251,7 +1101,7 @@ void main() {
       try {
         final OrtIsolateRun routed = pool.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[2]),
+            'X': float32IsolateTensor(<double>[2]),
           },
         );
         expect(first.outstandingRuns, 1);
@@ -1278,7 +1128,7 @@ void main() {
         await expectLater(
           pool.run(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[1]),
+              'X': float32IsolateTensor(<double>[1]),
             },
           ),
           throwsA(isA<OrtWorkerCrashedException>()),
@@ -1286,7 +1136,7 @@ void main() {
         expect(
           () => pool.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[2]),
+              'X': float32IsolateTensor(<double>[2]),
             },
           ),
           throwsA(isA<OrtWorkerCrashedException>()),
@@ -1308,7 +1158,7 @@ void main() {
       try {
         final Future<OrtIsolateRunResult> run = worker.run(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         await Future<void>.delayed(const Duration(milliseconds: 60));
@@ -1326,7 +1176,7 @@ void main() {
       try {
         final OrtIsolateRun run = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final Future<OrtRunCancellationDisposition> cancellation = run
@@ -1352,7 +1202,7 @@ void main() {
       try {
         final OrtIsolateRun run = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final Future<bool> booleanCancellation = run.cancel();
@@ -1374,12 +1224,12 @@ void main() {
       try {
         await worker.run(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final OrtIsolateRunResult second = await worker.run(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[2]),
+            'X': float32IsolateTensor(<double>[2]),
           },
         );
         expect(second.tensor('Y').copyFloat32Data(), <double>[2]);
@@ -1396,12 +1246,12 @@ void main() {
           );
       final OrtIsolateRun active = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[1]),
+          'X': float32IsolateTensor(<double>[1]),
         },
       );
       final OrtIsolateRun queued = worker.startRun(
         inputs: <String, OrtIsolateValue>{
-          'X': _tensor(<double>[2]),
+          'X': float32IsolateTensor(<double>[2]),
         },
       );
       try {
@@ -1453,7 +1303,7 @@ void main() {
       await expectLater(
         crashing.run(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         ),
         throwsA(isA<OrtWorkerCrashedException>()),
@@ -1468,7 +1318,7 @@ void main() {
       await expectLater(
         malformed.run(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         ),
         throwsA(isA<OrtWorkerProtocolException>()),
@@ -1484,7 +1334,7 @@ void main() {
         await expectLater(
           invalid.run(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[1]),
+              'X': float32IsolateTensor(<double>[1]),
             },
           ),
           throwsA(isA<OrtWorkerProtocolException>()),
@@ -1613,7 +1463,7 @@ void main() {
             );
         final OrtIsolateRun run = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final Matcher exactCrash = isA<OrtWorkerCrashedException>().having(
@@ -1672,7 +1522,7 @@ void main() {
           );
           final OrtIsolateRun run = pool.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[1]),
+              'X': float32IsolateTensor(<double>[1]),
             },
           );
           final SendPort gate = await runStateGate.future.timeout(
@@ -1746,7 +1596,7 @@ void main() {
             await expectLater(
               worker.run(
                 inputs: <String, OrtIsolateValue>{
-                  'X': _tensor(<double>[1]),
+                  'X': float32IsolateTensor(<double>[1]),
                 },
               ),
               throwsA(exactTerminalError),
@@ -1787,7 +1637,7 @@ void main() {
           expect(
             (await worker.run(
               inputs: <String, OrtIsolateValue>{
-                'X': _tensor(<double>[1]),
+                'X': float32IsolateTensor(<double>[1]),
               },
             )).tensor('Y').copyFloat32Data(),
             <double>[1],
@@ -1801,7 +1651,7 @@ void main() {
           await expectLater(
             worker.run(
               inputs: <String, OrtIsolateValue>{
-                'X': _tensor(<double>[2]),
+                'X': float32IsolateTensor(<double>[2]),
               },
             ),
             throwsA(malformedTerminal),
@@ -1999,7 +1849,7 @@ void main() {
           expect(controllerEvents, isEmpty);
           final OrtIsolateRunResult result = await worker.run(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[7]),
+              'X': float32IsolateTensor(<double>[7]),
             },
           );
           expect(result.tensor('Y').copyFloat32Data(), <double>[7]);
@@ -2302,7 +2152,7 @@ void main() {
             await spawnOrtIsolateProtocolHarnessForTesting(scenario: 'delay');
         final OrtIsolateRun active = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         expect(worker.outstandingInputBytes, 13);
@@ -2316,7 +2166,7 @@ void main() {
         expect(
           () => worker.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[2]),
+              'X': float32IsolateTensor(<double>[2]),
             },
           ),
           throwsA(isA<OrtWorkerClosedException>()),
@@ -2341,7 +2191,7 @@ void main() {
                 );
             final OrtIsolateRun active = worker.startRun(
               inputs: <String, OrtIsolateValue>{
-                'X': _tensor(<double>[1]),
+                'X': float32IsolateTensor(<double>[1]),
               },
             );
 
@@ -2436,7 +2286,7 @@ void main() {
           ]) {
             final OrtIsolateRun run = exhausted.startRun(
               inputs: <String, OrtIsolateValue>{
-                'X': _tensor(<double>[1]),
+                'X': float32IsolateTensor(<double>[1]),
               },
             );
             final Future<Object> settlement =
@@ -2459,7 +2309,7 @@ void main() {
           expect(
             () => exhausted.startRun(
               inputs: <String, OrtIsolateValue>{
-                'X': _tensor(<double>[2]),
+                'X': float32IsolateTensor(<double>[2]),
               },
             ),
             throwsA(
@@ -2474,7 +2324,7 @@ void main() {
 
           final OrtIsolateRun routed = pool.startRun(
             inputs: <String, OrtIsolateValue>{
-              'X': _tensor(<double>[3]),
+              'X': float32IsolateTensor(<double>[3]),
             },
           );
           final Future<Object> routedSettlement =
@@ -2488,7 +2338,7 @@ void main() {
           expect(
             () => pool.startRun(
               inputs: <String, OrtIsolateValue>{
-                'X': _tensor(<double>[4]),
+                'X': float32IsolateTensor(<double>[4]),
               },
             ),
             throwsA(isA<OrtWorkerQueueFullException>()),
@@ -2568,7 +2418,7 @@ void main() {
       try {
         final OrtIsolateRun run = worker.startRun(
           inputs: <String, OrtIsolateValue>{
-            'X': _tensor(<double>[1]),
+            'X': float32IsolateTensor(<double>[1]),
           },
         );
         final Future<OrtRunCancellationDisposition> cancellation = run
