@@ -1,7 +1,7 @@
 part of 'runtime.dart';
 
 const int _maximumCompositeChildren = 1024;
-const int _maximumStringTensorElements = 1024 * 1024;
+const int maximumOrtStringTensorElements = 1024 * 1024;
 const int _maximumStringElementBytes = 1024 * 1024;
 const int _maximumStringTensorBytes = 64 * 1024 * 1024;
 
@@ -15,7 +15,7 @@ final class OrtStringTensor extends _NativeOwner implements OrtValue {
   }) {
     runtime._ensureOpen();
     final OrtShape checkedShape = OrtShape(shape, limits: limits);
-    if (checkedShape.elementCount > _maximumStringTensorElements) {
+    if (checkedShape.elementCount > maximumOrtStringTensorElements) {
       throw RangeError('String tensor exceeds the native element limit.');
     }
     final List<String> copied = <String>[];

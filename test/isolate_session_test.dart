@@ -5,7 +5,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fonix/fonix.dart';
-import 'package:fonix/src/runtime.dart'
+import 'package:fonix/src/isolate_session.dart'
     show
         createOrtSessionPoolForTesting,
         roundTripOrtWorkerSessionOptionsForTesting,

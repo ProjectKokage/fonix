@@ -67,7 +67,7 @@ final class OrtBytesModelSource extends OrtModelSource {
     var fileCount = 0;
     for (final MapEntry<String, Uint8List> entry in externalData.entries) {
       fileCount += 1;
-      if (fileCount > _maxExternalDataFiles) {
+      if (fileCount > maximumOrtExternalDataFiles) {
         throw RangeError('External data exceeds the maximum number of files.');
       }
       _validateExternalDataName(entry.key);
@@ -190,7 +190,7 @@ void _validateModelPath(String value, String name) {
   }
 }
 
-const int _maxExternalDataFiles = 256;
+const int maximumOrtExternalDataFiles = 256;
 const int _maxExternalDataNameBytes = 1024;
 
 void _validateExternalDataName(String value) {

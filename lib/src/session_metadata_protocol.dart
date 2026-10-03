@@ -413,7 +413,7 @@ OrtTensorInfo _parseOrtTensorInfo(
   if (byteLength < 0 ||
       byteLength > limits.maxTensorBytes ||
       (isString &&
-          (shape.elementCount > _maximumStringTensorElements ||
+          (shape.elementCount > maximumOrtStringTensorElements ||
               byteLength > _maximumStringTensorBytes)) ||
       (!isString && byteLength != requiredBytes)) {
     throw const FormatException(

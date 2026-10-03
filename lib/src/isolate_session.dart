@@ -1,4 +1,28 @@
-part of 'runtime.dart';
+import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+
+import 'diagnostics.dart';
+import 'exceptions.dart';
+import 'ffi/generated_native_asset_bindings.dart' as bindings;
+import 'ffi/native_api.dart';
+import 'isolate_value.dart';
+import 'metadata.dart';
+import 'provider.dart';
+import 'provider_evidence.dart';
+import 'resource_limits.dart';
+import 'runtime.dart';
+import 'runtime_source.dart';
+import 'session_options.dart';
+import 'tensor_type.dart';
+import 'utf16.dart';
+import 'version.dart';
 
 const int _ortWorkerProtocolVersion = 4;
 const int _defaultWorkerMessageBytes = 64 * 1024 * 1024;
@@ -420,7 +444,8 @@ final class OrtIsolateSession {
             : OrtRunCancellationDisposition.notCancelled,
       );
     } on FonixNativeFailure catch (failure, stackTrace) {
-      if (failure.code == _nativeErrorCancelTokenUnknown) {
+      if (failure.code ==
+          bindings.dort_error_code.DORT_ERROR_CANCEL_TOKEN_UNKNOWN) {
         request.cancellationCompleter!.complete(
           OrtRunCancellationDisposition.notCancelled,
         );
@@ -1688,7 +1713,7 @@ Map<String, Uint8List> _decodeExternalData(
   required int maximumTotalBytes,
 }) {
   final Map<Object?, Object?> encoded = _workerMap(raw);
-  if (encoded.length > _maxExternalDataFiles) {
+  if (encoded.length > maximumOrtExternalDataFiles) {
     throw const FormatException('Too many external-data entries.');
   }
   final Map<String, Uint8List> result = <String, Uint8List>{};
@@ -2600,9 +2625,9 @@ OrtIsolateValue _decodeIsolateValue(
         );
         final List<String> strings = _workerStringListAllowEmpty(
           value['strings'],
-          maximum: limits.maxTensorElements < _maximumStringTensorElements
+          maximum: limits.maxTensorElements < maximumOrtStringTensorElements
               ? limits.maxTensorElements
-              : _maximumStringTensorElements,
+              : maximumOrtStringTensorElements,
           budget: budget,
         );
         return OrtIsolateTensor.fromStrings(
@@ -3017,7 +3042,7 @@ OrtValue _nativeValueFromIsolate(
         limits: limits,
       );
     case OrtIsolateTensor():
-      return _createCopiedTensor(
+      return createCopiedOrtTensor(
         runtime: runtime,
         values: value.copyBytes(),
         shape: value.shape.dimensions,
@@ -3130,7 +3155,7 @@ Map<String, Object?> _encodeNativeWorkerValue(
     case OrtTensor():
       budget.addBytes(value.shape.rank * 8);
       budget.addBytes(value.info.byteLength);
-      final Uint8List bytes = value._copyTypedBytes(value.elementType);
+      final Uint8List bytes = copyOrtTensorTypedBytes(value, value.elementType);
       return <String, Object?>{
         'kind': 'tensor',
         'elementType': value.elementType.nativeValue,
@@ -3627,9 +3652,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
       inputs[name] = nativeValue;
     }
     runOptions = OrtRunOptions(runtime: runtime);
-    cancelToken = runOptions._nativeApi.registerCancelToken(
-      runOptions._nativeHandle,
-    );
+    cancelToken = registerOrtRunCancelToken(runOptions);
     try {
       responsePort.send(<String, Object?>{
         'version': _ortWorkerProtocolVersion,
@@ -3639,7 +3662,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
       });
     } on Object catch (error, stackTrace) {
       try {
-        runOptions._nativeApi.finishCancelToken(cancelToken);
+        finishOrtRunCancelToken(runOptions, cancelToken);
         cancelToken = null;
       } on Object catch (cleanupError) {
         throw _WorkerCancellationCleanupFailure(cleanupError);
@@ -3661,7 +3684,8 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
     }
 
     try {
-      wasTerminationRequested = runOptions._nativeApi.finishCancelToken(
+      wasTerminationRequested = finishOrtRunCancelToken(
+        runOptions,
         cancelToken,
       );
       cancelToken = null;
@@ -4283,9 +4307,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       final OrtRunOptions runOptions = OrtRunOptions(
         runtime: cancellationRuntime!,
       );
-      final int cancelToken = runOptions._nativeApi.registerCancelToken(
-        runOptions._nativeHandle,
-      );
+      final int cancelToken = registerOrtRunCancelToken(runOptions);
       var wasTerminationRequested = false;
       try {
         responsePort.send(<String, Object?>{
@@ -4295,7 +4317,8 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
           'cancelToken': cancelToken,
         });
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        wasTerminationRequested = runOptions._nativeApi.finishCancelToken(
+        wasTerminationRequested = finishOrtRunCancelToken(
+          runOptions,
           cancelToken,
         );
       } finally {

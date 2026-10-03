@@ -4,6 +4,13 @@ library;
 export 'src/diagnostics.dart';
 export 'src/disposable.dart';
 export 'src/exceptions.dart';
+export 'src/isolate_session.dart'
+    show
+        OrtIsolateRun,
+        OrtIsolateRunResult,
+        OrtIsolateSession,
+        OrtRunCancellationDisposition,
+        OrtSessionPool;
 export 'src/isolate_value.dart';
 export 'src/metadata.dart';
 export 'src/provider.dart'
@@ -33,10 +40,6 @@ export 'src/runtime.dart'
     show
         OrtBytesModelSource,
         OrtFileModelSource,
-        OrtIsolateRun,
-        OrtRunCancellationDisposition,
-        OrtIsolateRunResult,
-        OrtIsolateSession,
         OrtMap,
         OrtModelSource,
         OrtModelSourceKind,
@@ -45,7 +48,6 @@ export 'src/runtime.dart'
         OrtRunResult,
         OrtRuntime,
         OrtSession,
-        OrtSessionPool,
         OrtSessionMetadata,
         OrtOptional,
         OrtSequence,
