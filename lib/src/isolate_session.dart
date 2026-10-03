@@ -1481,7 +1481,7 @@ void _validateWorkerBounds({
 
 void _validateWorkerText(String value, String name, int maximumBytes) {
   if (value.isEmpty ||
-      !_hasWellFormedUtf16(value) ||
+      !hasWellFormedUtf16(value) ||
       value.contains('\u0000') ||
       value.contains('\n') ||
       value.contains('\r') ||
@@ -2709,7 +2709,7 @@ List<String> _workerStringListAllowEmpty(
   for (final Object? value in raw) {
     if (value is! String ||
         value.contains('\u0000') ||
-        !_hasWellFormedUtf16(value)) {
+        !hasWellFormedUtf16(value)) {
       throw const FormatException('Worker string tensor text is invalid.');
     }
     budget.addUtf8(value);
@@ -2982,7 +2982,7 @@ String? _workerNullableText(
   if (raw is! String ||
       raw.length > 4096 ||
       raw.contains('\u0000') ||
-      !_hasWellFormedUtf16(raw)) {
+      !hasWellFormedUtf16(raw)) {
     throw FormatException('Worker $field is invalid.');
   }
   budget.addUtf8(raw);

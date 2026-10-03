@@ -529,7 +529,7 @@ Map<String, Object?> _protocolObject(
   String label,
   int maximumBytes,
 ) {
-  if (!_hasWellFormedUtf16(source) ||
+  if (!hasWellFormedUtf16(source) ||
       source.length > maximumBytes ||
       utf8.encode(source).length > maximumBytes) {
     throw FormatException('$label exceeds the configured limit.');
@@ -632,7 +632,7 @@ void _protocolBoundedText(
   required bool allowControls,
 }) {
   if ((!allowEmpty && value.isEmpty) ||
-      !_hasWellFormedUtf16(value) ||
+      !hasWellFormedUtf16(value) ||
       value.length > maximumBytes ||
       utf8.encode(value).length > maximumBytes ||
       value.contains('\u0000') ||

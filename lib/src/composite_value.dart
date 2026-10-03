@@ -26,7 +26,7 @@ final class OrtStringTensor extends _NativeOwner implements OrtValue {
         throw ArgumentError('String count does not match the tensor shape.');
       }
       final String value = iterator.current;
-      if (!_hasWellFormedUtf16(value) || value.contains('\u0000')) {
+      if (!hasWellFormedUtf16(value) || value.contains('\u0000')) {
         throw ArgumentError(
           'String tensors require well-formed UTF-16 without embedded NUL.',
         );
@@ -681,10 +681,7 @@ void _validateCreatedComposite({
   required int childCount,
 }) {
   try {
-    validateOrtNativeValueKindForTesting(
-      runtime._nativeApi.valueKind(handle),
-      kind,
-    );
+    validateOrtNativeValueKind(runtime._nativeApi.valueKind(handle), kind);
     final int actualChildren = _boundedChildCount(runtime, handle);
     if (actualChildren != childCount) {
       throw const FormatException(
@@ -866,7 +863,7 @@ OrtValue _valueFromNative({
   var ownsHandle = true;
   try {
     decodeBudget.consume(depth);
-    validateOrtNativeValueKindForTesting(
+    validateOrtNativeValueKind(
       runtime._nativeApi.valueKind(handle),
       expectedType.kind,
     );
@@ -1028,16 +1025,13 @@ final class _ValueDecodeBudget {
 
 int _boundedChildCount(OrtRuntime runtime, Pointer<Void> handle) {
   final int count = runtime._nativeApi.valueChildCount(handle);
-  return validateOrtValueChildCountForTesting(count);
+  return validateOrtValueChildCount(count);
 }
 
 /// Exercises native value-kind validation without opening a runtime.
 ///
 /// This entry point is intentionally omitted from `package:fonix/fonix.dart`.
-void validateOrtNativeValueKindForTesting(
-  int nativeKind,
-  OrtValueKind expectedKind,
-) {
+void validateOrtNativeValueKind(int nativeKind, OrtValueKind expectedKind) {
   final int expectedNativeKind = _nativeValueKind(expectedKind);
   if (expectedNativeKind < 0 || nativeKind != expectedNativeKind) {
     throw const FormatException('Native value kind differs from metadata.');
@@ -1047,7 +1041,7 @@ void validateOrtNativeValueKindForTesting(
 /// Exercises native composite-count validation before child allocation.
 ///
 /// This entry point is intentionally omitted from `package:fonix/fonix.dart`.
-int validateOrtValueChildCountForTesting(int count) {
+int validateOrtValueChildCount(int count) {
   if (count < 0 || count > _maximumCompositeChildren) {
     throw const FormatException('Native composite child count is invalid.');
   }

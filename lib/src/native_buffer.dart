@@ -172,7 +172,7 @@ final class OrtNativeBuffer implements Disposable, Finalizable {
     FonixNativeDataLease? lease;
     try {
       lease = _nativeApi.acquireBufferData(_nativeHandle);
-      validateOrtDataLeaseLengthForTesting(lease.byteLength, _byteLength);
+      validateOrtDataLeaseLength(lease.byteLength, _byteLength);
       if (_byteLength == 0) {
         _nativeApi.releaseDataLease(lease.lease);
         account.release();
@@ -268,7 +268,7 @@ T _attachDataLease<T extends TypedData>(
 /// Exercises native lease-length validation before creating a TypedData view.
 ///
 /// This entry point is intentionally omitted from `package:fonix/fonix.dart`.
-void validateOrtDataLeaseLengthForTesting(int actual, int expected) {
+void validateOrtDataLeaseLength(int actual, int expected) {
   if (actual < 0 || expected < 0 || actual != expected) {
     throw const FormatException('Native data lease length is invalid.');
   }

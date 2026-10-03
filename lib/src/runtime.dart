@@ -25,6 +25,7 @@ import 'runtime_source.dart';
 import 'session_options.dart';
 import 'strict_json.dart';
 import 'tensor_type.dart';
+import 'utf16.dart';
 import 'version.dart';
 
 part 'model_source.dart';
@@ -38,32 +39,56 @@ part 'session_metadata_protocol.dart';
 part 'tensor.dart';
 part 'value.dart';
 
-const int _nativeErrorAbiMismatch = 2;
-const int _nativeErrorApiRequestUnsupported = 3;
-const int _nativeErrorSourceUnsupported = 4;
-const int _nativeErrorPathNotAbsolute = 5;
-const int _nativeErrorPathOutsideAllowedRoot = 6;
-const int _nativeErrorRuntimeNotFound = 7;
-const int _nativeErrorSymbolNotFound = 8;
-const int _nativeErrorInvalidUtf8 = 11;
-const int _nativeErrorLimitExceeded = 12;
-const int _nativeErrorPlatform = 13;
-const int _nativeErrorRuntimeIdentityMismatch = 14;
-const int _nativeErrorModelInvalid = 15;
-const int _nativeErrorTensorInvalid = 16;
-const int _nativeErrorRunFailed = 17;
-const int _nativeErrorBufferTooSmall = 18;
-const int _nativeErrorOverflow = 19;
-const int _nativeErrorProviderUnsupported = 20;
-const int _nativeErrorNotTensor = 21;
-const int _nativeErrorValueKindUnsupported = 22;
-const int _nativeErrorNotComposite = 23;
-const int _nativeErrorDataLeaseUnsupported = 24;
-const int _nativeErrorMemoryDomainUnsupported = 25;
-const int _nativeErrorExternalDataInvalid = 26;
-const int _nativeErrorCancelTokenUnknown = 27;
-const int _nativeDomainOrtStatus = 6;
-const int _nativeDomainProvider = 7;
+const int _nativeErrorAbiMismatch =
+    bindings.dort_error_code.DORT_ERROR_ABI_MISMATCH;
+const int _nativeErrorApiRequestUnsupported =
+    bindings.dort_error_code.DORT_ERROR_API_REQUEST_UNSUPPORTED;
+const int _nativeErrorSourceUnsupported =
+    bindings.dort_error_code.DORT_ERROR_SOURCE_UNSUPPORTED;
+const int _nativeErrorPathNotAbsolute =
+    bindings.dort_error_code.DORT_ERROR_PATH_NOT_ABSOLUTE;
+const int _nativeErrorPathOutsideAllowedRoot =
+    bindings.dort_error_code.DORT_ERROR_PATH_OUTSIDE_ALLOWED_ROOT;
+const int _nativeErrorRuntimeNotFound =
+    bindings.dort_error_code.DORT_ERROR_RUNTIME_NOT_FOUND;
+const int _nativeErrorSymbolNotFound =
+    bindings.dort_error_code.DORT_ERROR_SYMBOL_NOT_FOUND;
+const int _nativeErrorInvalidUtf8 =
+    bindings.dort_error_code.DORT_ERROR_INVALID_UTF8;
+const int _nativeErrorLimitExceeded =
+    bindings.dort_error_code.DORT_ERROR_LIMIT_EXCEEDED;
+const int _nativeErrorPlatform = bindings.dort_error_code.DORT_ERROR_PLATFORM;
+const int _nativeErrorRuntimeIdentityMismatch =
+    bindings.dort_error_code.DORT_ERROR_RUNTIME_IDENTITY_MISMATCH;
+const int _nativeErrorModelInvalid =
+    bindings.dort_error_code.DORT_ERROR_MODEL_INVALID;
+const int _nativeErrorTensorInvalid =
+    bindings.dort_error_code.DORT_ERROR_TENSOR_INVALID;
+const int _nativeErrorRunFailed =
+    bindings.dort_error_code.DORT_ERROR_RUN_FAILED;
+const int _nativeErrorBufferTooSmall =
+    bindings.dort_error_code.DORT_ERROR_BUFFER_TOO_SMALL;
+const int _nativeErrorOverflow = bindings.dort_error_code.DORT_ERROR_OVERFLOW;
+const int _nativeErrorProviderUnsupported =
+    bindings.dort_error_code.DORT_ERROR_PROVIDER_UNSUPPORTED;
+const int _nativeErrorNotTensor =
+    bindings.dort_error_code.DORT_ERROR_NOT_TENSOR;
+const int _nativeErrorValueKindUnsupported =
+    bindings.dort_error_code.DORT_ERROR_VALUE_KIND_UNSUPPORTED;
+const int _nativeErrorNotComposite =
+    bindings.dort_error_code.DORT_ERROR_NOT_COMPOSITE;
+const int _nativeErrorDataLeaseUnsupported =
+    bindings.dort_error_code.DORT_ERROR_DATA_LEASE_UNSUPPORTED;
+const int _nativeErrorMemoryDomainUnsupported =
+    bindings.dort_error_code.DORT_ERROR_MEMORY_DOMAIN_UNSUPPORTED;
+const int _nativeErrorExternalDataInvalid =
+    bindings.dort_error_code.DORT_ERROR_EXTERNAL_DATA_INVALID;
+const int _nativeErrorCancelTokenUnknown =
+    bindings.dort_error_code.DORT_ERROR_CANCEL_TOKEN_UNKNOWN;
+const int _nativeDomainOrtStatus =
+    bindings.dort_error_domain.DORT_ERROR_DOMAIN_ORT_STATUS;
+const int _nativeDomainProvider =
+    bindings.dort_error_domain.DORT_ERROR_DOMAIN_PROVIDER;
 
 typedef _NativeRelease = void Function(Pointer<Void> handle);
 
@@ -412,7 +437,7 @@ void _validateRuntimeConfiguration({
   required OrtRuntimeSource source,
   required String logId,
 }) {
-  if (!_hasWellFormedUtf16(logId) ||
+  if (!hasWellFormedUtf16(logId) ||
       logId.isEmpty ||
       utf8.encode(logId).length > 128 ||
       logId.contains('/') ||
@@ -431,7 +456,7 @@ void _validateRuntimeConfiguration({
     ...source.preferredLibraryNames,
   ];
   for (final String value in nativeStrings) {
-    if (!_hasWellFormedUtf16(value) || utf8.encode(value).length > 4096) {
+    if (!hasWellFormedUtf16(value) || utf8.encode(value).length > 4096) {
       throw ArgumentError.value(
         '<redacted>',
         'source',
@@ -656,23 +681,4 @@ String _redactPrivateText(String value, Iterable<String> privateValues) {
     return 'The native operation failed; details exceeded the Dart limit.';
   }
   return redacted;
-}
-
-bool _hasWellFormedUtf16(String value) {
-  for (var index = 0; index < value.length; index += 1) {
-    final int unit = value.codeUnitAt(index);
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      if (index + 1 >= value.length) {
-        return false;
-      }
-      final int next = value.codeUnitAt(index + 1);
-      if (next < 0xdc00 || next > 0xdfff) {
-        return false;
-      }
-      index += 1;
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
 }
