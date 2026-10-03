@@ -1,4 +1,22 @@
-part of 'isolate_session.dart';
+import 'dart:async';
+import 'dart:ffi';
+import 'dart:io';
+import 'dart:isolate';
+
+import 'package:path/path.dart' as p;
+
+import 'diagnostics.dart';
+import 'exceptions.dart';
+import 'isolate_protocol.dart';
+import 'isolate_session.dart';
+import 'isolate_value.dart';
+import 'isolate_worker.dart';
+import 'provider.dart';
+import 'resource_limits.dart';
+import 'runtime.dart';
+import 'runtime_source.dart';
+import 'session_options.dart';
+import 'version.dart';
 
 /// Internal real-isolate protocol harness; omitted from `package:fonix/fonix.dart`.
 Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
@@ -25,7 +43,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
   );
   final int effectiveMaxOutstandingInputBytes =
       maxOutstandingInputBytes ?? maxMessageBytes;
-  _validateWorkerBounds(
+  validateWorkerBounds(
     maxPendingRuns: maxPendingRuns,
     maxMessageBytes: maxMessageBytes,
     maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
@@ -93,10 +111,10 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
       'startupLifecyclePort is required only for startup lifecycle scenarios.',
     );
   }
-  return _spawnOrtWorker(
+  return spawnOrtWorker(
     entrypoint: _ortIsolateProtocolHarnessMain,
     startup: <String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'harnessStartup',
       'scenario': scenario,
       'runtimeLibraryPath': runtimeLibraryPath,
@@ -118,8 +136,8 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
 }
 
 void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
-  final Map<Object?, Object?> startup = _workerMap(initialMessage);
-  _requireWorkerKeys(
+  final Map<Object?, Object?> startup = workerMap(initialMessage);
+  requireWorkerKeys(
     startup,
     required: const <String>{
       'version',
@@ -132,8 +150,8 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       'providerOptionCount',
     },
   );
-  _requireWorkerVersion(startup);
-  if (_workerString(startup, 'type') != 'harnessStartup') {
+  requireWorkerVersion(startup);
+  if (workerString(startup, 'type') != 'harnessStartup') {
     throw const FormatException('Expected the harness startup command.');
   }
   final Object? rawResponsePort = startup['responsePort'];
@@ -141,8 +159,8 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     throw const FormatException('Harness response port is missing.');
   }
   final SendPort responsePort = rawResponsePort;
-  final String scenario = _workerString(startup, 'scenario');
-  final String? runtimeLibraryPath = _workerNullableString(
+  final String scenario = workerString(startup, 'scenario');
+  final String? runtimeLibraryPath = workerNullableString(
     startup,
     'runtimeLibraryPath',
   );
@@ -151,13 +169,13 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     throw const FormatException('Harness lifecycle port is malformed.');
   }
   final SendPort? startupLifecyclePort = rawStartupLifecyclePort as SendPort?;
-  final int maxMessageBytes = _workerBoundedInt(
+  final int maxMessageBytes = workerBoundedInt(
     startup,
     'maxMessageBytes',
     1,
-    _maximumWorkerMessageBytes,
+    maximumWorkerMessageBytes,
   );
-  final int providerOptionCount = _workerBoundedInt(
+  final int providerOptionCount = workerBoundedInt(
     startup,
     'providerOptionCount',
     0,
@@ -165,7 +183,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
   );
   final ReceivePort commands = ReceivePort();
   responsePort.send(<String, Object?>{
-    'version': _ortWorkerProtocolVersion,
+    'version': ortWorkerProtocolVersion,
     'type': 'ownership',
     'commandPort': scenario == 'startupMalformedOwnershipThenReady'
         ? 'malformed-command-port'
@@ -181,11 +199,11 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
   }
   if (scenario == 'startupError') {
     responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'startupError',
       'message': 'Synthetic bounded startup failure.',
     });
-    await _awaitOrtWorkerStartupRetirement(commands);
+    await awaitOrtWorkerStartupRetirement(commands);
     return;
   }
   if (const <String>{
@@ -210,12 +228,12 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'startupGateError') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'startupError',
         'message': 'Synthetic delayed bounded startup failure.',
       });
       startupLifecyclePort.send('startupError');
-      final String acknowledgement = await _awaitOrtWorkerStartupRetirement(
+      final String acknowledgement = await awaitOrtWorkerStartupRetirement(
         commands,
       );
       startupLifecyclePort.send('startupRetired:$acknowledgement');
@@ -236,7 +254,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       ? ReceivePort()
       : null;
   final Map<String, Object?> readyMessage = <String, Object?>{
-    'version': _ortWorkerProtocolVersion,
+    'version': ortWorkerProtocolVersion,
     'type': 'ready',
     'commandPort': wrongCommands?.sendPort ?? commands.sendPort,
     'inputNames': const <String>['X'],
@@ -253,10 +271,10 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
   var closeReceiptSent = false;
   var terminalReplySent = false;
   await for (final Object? rawCommand in commands) {
-    final Map<Object?, Object?> command = _workerMap(rawCommand);
-    _requireWorkerVersion(command);
-    final String type = _workerString(command, 'type');
-    _requireWorkerCommandKeys(command, type);
+    final Map<Object?, Object?> command = workerMap(rawCommand);
+    requireWorkerVersion(command);
+    final String type = workerString(command, 'type');
+    requireWorkerCommandKeys(command, type);
     if (terminalReplySent) {
       if (type != 'retire' && type != 'close') {
         throw const FormatException('Harness received work after terminal.');
@@ -285,17 +303,17 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         return;
       }
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'closed',
       });
       closeReceiptSent = true;
       continue;
     }
-    final int requestId = _workerPositiveInt(command, 'requestId');
+    final int requestId = workerPositiveInt(command, 'requestId');
 
     if (scenario == 'scripted') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'started',
         'requestId': requestId,
         'cancelToken': requestId,
@@ -326,7 +344,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       }
       if (rawDisposition == 'ortError') {
         responsePort.send(<String, Object?>{
-          'version': _ortWorkerProtocolVersion,
+          'version': ortWorkerProtocolVersion,
           'type': 'ortError',
           'requestId': requestId,
           'error': <String, Object?>{
@@ -371,7 +389,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'fatalProtocolReply') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'fatalProtocol',
         'message': 'Synthetic fatal worker protocol failure.',
       });
@@ -380,7 +398,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'fatalWorkerReply') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'fatalWorkerError',
         'requestId': requestId,
         'message': 'Synthetic fatal native cleanup failure.',
@@ -390,7 +408,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'fatalWorkerStaleReply' && priorRequestId != 0) {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'fatalWorkerError',
         'requestId': priorRequestId,
         'message': 'Synthetic stale fatal native cleanup failure.',
@@ -427,7 +445,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'missingField') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'result',
         'requestId': requestId,
         'outputs': const <String, Object?>{},
@@ -436,7 +454,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'unknownField') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'result',
         'requestId': requestId,
         'outputs': const <String, Object?>{},
@@ -454,7 +472,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         await awaitRunStateCleanupGate();
       }
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'ortError',
         'requestId': requestId,
         'error': <String, Object?>{
@@ -477,7 +495,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       var wasTerminationRequested = false;
       try {
         responsePort.send(<String, Object?>{
-          'version': _ortWorkerProtocolVersion,
+          'version': ortWorkerProtocolVersion,
           'type': 'started',
           'requestId': requestId,
           'cancelToken': cancelToken,
@@ -491,7 +509,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
         runOptions.dispose();
       }
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'ortError',
         'requestId': requestId,
         'error': <String, Object?>{
@@ -508,18 +526,18 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'syntheticCancelToken') {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'started',
         'requestId': requestId,
         'cancelToken': 1,
       });
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
-    final _WorkerMessageBudget decodeBudget = _WorkerMessageBudget(
+    final WorkerMessageBudget decodeBudget = WorkerMessageBudget(
       maxBytes: maxMessageBytes,
     );
-    final Map<Object?, Object?> inputs = _workerMap(command['inputs']);
-    final OrtIsolateValue input = _decodeIsolateValue(
+    final Map<Object?, Object?> inputs = workerMap(command['inputs']);
+    final OrtIsolateValue input = decodeIsolateValue(
       inputs['X'],
       budget: decodeBudget,
       depth: 0,
@@ -535,17 +553,17 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       await awaitRunStateCleanupGate();
     }
     Map<String, Object?> encodedOutput() {
-      final _WorkerMessageBudget budget = _WorkerMessageBudget(
+      final WorkerMessageBudget budget = WorkerMessageBudget(
         maxBytes: maxMessageBytes,
       );
       return <String, Object?>{
-        'Y': _encodeIsolateValue(input, budget: budget, depth: 0),
+        'Y': encodeIsolateValue(input, budget: budget, depth: 0),
       };
     }
 
     if (scenario == 'stale' && priorRequestId != 0) {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'result',
         'requestId': priorRequestId,
         'outputs': encodedOutput(),
@@ -557,7 +575,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     }
     if (scenario == 'futureReply' && priorRequestId == 0) {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'result',
         'requestId': requestId + 1,
         'outputs': encodedOutput(),
@@ -568,7 +586,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       });
     }
     responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'result',
       'requestId': requestId,
       'outputs': encodedOutput(),

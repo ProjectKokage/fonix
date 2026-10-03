@@ -1,20 +1,36 @@
-part of 'isolate_session.dart';
+import 'dart:convert';
+import 'dart:isolate';
+import 'dart:typed_data';
 
-const int _ortWorkerProtocolVersion = 4;
+import 'diagnostics.dart';
+import 'exceptions.dart';
+import 'isolate_value.dart';
+import 'metadata.dart';
+import 'provider.dart';
+import 'provider_evidence.dart';
+import 'resource_limits.dart';
+import 'runtime.dart';
+import 'runtime_source.dart';
+import 'session_options.dart';
+import 'tensor_type.dart';
+import 'utf16.dart';
+import 'version.dart';
 
-const int _defaultWorkerMessageBytes = 64 * 1024 * 1024;
+const int ortWorkerProtocolVersion = 4;
 
-const int _maximumWorkerMessageBytes = 1024 * 1024 * 1024;
+const int defaultWorkerMessageBytes = 64 * 1024 * 1024;
+
+const int maximumWorkerMessageBytes = 1024 * 1024 * 1024;
 
 const int _maximumOutstandingWorkerInputBytes = 1024 * 1024 * 1024;
 
 const int _maximumPendingWorkerRuns = 1024;
 
-const int _maximumSessionPoolSize = 32;
+const int maximumSessionPoolSize = 32;
 
 const int _maximumWorkerCompositeChildren = 1024;
 
-const int _maximumWorkerRequestId = 0x7fffffffffffffff;
+const int maximumWorkerRequestId = 0x7fffffffffffffff;
 
 const int _workerStringRetentionBytes = 8;
 
@@ -24,9 +40,9 @@ const int _workerStringRetentionBytes = 8;
 /// are never involved.
 OrtSessionOptions roundTripOrtWorkerSessionOptionsForTesting(
   OrtSessionOptions options,
-) => _decodeSessionOptions(_encodeSessionOptions(options));
+) => decodeSessionOptions(_encodeSessionOptions(options));
 
-void _validateWorkerBounds({
+void validateWorkerBounds({
   required int maxPendingRuns,
   required int maxMessageBytes,
   required int maxOutstandingInputBytes,
@@ -40,11 +56,11 @@ void _validateWorkerBounds({
       'maxPendingRuns',
     );
   }
-  if (maxMessageBytes < 1 || maxMessageBytes > _maximumWorkerMessageBytes) {
+  if (maxMessageBytes < 1 || maxMessageBytes > maximumWorkerMessageBytes) {
     throw RangeError.range(
       maxMessageBytes,
       1,
-      _maximumWorkerMessageBytes,
+      maximumWorkerMessageBytes,
       'maxMessageBytes',
     );
   }
@@ -74,7 +90,7 @@ void _validateWorkerText(String value, String name, int maximumBytes) {
   }
 }
 
-Map<String, Object?> _encodeWorkerStartup({
+Map<String, Object?> encodeWorkerStartup({
   required OrtRuntimeSource runtimeSource,
   required OrtModelSource model,
   required OrtSessionOptions options,
@@ -85,7 +101,7 @@ Map<String, Object?> _encodeWorkerStartup({
 }) {
   _validateWorkerText(logId, 'logId', 128);
   return <String, Object?>{
-    'version': _ortWorkerProtocolVersion,
+    'version': ortWorkerProtocolVersion,
     'type': 'startup',
     'runtimeSource': _encodeRuntimeSource(runtimeSource),
     'model': _encodeModelSource(model),
@@ -179,53 +195,53 @@ Map<String, Object?> _encodeResourceLimits(OrtResourceLimits limits) =>
       'maxTypeNodes': limits.maxTypeNodes,
     };
 
-OrtRuntimeSource _decodeRuntimeSource(Object? raw) {
-  final Map<Object?, Object?> source = _workerMap(raw);
-  final String kind = _workerString(source, 'kind');
+OrtRuntimeSource decodeRuntimeSource(Object? raw) {
+  final Map<Object?, Object?> source = workerMap(raw);
+  final String kind = workerString(source, 'kind');
   switch (kind) {
     case 'linked':
-      _requireWorkerKeys(source, required: const <String>{'kind'});
+      requireWorkerKeys(source, required: const <String>{'kind'});
       return const OrtRuntimeSource.linked();
     case 'bundled':
-      _requireWorkerKeys(source, required: const <String>{'kind'});
+      requireWorkerKeys(source, required: const <String>{'kind'});
       return const OrtRuntimeSource.bundled();
     case 'process':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         source,
         required: const <String>{'kind'},
         optional: const <String>{'preferredLibraryNames'},
       );
       return OrtRuntimeSource.process(
-        preferredLibraryNames: _workerStringList(
+        preferredLibraryNames: workerStringList(
           source['preferredLibraryNames'] ?? const <String>[],
           maximum: 8,
         ),
       );
     case 'file':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         source,
         required: const <String>{'kind', 'libraryPath'},
         optional: const <String>{'allowedRoot'},
       );
       return OrtRuntimeSource.file(
-        absolutePath: _workerString(source, 'libraryPath'),
-        allowedRoot: _workerNullableString(source, 'allowedRoot'),
+        absolutePath: workerString(source, 'libraryPath'),
+        allowedRoot: workerNullableString(source, 'allowedRoot'),
       );
     default:
       throw const FormatException('Unknown runtime source kind.');
   }
 }
 
-OrtModelSource _decodeModelSource(Object? raw, OrtResourceLimits limits) {
-  final Map<Object?, Object?> model = _workerMap(raw);
-  final String kind = _workerString(model, 'kind');
+OrtModelSource decodeModelSource(Object? raw, OrtResourceLimits limits) {
+  final Map<Object?, Object?> model = workerMap(raw);
+  final String kind = workerString(model, 'kind');
   if (kind == 'bytes') {
-    _requireWorkerKeys(
+    requireWorkerKeys(
       model,
       required: const <String>{'kind', 'modelId', 'bytes', 'externalData'},
     );
   } else if (kind == 'file') {
-    _requireWorkerKeys(
+    requireWorkerKeys(
       model,
       required: const <String>{
         'kind',
@@ -237,7 +253,7 @@ OrtModelSource _decodeModelSource(Object? raw, OrtResourceLimits limits) {
   } else {
     throw const FormatException('Unknown model source kind.');
   }
-  final String? modelId = _workerNullableString(model, 'modelId');
+  final String? modelId = workerNullableString(model, 'modelId');
   return switch (kind) {
     'bytes' => OrtModelSource.bytes(
       _materializeWorkerBytes(model['bytes'], maximum: limits.maxModelBytes),
@@ -249,8 +265,8 @@ OrtModelSource _decodeModelSource(Object? raw, OrtResourceLimits limits) {
       limits: limits,
     ),
     'file' => OrtModelSource.file(
-      absolutePath: _workerString(model, 'absolutePath'),
-      allowedRoot: _workerString(model, 'allowedRoot'),
+      absolutePath: workerString(model, 'absolutePath'),
+      allowedRoot: workerString(model, 'allowedRoot'),
       modelId: modelId,
     ),
     _ => throw const FormatException('Unknown model source kind.'),
@@ -261,7 +277,7 @@ Map<String, Uint8List> _decodeExternalData(
   Object? raw, {
   required int maximumTotalBytes,
 }) {
-  final Map<Object?, Object?> encoded = _workerMap(raw);
+  final Map<Object?, Object?> encoded = workerMap(raw);
   if (encoded.length > maximumOrtExternalDataFiles) {
     throw const FormatException('Too many external-data entries.');
   }
@@ -281,9 +297,9 @@ Map<String, Uint8List> _decodeExternalData(
   return result;
 }
 
-OrtSessionOptions _decodeSessionOptions(Object? raw) {
-  final Map<Object?, Object?> options = _workerMap(raw);
-  _requireWorkerKeys(
+OrtSessionOptions decodeSessionOptions(Object? raw) {
+  final Map<Object?, Object?> options = workerMap(raw);
+  requireWorkerKeys(
     options,
     required: const <String>{
       'graphOptimization',
@@ -315,8 +331,8 @@ OrtSessionOptions _decodeSessionOptions(Object? raw) {
   }
   final List<OrtExecutionProvider> providers = <OrtExecutionProvider>[];
   for (final Object? rawProvider in rawProviders) {
-    final Map<Object?, Object?> provider = _workerMap(rawProvider);
-    _requireWorkerKeys(
+    final Map<Object?, Object?> provider = workerMap(rawProvider);
+    requireWorkerKeys(
       provider,
       required: const <String>{'id', 'options', 'requirement', 'coreMlCache'},
     );
@@ -333,29 +349,29 @@ OrtSessionOptions _decodeSessionOptions(Object? raw) {
       options['executionMode'],
       'execution mode',
     ),
-    intraOpThreads: _workerInt(options, 'intraOpThreads'),
-    interOpThreads: _workerInt(options, 'interOpThreads'),
-    enableCpuMemoryArena: _workerBool(options, 'enableCpuMemoryArena'),
-    enableMemoryPattern: _workerBool(options, 'enableMemoryPattern'),
-    deterministicCompute: _workerBool(options, 'deterministicCompute'),
-    enableProfiling: _workerBool(options, 'enableProfiling'),
-    profilePathPrefix: _workerNullableString(options, 'profilePathPrefix'),
-    optimizedModelPath: _workerNullableString(options, 'optimizedModelPath'),
-    artifactRoot: _workerNullableString(options, 'artifactRoot'),
+    intraOpThreads: workerInt(options, 'intraOpThreads'),
+    interOpThreads: workerInt(options, 'interOpThreads'),
+    enableCpuMemoryArena: workerBool(options, 'enableCpuMemoryArena'),
+    enableMemoryPattern: workerBool(options, 'enableMemoryPattern'),
+    deterministicCompute: workerBool(options, 'deterministicCompute'),
+    enableProfiling: workerBool(options, 'enableProfiling'),
+    profilePathPrefix: workerNullableString(options, 'profilePathPrefix'),
+    optimizedModelPath: workerNullableString(options, 'optimizedModelPath'),
+    artifactRoot: workerNullableString(options, 'artifactRoot'),
     optimizedModelOverwrite: _workerEnum(
       OrtOverwritePolicy.values,
       options['optimizedModelOverwrite'],
       'optimized model overwrite',
     ),
     logSeverity:
-        OrtLogSeverity.values[_workerBoundedInt(
+        OrtLogSeverity.values[workerBoundedInt(
           options,
           'logSeverity',
           0,
           OrtLogSeverity.values.length - 1,
         )],
-    logVerbosity: _workerInt(options, 'logVerbosity'),
-    sessionLogId: _workerString(options, 'sessionLogId'),
+    logVerbosity: workerInt(options, 'logVerbosity'),
+    sessionLogId: workerString(options, 'sessionLogId'),
     providers: providers,
     fallbackPolicy: _workerEnum(
       OrtFallbackPolicy.values,
@@ -374,7 +390,7 @@ OrtExecutionProvider _decodeWorkerProvider(
   Map<Object?, Object?> provider,
   OrtResourceLimits limits,
 ) {
-  final String id = _workerString(provider, 'id');
+  final String id = workerString(provider, 'id');
   final Map<String, String> providerOptions = _workerStringMap(
     provider['options'],
     maximum: limits.maxProviderOptions,
@@ -398,8 +414,8 @@ OrtExecutionProvider _decodeWorkerProvider(
       'Only a Core ML worker provider may carry cache configuration.',
     );
   }
-  final Map<Object?, Object?> cache = _workerMap(rawCache);
-  _requireWorkerKeys(
+  final Map<Object?, Object?> cache = workerMap(rawCache);
+  requireWorkerKeys(
     cache,
     required: const <String>{
       'rootDirectory',
@@ -447,17 +463,17 @@ OrtExecutionProvider _decodeWorkerProvider(
     requireStaticInputShapes: flag('RequireStaticInputShapes'),
     enableOnSubgraphs: flag('EnableOnSubgraphs'),
     cache: OrtCoreMlCacheConfiguration(
-      rootDirectory: _workerString(cache, 'rootDirectory'),
-      modelSha256: _workerString(cache, 'modelSha256'),
-      applicationSchema: _workerString(cache, 'applicationSchema'),
+      rootDirectory: workerString(cache, 'rootDirectory'),
+      modelSha256: workerString(cache, 'modelSha256'),
+      applicationSchema: workerString(cache, 'applicationSchema'),
     ),
     requirement: requirement,
   );
 }
 
 OrtResourceLimits _decodeResourceLimits(Object? raw) {
-  final Map<Object?, Object?> limits = _workerMap(raw);
-  _requireWorkerKeys(
+  final Map<Object?, Object?> limits = workerMap(raw);
+  requireWorkerKeys(
     limits,
     required: const <String>{
       'maxModelBytes',
@@ -474,28 +490,28 @@ OrtResourceLimits _decodeResourceLimits(Object? raw) {
     },
   );
   return OrtResourceLimits(
-    maxModelBytes: _workerInt(limits, 'maxModelBytes'),
-    maxTensorBytes: _workerInt(limits, 'maxTensorBytes'),
-    maxTensorElements: _workerInt(limits, 'maxTensorElements'),
-    maxRank: _workerInt(limits, 'maxRank'),
-    maxDimension: _workerInt(limits, 'maxDimension'),
-    maxProviders: _workerInt(limits, 'maxProviders'),
-    maxProviderOptions: _workerInt(limits, 'maxProviderOptions'),
-    maxConfigEntries: _workerInt(limits, 'maxConfigEntries'),
-    maxDiagnosticsBytes: _workerInt(limits, 'maxDiagnosticsBytes'),
-    maxTypeDepth: _workerInt(limits, 'maxTypeDepth'),
-    maxTypeNodes: _workerInt(limits, 'maxTypeNodes'),
+    maxModelBytes: workerInt(limits, 'maxModelBytes'),
+    maxTensorBytes: workerInt(limits, 'maxTensorBytes'),
+    maxTensorElements: workerInt(limits, 'maxTensorElements'),
+    maxRank: workerInt(limits, 'maxRank'),
+    maxDimension: workerInt(limits, 'maxDimension'),
+    maxProviders: workerInt(limits, 'maxProviders'),
+    maxProviderOptions: workerInt(limits, 'maxProviderOptions'),
+    maxConfigEntries: workerInt(limits, 'maxConfigEntries'),
+    maxDiagnosticsBytes: workerInt(limits, 'maxDiagnosticsBytes'),
+    maxTypeDepth: workerInt(limits, 'maxTypeDepth'),
+    maxTypeNodes: workerInt(limits, 'maxTypeNodes'),
   );
 }
 
-Map<Object?, Object?> _workerMap(Object? raw) {
+Map<Object?, Object?> workerMap(Object? raw) {
   if (raw is! Map<Object?, Object?> || raw.length > 4096) {
     throw const FormatException('Worker protocol value is not a bounded map.');
   }
   return raw;
 }
 
-void _requireWorkerKeys(
+void requireWorkerKeys(
   Map<Object?, Object?> map, {
   required Set<String> required,
   Set<String> optional = const <String>{},
@@ -513,18 +529,15 @@ void _requireWorkerKeys(
   }
 }
 
-void _requireWorkerStartupReplyKeys(
-  Map<Object?, Object?> message,
-  String type,
-) {
+void requireWorkerStartupReplyKeys(Map<Object?, Object?> message, String type) {
   switch (type) {
     case 'ownership':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{'version', 'type', 'commandPort'},
       );
     case 'ready':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{
           'version',
@@ -536,7 +549,7 @@ void _requireWorkerStartupReplyKeys(
         },
       );
     case 'startupError':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{'version', 'type', 'message'},
       );
@@ -545,22 +558,22 @@ void _requireWorkerStartupReplyKeys(
   }
 }
 
-void _requireWorkerReplyKeys(Map<Object?, Object?> message, String type) {
+void requireWorkerReplyKeys(Map<Object?, Object?> message, String type) {
   switch (type) {
     case 'closed':
-      _requireWorkerKeys(message, required: const <String>{'version', 'type'});
+      requireWorkerKeys(message, required: const <String>{'version', 'type'});
     case 'fatalProtocol':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{'version', 'type', 'message'},
       );
     case 'started':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{'version', 'type', 'requestId', 'cancelToken'},
       );
     case 'result':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{
           'version',
@@ -574,7 +587,7 @@ void _requireWorkerReplyKeys(Map<Object?, Object?> message, String type) {
         },
       );
     case 'ortError':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{
           'version',
@@ -586,7 +599,7 @@ void _requireWorkerReplyKeys(Map<Object?, Object?> message, String type) {
       );
     case 'workerError':
     case 'fatalWorkerError':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         message,
         required: const <String>{'version', 'type', 'requestId', 'message'},
       );
@@ -595,13 +608,13 @@ void _requireWorkerReplyKeys(Map<Object?, Object?> message, String type) {
   }
 }
 
-void _requireWorkerCommandKeys(Map<Object?, Object?> command, String type) {
+void requireWorkerCommandKeys(Map<Object?, Object?> command, String type) {
   switch (type) {
     case 'close':
     case 'retire':
-      _requireWorkerKeys(command, required: const <String>{'version', 'type'});
+      requireWorkerKeys(command, required: const <String>{'version', 'type'});
     case 'run':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         command,
         required: const <String>{
           'version',
@@ -617,13 +630,13 @@ void _requireWorkerCommandKeys(Map<Object?, Object?> command, String type) {
   }
 }
 
-void _requireWorkerVersion(Map<Object?, Object?> message) {
-  if (message['version'] != _ortWorkerProtocolVersion) {
+void requireWorkerVersion(Map<Object?, Object?> message) {
+  if (message['version'] != ortWorkerProtocolVersion) {
     throw const FormatException('Unsupported worker protocol version.');
   }
 }
 
-String _workerString(Map<Object?, Object?> map, String key) {
+String workerString(Map<Object?, Object?> map, String key) {
   final Object? value = map[key];
   if (value is! String ||
       value.isEmpty ||
@@ -635,20 +648,20 @@ String _workerString(Map<Object?, Object?> map, String key) {
   return value;
 }
 
-String? _workerNullableString(Map<Object?, Object?> map, String key) {
+String? workerNullableString(Map<Object?, Object?> map, String key) {
   final Object? value = map[key];
   if (value == null) return null;
-  return _workerString(<Object?, Object?>{key: value}, key);
+  return workerString(<Object?, Object?>{key: value}, key);
 }
 
-int _workerInt(Map<Object?, Object?> map, String key) {
+int workerInt(Map<Object?, Object?> map, String key) {
   final Object? value = map[key];
   if (value is! int) throw FormatException('Worker field $key is not an int.');
   return value;
 }
 
-int _workerPositiveInt(Map<Object?, Object?> map, String key) {
-  final int value = _workerInt(map, key);
+int workerPositiveInt(Map<Object?, Object?> map, String key) {
+  final int value = workerInt(map, key);
   if (value <= 0 || value > 0x7fffffffffffffff) {
     throw FormatException(
       'Worker field $key is outside the positive int64 range.',
@@ -657,20 +670,20 @@ int _workerPositiveInt(Map<Object?, Object?> map, String key) {
   return value;
 }
 
-int _workerBoundedInt(
+int workerBoundedInt(
   Map<Object?, Object?> map,
   String key,
   int minimum,
   int maximum,
 ) {
-  final int value = _workerInt(map, key);
+  final int value = workerInt(map, key);
   if (value < minimum || value > maximum) {
     throw FormatException('Worker field $key is outside its closed range.');
   }
   return value;
 }
 
-bool _workerBool(Map<Object?, Object?> map, String key) {
+bool workerBool(Map<Object?, Object?> map, String key) {
   final Object? value = map[key];
   if (value is! bool) throw FormatException('Worker field $key is not a bool.');
   return value;
@@ -685,7 +698,7 @@ T _workerEnum<T extends Enum>(List<T> values, Object? raw, String label) {
   throw FormatException('Worker $label is outside its closed enum.');
 }
 
-List<String> _workerStringList(Object? raw, {required int maximum}) {
+List<String> workerStringList(Object? raw, {required int maximum}) {
   if (raw is! List<Object?> || raw.length > maximum) {
     throw const FormatException('Worker value is not a bounded string list.');
   }
@@ -706,7 +719,7 @@ List<String> _workerStringList(Object? raw, {required int maximum}) {
 }
 
 Map<String, String> _workerStringMap(Object? raw, {required int maximum}) {
-  final Map<Object?, Object?> map = _workerMap(raw);
+  final Map<Object?, Object?> map = workerMap(raw);
   if (map.length > maximum) {
     throw const FormatException('Worker string map exceeds its bound.');
   }
@@ -731,27 +744,27 @@ Uint8List _materializeWorkerBytes(Object? raw, {required int maximum}) {
   return Uint8List.fromList(buffer.asUint8List());
 }
 
-String _boundedWorkerText(Object? raw, String fallback) {
+String boundedWorkerText(Object? raw, String fallback) {
   if (raw is! String || raw.isEmpty || raw.contains('\u0000')) return fallback;
   final List<int> bytes = utf8.encode(raw);
   if (bytes.length <= 1024) return raw;
   return utf8.decode(bytes.sublist(0, 1024), allowMalformed: true);
 }
 
-String _boundedWorkerCrash(Object? raw) {
+String boundedWorkerCrash(Object? raw) {
   Object? error = raw;
   if (raw is List<Object?> && raw.isNotEmpty) error = raw.first;
-  return _boundedWorkerText(error?.toString(), 'unreported worker error');
+  return boundedWorkerText(error?.toString(), 'unreported worker error');
 }
 
-final class _ValidatedWorkerInputs {
-  const _ValidatedWorkerInputs({required this.values, required this.bytes});
+final class ValidatedWorkerInputs {
+  const ValidatedWorkerInputs({required this.values, required this.bytes});
 
   final Map<String, OrtIsolateValue> values;
   final int bytes;
 }
 
-_ValidatedWorkerInputs _validateWorkerRunInputs({
+ValidatedWorkerInputs validateWorkerRunInputs({
   required Map<String, OrtIsolateValue> supplied,
   required List<String> knownNames,
   required int maxMessageBytes,
@@ -760,7 +773,7 @@ _ValidatedWorkerInputs _validateWorkerRunInputs({
     throw ArgumentError('Too many isolate-session inputs were supplied.');
   }
   final Set<String> known = knownNames.toSet();
-  final _WorkerMessageBudget budget = _WorkerMessageBudget(
+  final WorkerMessageBudget budget = WorkerMessageBudget(
     maxBytes: maxMessageBytes,
   );
   final Map<String, OrtIsolateValue> copied = <String, OrtIsolateValue>{};
@@ -772,13 +785,13 @@ _ValidatedWorkerInputs _validateWorkerRunInputs({
     _measureIsolateValue(entry.value, budget: budget, depth: 0);
     copied[entry.key] = entry.value;
   }
-  return _ValidatedWorkerInputs(
+  return ValidatedWorkerInputs(
     values: Map<String, OrtIsolateValue>.unmodifiable(copied),
     bytes: budget.bytes,
   );
 }
 
-List<String> _validateWorkerOutputNames({
+List<String> validateWorkerOutputNames({
   required List<String>? supplied,
   required List<String> knownNames,
 }) {
@@ -802,12 +815,12 @@ List<String> _validateWorkerOutputNames({
   return List<String>.unmodifiable(selected);
 }
 
-void _validateWorkerRequestMessageBytes({
+void validateWorkerRequestMessageBytes({
   required int inputBytes,
   required List<String> outputNames,
   required int maxMessageBytes,
 }) {
-  final _WorkerMessageBudget budget = _WorkerMessageBudget(
+  final WorkerMessageBudget budget = WorkerMessageBudget(
     maxBytes: maxMessageBytes,
   )..addBytes(inputBytes);
   for (final String outputName in outputNames) {
@@ -815,8 +828,8 @@ void _validateWorkerRequestMessageBytes({
   }
 }
 
-final class _WorkerMessageBudget {
-  _WorkerMessageBudget({required this.maxBytes});
+final class WorkerMessageBudget {
+  WorkerMessageBudget({required this.maxBytes});
 
   final int maxBytes;
   int bytes = 0;
@@ -846,13 +859,13 @@ final class _WorkerMessageBudget {
   void addUtf8(String value) => addBytes(utf8.encode(value).length);
 }
 
-void _addWorkerStringRetention(_WorkerMessageBudget budget, int count) {
+void addWorkerStringRetention(WorkerMessageBudget budget, int count) {
   budget.addBytes(count * _workerStringRetentionBytes);
 }
 
 void _measureIsolateValue(
   OrtIsolateValue value, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
 }) {
   budget.addNode(depth);
@@ -861,7 +874,7 @@ void _measureIsolateValue(
       budget.addBytes(value.shape.rank * 8);
       if (value.isString) {
         final List<String> strings = value.copyStrings();
-        _addWorkerStringRetention(budget, strings.length);
+        addWorkerStringRetention(budget, strings.length);
         for (final String string in strings) {
           budget.addUtf8(string);
         }
@@ -876,16 +889,16 @@ void _measureIsolateValue(
       _measureIsolateValue(value.keys, budget: budget, depth: depth + 1);
       _measureIsolateValue(value.values, budget: budget, depth: depth + 1);
     case OrtIsolateOptional():
-      _measureWorkerType(value.elementType, budget: budget, depth: depth + 1);
+      measureWorkerType(value.elementType, budget: budget, depth: depth + 1);
       if (value.value case final OrtIsolateValue child) {
         _measureIsolateValue(child, budget: budget, depth: depth + 1);
       }
   }
 }
 
-Map<String, Object?> _encodeIsolateValue(
+Map<String, Object?> encodeIsolateValue(
   OrtIsolateValue value, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
 }) {
   budget.addNode(depth);
@@ -906,13 +919,13 @@ Map<String, Object?> _encodeIsolateValue(
       'kind': 'sequence',
       'elements': <Object?>[
         for (final OrtIsolateValue child in value.elements)
-          _encodeIsolateValue(child, budget: budget, depth: depth + 1),
+          encodeIsolateValue(child, budget: budget, depth: depth + 1),
       ],
     },
     OrtIsolateMap() => <String, Object?>{
       'kind': 'map',
-      'keys': _encodeIsolateValue(value.keys, budget: budget, depth: depth + 1),
-      'values': _encodeIsolateValue(
+      'keys': encodeIsolateValue(value.keys, budget: budget, depth: depth + 1),
+      'values': encodeIsolateValue(
         value.values,
         budget: budget,
         depth: depth + 1,
@@ -920,21 +933,21 @@ Map<String, Object?> _encodeIsolateValue(
     },
     OrtIsolateOptional() => <String, Object?>{
       'kind': 'optional',
-      'elementType': _encodeWorkerType(
+      'elementType': encodeWorkerType(
         value.elementType,
         budget: budget,
         depth: depth + 1,
       ),
       'value': value.value == null
           ? null
-          : _encodeIsolateValue(value.value!, budget: budget, depth: depth + 1),
+          : encodeIsolateValue(value.value!, budget: budget, depth: depth + 1),
     },
   };
 }
 
 List<int> _workerShapeForTransfer(
   OrtIsolateTensor value,
-  _WorkerMessageBudget budget,
+  WorkerMessageBudget budget,
 ) {
   budget.addBytes(value.shape.rank * 8);
   return value.shape.dimensions;
@@ -942,10 +955,10 @@ List<int> _workerShapeForTransfer(
 
 List<String> _workerStringsForTransfer(
   OrtIsolateTensor value,
-  _WorkerMessageBudget budget,
+  WorkerMessageBudget budget,
 ) {
   final List<String> strings = value.copyStrings();
-  _addWorkerStringRetention(budget, strings.length);
+  addWorkerStringRetention(budget, strings.length);
   for (final String string in strings) {
     budget.addUtf8(string);
   }
@@ -954,16 +967,16 @@ List<String> _workerStringsForTransfer(
 
 TransferableTypedData _transferWorkerTensor(
   OrtIsolateTensor value,
-  _WorkerMessageBudget budget,
+  WorkerMessageBudget budget,
 ) {
   final Uint8List bytes = value.copyBytes();
   budget.addBytes(bytes.length);
   return TransferableTypedData.fromList(<TypedData>[bytes]);
 }
 
-void _measureWorkerType(
+void measureWorkerType(
   OrtTypeInfo type, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
 }) {
   budget.addNode(depth);
@@ -974,15 +987,15 @@ void _measureWorkerType(
         if (dimension.symbol case final String symbol) budget.addUtf8(symbol);
       }
     case OrtValueKind.sequence:
-      _measureWorkerType(
+      measureWorkerType(
         type.sequenceElement!,
         budget: budget,
         depth: depth + 1,
       );
     case OrtValueKind.map:
-      _measureWorkerType(type.mapValueType!, budget: budget, depth: depth + 1);
+      measureWorkerType(type.mapValueType!, budget: budget, depth: depth + 1);
     case OrtValueKind.optional:
-      _measureWorkerType(
+      measureWorkerType(
         type.optionalElement!,
         budget: budget,
         depth: depth + 1,
@@ -994,9 +1007,9 @@ void _measureWorkerType(
   }
 }
 
-Map<String, Object?> _encodeWorkerType(
+Map<String, Object?> encodeWorkerType(
   OrtTypeInfo type, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
 }) {
   budget.addNode(depth);
@@ -1012,7 +1025,7 @@ Map<String, Object?> _encodeWorkerType(
     },
     OrtValueKind.sequence => <String, Object?>{
       'kind': 'sequence',
-      'element': _encodeWorkerType(
+      'element': encodeWorkerType(
         type.sequenceElement!,
         budget: budget,
         depth: depth + 1,
@@ -1021,7 +1034,7 @@ Map<String, Object?> _encodeWorkerType(
     OrtValueKind.map => <String, Object?>{
       'kind': 'map',
       'keyElementType': type.mapKeyType!.nativeValue,
-      'value': _encodeWorkerType(
+      'value': encodeWorkerType(
         type.mapValueType!,
         budget: budget,
         depth: depth + 1,
@@ -1029,7 +1042,7 @@ Map<String, Object?> _encodeWorkerType(
     },
     OrtValueKind.optional => <String, Object?>{
       'kind': 'optional',
-      'element': _encodeWorkerType(
+      'element': encodeWorkerType(
         type.optionalElement!,
         budget: budget,
         depth: depth + 1,
@@ -1041,7 +1054,7 @@ Map<String, Object?> _encodeWorkerType(
 
 Map<String, Object?> _encodeWorkerDimension(
   OrtDimension dimension,
-  _WorkerMessageBudget budget,
+  WorkerMessageBudget budget,
 ) {
   budget.addBytes(8);
   if (dimension.symbol case final String symbol) budget.addUtf8(symbol);
@@ -1053,16 +1066,16 @@ Map<String, Object?> _encodeWorkerDimension(
 
 OrtTypeInfo _decodeWorkerType(
   Object? raw, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
   required OrtResourceLimits limits,
 }) {
   budget.addNode(depth);
-  final Map<Object?, Object?> type = _workerMap(raw);
-  final String kind = _workerString(type, 'kind');
+  final Map<Object?, Object?> type = workerMap(raw);
+  final String kind = workerString(type, 'kind');
   switch (kind) {
     case 'tensor':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         type,
         required: const <String>{
           'kind',
@@ -1078,9 +1091,9 @@ OrtTypeInfo _decodeWorkerType(
       }
       return OrtTypeInfo.tensor(
         elementType: OrtTensorElementType.fromNativeValue(
-          _workerInt(type, 'elementType'),
+          workerInt(type, 'elementType'),
         ),
-        hasShape: _workerBool(type, 'hasShape'),
+        hasShape: workerBool(type, 'hasShape'),
         dimensions: <OrtDimension>[
           for (final Object? rawDimension in rawDimensions)
             _decodeWorkerDimension(rawDimension, budget),
@@ -1088,7 +1101,7 @@ OrtTypeInfo _decodeWorkerType(
         limits: limits,
       );
     case 'sequence':
-      _requireWorkerKeys(type, required: const <String>{'kind', 'element'});
+      requireWorkerKeys(type, required: const <String>{'kind', 'element'});
       return OrtTypeInfo.sequence(
         _decodeWorkerType(
           type['element'],
@@ -1099,13 +1112,13 @@ OrtTypeInfo _decodeWorkerType(
         limits: limits,
       );
     case 'map':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         type,
         required: const <String>{'kind', 'keyElementType', 'value'},
       );
       return OrtTypeInfo.map(
         keyElementType: OrtTensorElementType.fromNativeValue(
-          _workerInt(type, 'keyElementType'),
+          workerInt(type, 'keyElementType'),
         ),
         value: _decodeWorkerType(
           type['value'],
@@ -1116,7 +1129,7 @@ OrtTypeInfo _decodeWorkerType(
         limits: limits,
       );
     case 'optional':
-      _requireWorkerKeys(type, required: const <String>{'kind', 'element'});
+      requireWorkerKeys(type, required: const <String>{'kind', 'element'});
       return OrtTypeInfo.optional(
         _decodeWorkerType(
           type['element'],
@@ -1131,9 +1144,9 @@ OrtTypeInfo _decodeWorkerType(
   }
 }
 
-OrtDimension _decodeWorkerDimension(Object? raw, _WorkerMessageBudget budget) {
-  final Map<Object?, Object?> dimension = _workerMap(raw);
-  _requireWorkerKeys(dimension, required: const <String>{'value', 'symbol'});
+OrtDimension _decodeWorkerDimension(Object? raw, WorkerMessageBudget budget) {
+  final Map<Object?, Object?> dimension = workerMap(raw);
+  requireWorkerKeys(dimension, required: const <String>{'value', 'symbol'});
   budget.addBytes(8);
   final Object? rawValue = dimension['value'];
   final Object? rawSymbol = dimension['symbol'];
@@ -1147,28 +1160,26 @@ OrtDimension _decodeWorkerDimension(Object? raw, _WorkerMessageBudget budget) {
   throw const FormatException('Worker dimension is inconsistent.');
 }
 
-OrtIsolateValue _decodeIsolateValue(
+OrtIsolateValue decodeIsolateValue(
   Object? raw, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
   required OrtResourceLimits limits,
 }) {
   budget.addNode(depth);
-  final Map<Object?, Object?> value = _workerMap(raw);
-  final String kind = _workerString(value, 'kind');
+  final Map<Object?, Object?> value = workerMap(raw);
+  final String kind = workerString(value, 'kind');
   switch (kind) {
     case 'tensor':
       final OrtTensorElementType elementType =
-          OrtTensorElementType.fromNativeValue(
-            _workerInt(value, 'elementType'),
-          );
+          OrtTensorElementType.fromNativeValue(workerInt(value, 'elementType'));
       final List<int> shape = _workerIntList(
         value['shape'],
         maximum: limits.maxRank,
       );
       budget.addBytes(shape.length * 8);
       if (elementType == OrtTensorElementType.string) {
-        _requireWorkerKeys(
+        requireWorkerKeys(
           value,
           required: const <String>{'kind', 'elementType', 'shape', 'strings'},
         );
@@ -1185,7 +1196,7 @@ OrtIsolateValue _decodeIsolateValue(
           limits: limits,
         );
       }
-      _requireWorkerKeys(
+      requireWorkerKeys(
         value,
         required: const <String>{'kind', 'elementType', 'shape', 'data'},
       );
@@ -1201,7 +1212,7 @@ OrtIsolateValue _decodeIsolateValue(
         limits: limits,
       );
     case 'sequence':
-      _requireWorkerKeys(value, required: const <String>{'kind', 'elements'});
+      requireWorkerKeys(value, required: const <String>{'kind', 'elements'});
       final Object? rawElements = value['elements'];
       if (rawElements is! List<Object?> ||
           rawElements.isEmpty ||
@@ -1210,7 +1221,7 @@ OrtIsolateValue _decodeIsolateValue(
       }
       return OrtIsolateSequence(<OrtIsolateValue>[
         for (final Object? child in rawElements)
-          _decodeIsolateValue(
+          decodeIsolateValue(
             child,
             budget: budget,
             depth: depth + 1,
@@ -1218,17 +1229,17 @@ OrtIsolateValue _decodeIsolateValue(
           ),
       ]);
     case 'map':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         value,
         required: const <String>{'kind', 'keys', 'values'},
       );
-      final OrtIsolateValue keys = _decodeIsolateValue(
+      final OrtIsolateValue keys = decodeIsolateValue(
         value['keys'],
         budget: budget,
         depth: depth + 1,
         limits: limits,
       );
-      final OrtIsolateValue values = _decodeIsolateValue(
+      final OrtIsolateValue values = decodeIsolateValue(
         value['values'],
         budget: budget,
         depth: depth + 1,
@@ -1239,7 +1250,7 @@ OrtIsolateValue _decodeIsolateValue(
       }
       return OrtIsolateMap(keys: keys, values: values);
     case 'optional':
-      _requireWorkerKeys(
+      requireWorkerKeys(
         value,
         required: const <String>{'kind', 'elementType', 'value'},
       );
@@ -1253,7 +1264,7 @@ OrtIsolateValue _decodeIsolateValue(
       if (contained == null) {
         return OrtIsolateOptional.none(elementType: elementType);
       }
-      final OrtIsolateValue decoded = _decodeIsolateValue(
+      final OrtIsolateValue decoded = decodeIsolateValue(
         contained,
         budget: budget,
         depth: depth + 1,
@@ -1283,12 +1294,12 @@ List<int> _workerIntList(Object? raw, {required int maximum}) {
 List<String> _workerStringListAllowEmpty(
   Object? raw, {
   required int maximum,
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
 }) {
   if (raw is! List<Object?> || raw.length > maximum) {
     throw const FormatException('Worker string tensor list is invalid.');
   }
-  _addWorkerStringRetention(budget, raw.length);
+  addWorkerStringRetention(budget, raw.length);
   final List<String> result = <String>[];
   for (final Object? value in raw) {
     if (value is! String ||
@@ -1302,11 +1313,11 @@ List<String> _workerStringListAllowEmpty(
   return List<String>.unmodifiable(result);
 }
 
-OrtDiagnostics _decodeWorkerFullDiagnostics(
+OrtDiagnostics decodeWorkerFullDiagnostics(
   Object? raw,
   OrtResourceLimits limits,
 ) {
-  final Map<Object?, Object?> object = _workerMap(raw);
+  final Map<Object?, Object?> object = workerMap(raw);
   try {
     return OrtDiagnostics.fromJsonString(jsonEncode(object), limits: limits);
   } on FormatException {
@@ -1316,13 +1327,13 @@ OrtDiagnostics _decodeWorkerFullDiagnostics(
   }
 }
 
-OrtProviderRunEvidence? _decodeWorkerProviderEvidence(
+OrtProviderRunEvidence? decodeWorkerProviderEvidence(
   Object? raw,
-  _WorkerMessageBudget budget,
+  WorkerMessageBudget budget,
 ) {
   if (raw == null) return null;
-  final Map<Object?, Object?> object = _workerMap(raw);
-  _requireWorkerKeys(
+  final Map<Object?, Object?> object = workerMap(raw);
+  requireWorkerKeys(
     object,
     required: const <String>{
       'schemaVersion',
@@ -1330,15 +1341,15 @@ OrtProviderRunEvidence? _decodeWorkerProviderEvidence(
       'nodeExecutionsByProvider',
     },
   );
-  if (_workerInt(object, 'schemaVersion') != 1) {
+  if (workerInt(object, 'schemaVersion') != 1) {
     throw const FormatException('Worker provider evidence schema is invalid.');
   }
-  final int nodeExecutionCount = _workerPositiveInt(
+  final int nodeExecutionCount = workerPositiveInt(
     object,
     'nodeExecutionCount',
   );
   budget.addBytes(16);
-  final Map<Object?, Object?> rawCounts = _workerMap(
+  final Map<Object?, Object?> rawCounts = workerMap(
     object['nodeExecutionsByProvider'],
   );
   if (rawCounts.isEmpty || rawCounts.length > 16) {
@@ -1361,10 +1372,10 @@ OrtProviderRunEvidence? _decodeWorkerProviderEvidence(
   );
 }
 
-List<OrtProviderDiagnostics> _decodeWorkerProviderDiagnostics(
+List<OrtProviderDiagnostics> decodeWorkerProviderDiagnostics(
   Object? raw, {
   required OrtProviderRunEvidence? evidence,
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required OrtResourceLimits limits,
 }) {
   if (raw is! List<Object?> || raw.length > 16) {
@@ -1373,8 +1384,8 @@ List<OrtProviderDiagnostics> _decodeWorkerProviderDiagnostics(
   final Set<String> seen = <String>{};
   final List<OrtProviderDiagnostics> diagnostics = <OrtProviderDiagnostics>[];
   for (final Object? rawDiagnostic in raw) {
-    final Map<Object?, Object?> object = _workerMap(rawDiagnostic);
-    _requireWorkerKeys(
+    final Map<Object?, Object?> object = workerMap(rawDiagnostic);
+    requireWorkerKeys(
       object,
       required: const <String>{
         'wrapperId',
@@ -1391,8 +1402,8 @@ List<OrtProviderDiagnostics> _decodeWorkerProviderDiagnostics(
         'options',
       },
     );
-    final String wrapperId = _workerString(object, 'wrapperId');
-    final String registration = _workerString(object, 'registrationMechanism');
+    final String wrapperId = workerString(object, 'wrapperId');
+    final String registration = workerString(object, 'registrationMechanism');
     if (!RegExp(r'^[a-z][a-z0-9_-]{0,63}$').hasMatch(wrapperId) ||
         !seen.add(wrapperId)) {
       throw const FormatException(
@@ -1409,7 +1420,7 @@ List<OrtProviderDiagnostics> _decodeWorkerProviderDiagnostics(
         'Worker provider diagnostics conflict with assignment evidence.',
       );
     }
-    final Map<Object?, Object?> rawOptions = _workerMap(object['options']);
+    final Map<Object?, Object?> rawOptions = workerMap(object['options']);
     if (rawOptions.length > limits.maxProviderOptions) {
       throw const FormatException('Worker provider options are out of bounds.');
     }
@@ -1486,7 +1497,7 @@ bool? _workerNullableBool(Object? raw, String field) {
 String? _workerNullableText(
   Object? raw,
   String field,
-  _WorkerMessageBudget budget,
+  WorkerMessageBudget budget,
 ) {
   if (raw == null) return null;
   if (raw is! String ||
@@ -1499,19 +1510,19 @@ String? _workerNullableText(
   return raw;
 }
 
-Map<String, Object?> _encodeWorkerOrtError(OrtException error) =>
+Map<String, Object?> encodeWorkerOrtError(OrtException error) =>
     <String, Object?>{
-      'operation': _boundedWorkerText(error.operation, 'worker_run'),
+      'operation': boundedWorkerText(error.operation, 'worker_run'),
       'domain': error.domain.name,
       'code': error.code,
       'ortCode': error.ortCode,
-      'message': _boundedWorkerText(error.message, 'ONNX Runtime run failed.'),
+      'message': boundedWorkerText(error.message, 'ONNX Runtime run failed.'),
       'context': _messageSafeWorkerContext(error.context),
     };
 
-OrtException _decodeWorkerOrtError(Object? raw) {
-  final Map<Object?, Object?> encoded = _workerMap(raw);
-  _requireWorkerKeys(
+OrtException decodeWorkerOrtError(Object? raw) {
+  final Map<Object?, Object?> encoded = workerMap(raw);
+  requireWorkerKeys(
     encoded,
     required: const <String>{
       'operation',
@@ -1522,18 +1533,18 @@ OrtException _decodeWorkerOrtError(Object? raw) {
       'context',
     },
   );
-  final String operation = _workerString(encoded, 'operation');
+  final String operation = workerString(encoded, 'operation');
   final OrtErrorDomain domain = _workerEnum(
     OrtErrorDomain.values,
     encoded['domain'],
     'error domain',
   );
-  final int code = _workerInt(encoded, 'code');
+  final int code = workerInt(encoded, 'code');
   final Object? rawOrtCode = encoded['ortCode'];
   if (rawOrtCode != null && rawOrtCode is! int) {
     throw const FormatException('Worker ORT code is invalid.');
   }
-  final String message = _workerString(encoded, 'message');
+  final String message = workerString(encoded, 'message');
   final Map<String, Object?> context = _decodeWorkerContext(encoded['context']);
   return switch (domain) {
     OrtErrorDomain.loader => OrtRuntimeNotFoundException(
@@ -1595,14 +1606,14 @@ Map<String, Object?> _messageSafeWorkerContext(Map<String, Object?> context) {
     if (value == null || value is bool || value is int || value is double) {
       result[entry.key] = value;
     } else if (value is String) {
-      result[entry.key] = _boundedWorkerText(value, '<redacted>');
+      result[entry.key] = boundedWorkerText(value, '<redacted>');
     }
   }
   return result;
 }
 
 Map<String, Object?> _decodeWorkerContext(Object? raw) {
-  final Map<Object?, Object?> encoded = _workerMap(raw);
+  final Map<Object?, Object?> encoded = workerMap(raw);
   if (encoded.length > 32) {
     throw const FormatException('Worker error context exceeds its bound.');
   }

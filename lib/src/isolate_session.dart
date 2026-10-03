@@ -1,34 +1,23 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:ffi';
-import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
-
-import 'package:path/path.dart' as p;
 
 import 'diagnostics.dart';
 import 'exceptions.dart';
 import 'ffi/generated_native_asset_bindings.dart' as bindings;
 import 'ffi/native_api.dart';
+import 'isolate_protocol.dart';
 import 'isolate_value.dart';
-import 'metadata.dart';
-import 'provider.dart';
+import 'isolate_worker.dart';
 import 'provider_evidence.dart';
 import 'resource_limits.dart';
 import 'runtime.dart';
 import 'runtime_source.dart';
 import 'session_options.dart';
-import 'tensor_type.dart';
-import 'utf16.dart';
 import 'version.dart';
 
-part 'isolate_protocol.dart';
-part 'isolate_protocol_harness.dart';
-part 'isolate_worker.dart';
-
-typedef _OrtWorkerEntrypoint = void Function(Map<String, Object?> message);
+typedef OrtWorkerEntrypoint = void Function(Map<String, Object?> message);
 
 /// How a worker-run cancellation request was handled.
 ///
@@ -161,20 +150,20 @@ final class OrtIsolateSession {
     OrtLogSeverity logSeverity = OrtLogSeverity.warning,
     String logId = 'fonix-worker',
     int maxPendingRuns = 8,
-    int maxMessageBytes = _defaultWorkerMessageBytes,
+    int maxMessageBytes = defaultWorkerMessageBytes,
     int? maxOutstandingInputBytes,
     Duration startupTimeout = const Duration(seconds: 30),
   }) {
     final int effectiveMaxOutstandingInputBytes =
         maxOutstandingInputBytes ?? maxMessageBytes;
-    _validateWorkerBounds(
+    validateWorkerBounds(
       maxPendingRuns: maxPendingRuns,
       maxMessageBytes: maxMessageBytes,
       maxOutstandingInputBytes: effectiveMaxOutstandingInputBytes,
       startupTimeout: startupTimeout,
     );
     final OrtSessionOptions effectiveOptions = options ?? OrtSessionOptions();
-    final Map<String, Object?> startup = _encodeWorkerStartup(
+    final Map<String, Object?> startup = encodeWorkerStartup(
       runtimeSource: runtimeSource,
       model: model,
       options: effectiveOptions,
@@ -183,8 +172,8 @@ final class OrtIsolateSession {
       logId: logId,
       maxMessageBytes: maxMessageBytes,
     );
-    return _spawnOrtWorker(
-      entrypoint: _ortIsolateWorkerMain,
+    return spawnOrtWorker(
+      entrypoint: ortIsolateWorkerMain,
       startup: startup,
       maxPendingRuns: maxPendingRuns,
       maxMessageBytes: maxMessageBytes,
@@ -249,16 +238,16 @@ final class OrtIsolateSession {
     List<String>? outputNames,
   }) {
     _ensureAcceptingRuns();
-    final _ValidatedWorkerInputs checkedInputs = _validateWorkerRunInputs(
+    final ValidatedWorkerInputs checkedInputs = validateWorkerRunInputs(
       supplied: inputs,
       knownNames: inputNames,
       maxMessageBytes: maxMessageBytes,
     );
-    final List<String> checkedOutputs = _validateWorkerOutputNames(
+    final List<String> checkedOutputs = validateWorkerOutputNames(
       supplied: outputNames,
       knownNames: this.outputNames,
     );
-    _validateWorkerRequestMessageBytes(
+    validateWorkerRequestMessageBytes(
       inputBytes: checkedInputs.bytes,
       outputNames: checkedOutputs,
       maxMessageBytes: maxMessageBytes,
@@ -267,7 +256,7 @@ final class OrtIsolateSession {
   }
 
   OrtIsolateRun _enqueueValidatedRun(
-    _ValidatedWorkerInputs inputs,
+    ValidatedWorkerInputs inputs,
     List<String> outputNames,
   ) {
     _ensureAcceptingRuns();
@@ -294,7 +283,7 @@ final class OrtIsolateSession {
       );
     }
     final int requestId = _nextRequestId;
-    if (requestId == _maximumWorkerRequestId) {
+    if (requestId == maximumWorkerRequestId) {
       _requestIdsExhausted = true;
     } else {
       _nextRequestId = requestId + 1;
@@ -383,7 +372,7 @@ final class OrtIsolateSession {
       throw OrtWorkerClosedException(
         message: 'The isolate session exhausted its request identifier space.',
         context: const <String, Object?>{
-          'maximumRequestId': _maximumWorkerRequestId,
+          'maximumRequestId': maximumWorkerRequestId,
         },
       );
     }
@@ -470,13 +459,13 @@ final class OrtIsolateSession {
     _active = request;
     try {
       final Map<String, OrtIsolateValue> inputs = request.takeInputs();
-      final _WorkerMessageBudget budget = _WorkerMessageBudget(
+      final WorkerMessageBudget budget = WorkerMessageBudget(
         maxBytes: maxMessageBytes,
       );
       final Map<String, Object?> encodedInputs = <String, Object?>{};
       for (final MapEntry<String, OrtIsolateValue> entry in inputs.entries) {
         budget.addUtf8(entry.key);
-        encodedInputs[entry.key] = _encodeIsolateValue(
+        encodedInputs[entry.key] = encodeIsolateValue(
           entry.value,
           budget: budget,
           depth: 0,
@@ -486,7 +475,7 @@ final class OrtIsolateSession {
         budget.addUtf8(outputName);
       }
       _commandPort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'run',
         'requestId': request.id,
         'inputs': encodedInputs,
@@ -506,7 +495,7 @@ final class OrtIsolateSession {
     if (_closeCommandSent || _closed) return;
     _closeCommandSent = true;
     _commandPort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'close',
     });
   }
@@ -515,11 +504,11 @@ final class OrtIsolateSession {
     if (_closed) return;
     if (_terminalFailure != null) {
       try {
-        final Map<Object?, Object?> message = _workerMap(rawMessage);
-        _requireWorkerVersion(message);
-        final String type = _workerString(message, 'type');
+        final Map<Object?, Object?> message = workerMap(rawMessage);
+        requireWorkerVersion(message);
+        final String type = workerString(message, 'type');
         if (type != 'closed') return;
-        _requireWorkerReplyKeys(message, type);
+        requireWorkerReplyKeys(message, type);
         if (!_closeCommandSent || _active != null) return;
         _sendRetireCommand();
         _finishRetirement();
@@ -531,10 +520,10 @@ final class OrtIsolateSession {
       return;
     }
     try {
-      final Map<Object?, Object?> message = _workerMap(rawMessage);
-      _requireWorkerVersion(message);
-      final String type = _workerString(message, 'type');
-      _requireWorkerReplyKeys(message, type);
+      final Map<Object?, Object?> message = workerMap(rawMessage);
+      requireWorkerVersion(message);
+      final String type = workerString(message, 'type');
+      requireWorkerReplyKeys(message, type);
       if (type == 'closed') {
         if (!_closeCommandSent || _active != null) {
           throw const FormatException('Unexpected worker close receipt.');
@@ -546,7 +535,7 @@ final class OrtIsolateSession {
       if (type == 'fatalProtocol') {
         _failTerminal(
           OrtWorkerProtocolException(
-            message: _boundedWorkerText(
+            message: boundedWorkerText(
               message['message'],
               'worker protocol failure',
             ),
@@ -555,7 +544,7 @@ final class OrtIsolateSession {
         );
         return;
       }
-      final int requestId = _workerPositiveInt(message, 'requestId');
+      final int requestId = workerPositiveInt(message, 'requestId');
       final _PendingIsolateRun? request = _active;
       if (type == 'fatalWorkerError') {
         if (request == null || requestId != request.id) {
@@ -564,7 +553,7 @@ final class OrtIsolateSession {
           );
         }
         final OrtWorkerProtocolException error = OrtWorkerProtocolException(
-          message: _boundedWorkerText(
+          message: boundedWorkerText(
             message['message'],
             'The worker could not retire native run state safely.',
           ),
@@ -586,14 +575,14 @@ final class OrtIsolateSession {
           if (request.cancelToken != null) {
             throw const FormatException('Duplicate worker start receipt.');
           }
-          final int token = _workerPositiveInt(message, 'cancelToken');
+          final int token = workerPositiveInt(message, 'cancelToken');
           request.cancelToken = token;
           if (request.cancelRequested) {
             _requestNativeCancellation(request, token);
           }
           break;
         case 'result':
-          _workerBool(message, 'wasTerminationRequested');
+          workerBool(message, 'wasTerminationRequested');
           final OrtIsolateRunResult result = _decodeWorkerResult(
             message['outputs'],
             rawProviderEvidence: message['providerEvidence'],
@@ -611,8 +600,8 @@ final class OrtIsolateSession {
           _settleActive(request);
           break;
         case 'ortError':
-          final OrtException error = _decodeWorkerOrtError(message['error']);
-          final bool wasTerminationRequested = _workerBool(
+          final OrtException error = decodeWorkerOrtError(message['error']);
+          final bool wasTerminationRequested = workerBool(
             message,
             'wasTerminationRequested',
           );
@@ -632,7 +621,7 @@ final class OrtIsolateSession {
         case 'workerError':
           request.completeError(
             OrtWorkerProtocolException(
-              message: _boundedWorkerText(
+              message: boundedWorkerText(
                 message['message'],
                 'The worker could not complete the run protocol.',
               ),
@@ -671,7 +660,7 @@ final class OrtIsolateSession {
   }
 
   void _handleWorkerError(Object? rawError) {
-    final String summary = _boundedWorkerCrash(rawError);
+    final String summary = boundedWorkerCrash(rawError);
     _failTerminal(
       OrtWorkerCrashedException(message: 'Worker isolate crashed: $summary'),
     );
@@ -761,7 +750,7 @@ final class OrtIsolateSession {
     if (_retireCommandSent) return;
     _retireCommandSent = true;
     _commandPort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'retire',
     });
   }
@@ -842,8 +831,8 @@ final class _PendingIsolateRun {
   }
 }
 
-final class _WorkerCancellationCleanupFailure implements Exception {
-  const _WorkerCancellationCleanupFailure(this.cause);
+final class WorkerCancellationCleanupFailure implements Exception {
+  const WorkerCancellationCleanupFailure(this.cause);
 
   final Object cause;
 }
@@ -872,12 +861,12 @@ final class OrtSessionPool {
     OrtLogSeverity logSeverity = OrtLogSeverity.warning,
     String logId = 'fonix-pool',
     int maxPendingRunsPerWorker = 8,
-    int maxMessageBytes = _defaultWorkerMessageBytes,
+    int maxMessageBytes = defaultWorkerMessageBytes,
     int? maxOutstandingInputBytesPerWorker,
     Duration startupTimeout = const Duration(seconds: 30),
   }) async {
-    if (size < 1 || size > _maximumSessionPoolSize) {
-      throw RangeError.range(size, 1, _maximumSessionPoolSize, 'size');
+    if (size < 1 || size > maximumSessionPoolSize) {
+      throw RangeError.range(size, 1, maximumSessionPoolSize, 'size');
     }
     final List<OrtIsolateSession> workers = <OrtIsolateSession>[];
     try {
@@ -950,16 +939,16 @@ final class OrtSessionPool {
   }) {
     if (_closing) throw OrtWorkerClosedException();
     final OrtIsolateSession contractWorker = _workers.first;
-    final _ValidatedWorkerInputs checkedInputs = _validateWorkerRunInputs(
+    final ValidatedWorkerInputs checkedInputs = validateWorkerRunInputs(
       supplied: inputs,
       knownNames: contractWorker.inputNames,
       maxMessageBytes: contractWorker.maxMessageBytes,
     );
-    final List<String> checkedOutputs = _validateWorkerOutputNames(
+    final List<String> checkedOutputs = validateWorkerOutputNames(
       supplied: outputNames,
       knownNames: contractWorker.outputNames,
     );
-    _validateWorkerRequestMessageBytes(
+    validateWorkerRequestMessageBytes(
       inputBytes: checkedInputs.bytes,
       outputNames: checkedOutputs,
       maxMessageBytes: contractWorker.maxMessageBytes,
@@ -1061,19 +1050,19 @@ bool _sameWorkerNames(List<String> left, List<String> right) {
 
 /// Internal pool constructor for real-isolate protocol tests.
 OrtSessionPool createOrtSessionPoolForTesting(List<OrtIsolateSession> workers) {
-  if (workers.isEmpty || workers.length > _maximumSessionPoolSize) {
+  if (workers.isEmpty || workers.length > maximumSessionPoolSize) {
     throw RangeError.range(
       workers.length,
       1,
-      _maximumSessionPoolSize,
+      maximumSessionPoolSize,
       'workers.length',
     );
   }
   return OrtSessionPool._(List<OrtIsolateSession>.unmodifiable(workers));
 }
 
-Future<OrtIsolateSession> _spawnOrtWorker({
-  required _OrtWorkerEntrypoint entrypoint,
+Future<OrtIsolateSession> spawnOrtWorker({
+  required OrtWorkerEntrypoint entrypoint,
   required Map<String, Object?> startup,
   required int maxPendingRuns,
   required int maxMessageBytes,
@@ -1087,11 +1076,11 @@ Future<OrtIsolateSession> _spawnOrtWorker({
   int initialRequestIdForTesting = 1,
 }) async {
   if (initialRequestIdForTesting < 1 ||
-      initialRequestIdForTesting > _maximumWorkerRequestId) {
+      initialRequestIdForTesting > maximumWorkerRequestId) {
     throw RangeError.range(
       initialRequestIdForTesting,
       1,
-      _maximumWorkerRequestId,
+      maximumWorkerRequestId,
       'initialRequestIdForTesting',
     );
   }
@@ -1146,7 +1135,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
     }
     bootstrapCloseCommandSent = true;
     commandPort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'close',
     });
     emitControllerEvent('gracefulCloseSent');
@@ -1160,7 +1149,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
     }
     bootstrapRetireCommandSent = true;
     commandPort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'retire',
     });
     emitControllerEvent('startupRetireSent');
@@ -1173,9 +1162,9 @@ Future<OrtIsolateSession> _spawnOrtWorker({
       return;
     }
     try {
-      final Map<Object?, Object?> message = _workerMap(rawMessage);
-      _requireWorkerVersion(message);
-      final String type = _workerString(message, 'type');
+      final Map<Object?, Object?> message = workerMap(rawMessage);
+      requireWorkerVersion(message);
+      final String type = workerString(message, 'type');
       if (type == 'ownership') {
         if (ownershipCommandPort != null) {
           throw const FormatException(
@@ -1189,26 +1178,26 @@ Future<OrtIsolateSession> _spawnOrtWorker({
           );
         }
         ownershipCommandPort = rawCommandPort;
-        _requireWorkerStartupReplyKeys(message, type);
+        requireWorkerStartupReplyKeys(message, type);
         if (callerAbandoned) sendBootstrapClose(rawCommandPort);
         return;
       }
       if (bootstrapCloseCommandSent && type == 'closed') {
-        _requireWorkerReplyKeys(message, type);
+        requireWorkerReplyKeys(message, type);
         (ownershipCommandPort ?? cleanupOnlyReadyCommandPort)?.send(
           <String, Object?>{
-            'version': _ortWorkerProtocolVersion,
+            'version': ortWorkerProtocolVersion,
             'type': 'retire',
           },
         );
         closeBootstrapConnections();
         return;
       }
-      _requireWorkerStartupReplyKeys(message, type);
+      requireWorkerStartupReplyKeys(message, type);
       if (type == 'startupError') {
         abandonCaller(
           OrtWorkerStartupException(
-            message: _boundedWorkerText(
+            message: boundedWorkerText(
               message['message'],
               'Worker runtime/session startup failed.',
             ),
@@ -1266,15 +1255,15 @@ Future<OrtIsolateSession> _spawnOrtWorker({
         sendBootstrapClose(authoritativeCommandPort);
         return;
       }
-      final List<String> inputNames = _workerStringList(
+      final List<String> inputNames = workerStringList(
         message['inputNames'],
         maximum: 256,
       );
-      final List<String> outputNames = _workerStringList(
+      final List<String> outputNames = workerStringList(
         message['outputNames'],
         maximum: 256,
       );
-      final OrtDiagnostics diagnostics = _decodeWorkerFullDiagnostics(
+      final OrtDiagnostics diagnostics = decodeWorkerFullDiagnostics(
         message['diagnostics'],
         limits,
       );
@@ -1332,7 +1321,7 @@ Future<OrtIsolateSession> _spawnOrtWorker({
           OrtWorkerStartupException(
             message:
                 'Worker isolate crashed during startup: '
-                '${_boundedWorkerCrash(event)}',
+                '${boundedWorkerCrash(event)}',
           ),
         );
         // Fatal isolate errors are followed by an exit event on this same
@@ -1471,11 +1460,11 @@ OrtIsolateRunResult _decodeWorkerResult(
   required int maxMessageBytes,
   required OrtResourceLimits limits,
 }) {
-  final Map<Object?, Object?> outputs = _workerMap(raw);
+  final Map<Object?, Object?> outputs = workerMap(raw);
   if (outputs.length != expectedNames.length) {
     throw const FormatException('Worker result count changed unexpectedly.');
   }
-  final _WorkerMessageBudget budget = _WorkerMessageBudget(
+  final WorkerMessageBudget budget = WorkerMessageBudget(
     maxBytes: maxMessageBytes,
   );
   final Map<String, OrtIsolateValue> decoded = <String, OrtIsolateValue>{};
@@ -1484,7 +1473,7 @@ OrtIsolateRunResult _decodeWorkerResult(
       throw const FormatException('Worker result omitted a requested output.');
     }
     budget.addUtf8(name);
-    decoded[name] = _decodeIsolateValue(
+    decoded[name] = decodeIsolateValue(
       outputs[name],
       budget: budget,
       depth: 0,
@@ -1494,18 +1483,18 @@ OrtIsolateRunResult _decodeWorkerResult(
       ),
     );
   }
-  final OrtProviderRunEvidence? evidence = _decodeWorkerProviderEvidence(
+  final OrtProviderRunEvidence? evidence = decodeWorkerProviderEvidence(
     rawProviderEvidence,
     budget,
   );
   final List<OrtProviderDiagnostics> diagnostics =
-      _decodeWorkerProviderDiagnostics(
+      decodeWorkerProviderDiagnostics(
         rawProviderDiagnostics,
         evidence: evidence,
         budget: budget,
         limits: limits,
       );
-  final OrtDiagnostics fullDiagnostics = _decodeWorkerFullDiagnostics(
+  final OrtDiagnostics fullDiagnostics = decodeWorkerFullDiagnostics(
     rawDiagnostics,
     limits,
   );

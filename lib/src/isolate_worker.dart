@@ -1,4 +1,20 @@
-part of 'isolate_session.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:isolate';
+import 'dart:typed_data';
+
+import 'diagnostics.dart';
+import 'exceptions.dart';
+import 'isolate_protocol.dart';
+import 'isolate_session.dart';
+import 'isolate_value.dart';
+import 'metadata.dart';
+import 'resource_limits.dart';
+import 'runtime.dart';
+import 'runtime_source.dart';
+import 'session_options.dart';
+import 'tensor_type.dart';
+import 'version.dart';
 
 OrtValue _nativeValueFromIsolate(
   OrtRuntime runtime,
@@ -80,7 +96,7 @@ OrtValue _nativeValueFromIsolate(
 
 void _preflightNativeWorkerValue(
   OrtValue value, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
 }) {
   budget.addNode(depth);
@@ -91,7 +107,7 @@ void _preflightNativeWorkerValue(
     case OrtStringTensor():
       budget.addBytes(value.shape.rank * 8);
       budget.addBytes(value.info.byteLength);
-      _addWorkerStringRetention(budget, value.shape.elementCount);
+      addWorkerStringRetention(budget, value.shape.elementCount);
     case OrtSequence():
       for (final OrtValue child in value.elements) {
         _preflightNativeWorkerValue(child, budget: budget, depth: depth + 1);
@@ -104,7 +120,7 @@ void _preflightNativeWorkerValue(
         depth: depth + 1,
       );
     case OrtOptional():
-      _measureWorkerType(
+      measureWorkerType(
         value.type.optionalElement!,
         budget: budget,
         depth: depth + 1,
@@ -119,7 +135,7 @@ void _preflightNativeWorkerValue(
 
 Map<String, Object?> _encodeNativeWorkerValue(
   OrtValue value, {
-  required _WorkerMessageBudget budget,
+  required WorkerMessageBudget budget,
   required int depth,
 }) {
   budget.addNode(depth);
@@ -137,7 +153,7 @@ Map<String, Object?> _encodeNativeWorkerValue(
     case OrtStringTensor():
       budget.addBytes(value.shape.rank * 8);
       budget.addBytes(value.info.byteLength);
-      _addWorkerStringRetention(budget, value.shape.elementCount);
+      addWorkerStringRetention(budget, value.shape.elementCount);
       return <String, Object?>{
         'kind': 'tensor',
         'elementType': OrtTensorElementType.string.nativeValue,
@@ -169,7 +185,7 @@ Map<String, Object?> _encodeNativeWorkerValue(
     case OrtOptional():
       return <String, Object?>{
         'kind': 'optional',
-        'elementType': _encodeWorkerType(
+        'elementType': encodeWorkerType(
           value.type.optionalElement!,
           budget: budget,
           depth: depth + 1,
@@ -202,7 +218,7 @@ final class _OpenedOrtWorker {
 }
 
 _OpenedOrtWorker _openOrtWorkerResources(Map<Object?, Object?> startup) {
-  _requireWorkerKeys(
+  requireWorkerKeys(
     startup,
     required: const <String>{
       'version',
@@ -217,29 +233,29 @@ _OpenedOrtWorker _openOrtWorkerResources(Map<Object?, Object?> startup) {
       'maxMessageBytes',
     },
   );
-  final int maxMessageBytes = _workerBoundedInt(
+  final int maxMessageBytes = workerBoundedInt(
     startup,
     'maxMessageBytes',
     1,
-    _maximumWorkerMessageBytes,
+    maximumWorkerMessageBytes,
   );
-  final OrtSessionOptions options = _decodeSessionOptions(startup['options']);
-  final OrtRuntimeSource runtimeSource = _decodeRuntimeSource(
+  final OrtSessionOptions options = decodeSessionOptions(startup['options']);
+  final OrtRuntimeSource runtimeSource = decodeRuntimeSource(
     startup['runtimeSource'],
   );
-  final int requiredApiValue = _workerInt(startup, 'requiredApi');
+  final int requiredApiValue = workerInt(startup, 'requiredApi');
   if (requiredApiValue != OrtApiVersion.v27.value) {
     throw const FormatException('Unsupported worker ORT API version.');
   }
   final OrtLogSeverity logSeverity =
-      OrtLogSeverity.values[_workerBoundedInt(
+      OrtLogSeverity.values[workerBoundedInt(
         startup,
         'logSeverity',
         0,
         OrtLogSeverity.values.length - 1,
       )];
-  final String logId = _workerString(startup, 'logId');
-  final OrtModelSource model = _decodeModelSource(
+  final String logId = workerString(startup, 'logId');
+  final OrtModelSource model = decodeModelSource(
     startup['model'],
     options.limits,
   );
@@ -267,12 +283,12 @@ _OpenedOrtWorker _openOrtWorkerResources(Map<Object?, Object?> startup) {
   }
 }
 
-Future<String> _awaitOrtWorkerStartupRetirement(ReceivePort commandPort) async {
+Future<String> awaitOrtWorkerStartupRetirement(ReceivePort commandPort) async {
   await for (final Object? rawCommand in commandPort) {
-    final Map<Object?, Object?> command = _workerMap(rawCommand);
-    _requireWorkerVersion(command);
-    final String type = _workerString(command, 'type');
-    _requireWorkerCommandKeys(command, type);
+    final Map<Object?, Object?> command = workerMap(rawCommand);
+    requireWorkerVersion(command);
+    final String type = workerString(command, 'type');
+    requireWorkerCommandKeys(command, type);
     if (type != 'close' && type != 'retire') {
       throw const FormatException(
         'Startup-failed worker received a non-retirement command.',
@@ -286,15 +302,15 @@ Future<String> _awaitOrtWorkerStartupRetirement(ReceivePort commandPort) async {
   );
 }
 
-void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
+void ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
   SendPort? responsePort;
   ReceivePort? commandPort;
   OrtRuntime? runtime;
   OrtSession? session;
   try {
-    final Map<Object?, Object?> startup = _workerMap(initialMessage);
-    _requireWorkerVersion(startup);
-    if (_workerString(startup, 'type') != 'startup') {
+    final Map<Object?, Object?> startup = workerMap(initialMessage);
+    requireWorkerVersion(startup);
+    if (workerString(startup, 'type') != 'startup') {
       throw const FormatException('Expected the worker startup command.');
     }
     final Object? rawResponsePort = startup['responsePort'];
@@ -304,7 +320,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
     responsePort = rawResponsePort;
     commandPort = ReceivePort();
     responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'ownership',
       'commandPort': commandPort.sendPort,
     });
@@ -318,7 +334,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
     // were scoped inside _openOrtWorkerResources and are not retained here.
     initialMessage.clear();
     responsePort.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'ready',
       'commandPort': commandPort.sendPort,
       'inputNames': <String>[
@@ -335,10 +351,10 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
     var terminalReplySent = false;
     await for (final Object? rawCommand in commandPort) {
       try {
-        final Map<Object?, Object?> command = _workerMap(rawCommand);
-        _requireWorkerVersion(command);
-        final String type = _workerString(command, 'type');
-        _requireWorkerCommandKeys(command, type);
+        final Map<Object?, Object?> command = workerMap(rawCommand);
+        requireWorkerVersion(command);
+        final String type = workerString(command, 'type');
+        requireWorkerCommandKeys(command, type);
         if (terminalReplySent) {
           if (type != 'retire' && type != 'close') {
             throw const FormatException(
@@ -366,7 +382,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
           runtime!.dispose();
           runtime = null;
           responsePort.send(<String, Object?>{
-            'version': _ortWorkerProtocolVersion,
+            'version': ortWorkerProtocolVersion,
             'type': 'closed',
           });
           closeReceiptSent = true;
@@ -375,16 +391,16 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
         if (type != 'run') {
           throw const FormatException('Unknown worker command type.');
         }
-        final int requestId = _workerPositiveInt(command, 'requestId');
+        final int requestId = workerPositiveInt(command, 'requestId');
         if (requestId <= lastRequestId) {
           throw const FormatException('Worker request ID is stale.');
         }
         lastRequestId = requestId;
-        final int commandMessageBytes = _workerBoundedInt(
+        final int commandMessageBytes = workerBoundedInt(
           command,
           'maxMessageBytes',
           1,
-          _maximumWorkerMessageBytes,
+          maximumWorkerMessageBytes,
         );
         if (commandMessageBytes != maxMessageBytes) {
           throw const FormatException('Worker message bound changed.');
@@ -408,7 +424,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
       } on Object catch (error) {
         if (!terminalReplySent) {
           responsePort.send(<String, Object?>{
-            'version': _ortWorkerProtocolVersion,
+            'version': ortWorkerProtocolVersion,
             'type': 'fatalProtocol',
             'message': _safeWorkerFailureText(error),
           });
@@ -418,7 +434,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
     }
   } on Object catch (error) {
     responsePort?.send(<String, Object?>{
-      'version': _ortWorkerProtocolVersion,
+      'version': ortWorkerProtocolVersion,
       'type': 'startupError',
       'message': _safeWorkerFailureText(error),
     });
@@ -427,7 +443,7 @@ void _ortIsolateWorkerMain(Map<String, Object?> initialMessage) async {
       // Keep this isolate alive until the controller has observed the exact
       // startup failure. The finally block below remains the sole owner of
       // native cleanup, and onExit is published only after it completes.
-      await _awaitOrtWorkerStartupRetirement(failedCommandPort);
+      await awaitOrtWorkerStartupRetirement(failedCommandPort);
     }
   } finally {
     commandPort?.close();
@@ -462,17 +478,17 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
   Object? runError;
   var wasTerminationRequested = false;
   try {
-    final Map<Object?, Object?> encodedInputs = _workerMap(command['inputs']);
+    final Map<Object?, Object?> encodedInputs = workerMap(command['inputs']);
     if (encodedInputs.length > session.inputs.length) {
       throw const FormatException('Worker input count exceeds session inputs.');
     }
     final Set<String> knownInputNames = <String>{
       for (final OrtValueInfo input in session.inputs) input.name,
     };
-    final _WorkerMessageBudget decodeBudget = _WorkerMessageBudget(
+    final WorkerMessageBudget decodeBudget = WorkerMessageBudget(
       maxBytes: maxMessageBytes,
     );
-    final List<String> outputNames = _workerStringList(
+    final List<String> outputNames = workerStringList(
       command['outputNames'],
       maximum: session.outputs.length,
     );
@@ -486,7 +502,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
       }
       final String name = entry.key! as String;
       decodeBudget.addUtf8(name);
-      final OrtIsolateValue isolateValue = _decodeIsolateValue(
+      final OrtIsolateValue isolateValue = decodeIsolateValue(
         entry.value,
         budget: decodeBudget,
         depth: 0,
@@ -504,7 +520,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
     cancelToken = registerOrtRunCancelToken(runOptions);
     try {
       responsePort.send(<String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'started',
         'requestId': requestId,
         'cancelToken': cancelToken,
@@ -514,7 +530,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
         finishOrtRunCancelToken(runOptions, cancelToken);
         cancelToken = null;
       } on Object catch (cleanupError) {
-        throw _WorkerCancellationCleanupFailure(cleanupError);
+        throw WorkerCancellationCleanupFailure(cleanupError);
       }
       Error.throwWithStackTrace(error, stackTrace);
     }
@@ -542,7 +558,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
       return _OrtWorkerRunCompletion(
         fatalCleanupFailure: true,
         reply: <String, Object?>{
-          'version': _ortWorkerProtocolVersion,
+          'version': ortWorkerProtocolVersion,
           'type': 'fatalWorkerError',
           'requestId': requestId,
           'message':
@@ -556,17 +572,17 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
       if (runError case final OrtException error) {
         return _OrtWorkerRunCompletion(
           reply: <String, Object?>{
-            'version': _ortWorkerProtocolVersion,
+            'version': ortWorkerProtocolVersion,
             'type': 'ortError',
             'requestId': requestId,
-            'error': _encodeWorkerOrtError(error),
+            'error': encodeWorkerOrtError(error),
             'wasTerminationRequested': wasTerminationRequested,
           },
         );
       }
       return _OrtWorkerRunCompletion(
         reply: <String, Object?>{
-          'version': _ortWorkerProtocolVersion,
+          'version': ortWorkerProtocolVersion,
           'type': 'workerError',
           'requestId': requestId,
           'message': _safeWorkerFailureText(runError),
@@ -575,7 +591,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
     }
 
     final OrtRunResult completedResult = runResult!;
-    final _WorkerMessageBudget preflightBudget = _WorkerMessageBudget(
+    final WorkerMessageBudget preflightBudget = WorkerMessageBudget(
       maxBytes: maxMessageBytes,
     );
     for (final String name in outputNames) {
@@ -586,7 +602,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
         depth: 0,
       );
     }
-    final _WorkerMessageBudget encodeBudget = _WorkerMessageBudget(
+    final WorkerMessageBudget encodeBudget = WorkerMessageBudget(
       maxBytes: maxMessageBytes,
     );
     final Map<String, Object?> encodedOutputs = <String, Object?>{};
@@ -616,7 +632,7 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
     runResult = null;
     return _OrtWorkerRunCompletion(
       reply: <String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'result',
         'requestId': requestId,
         'outputs': encodedOutputs,
@@ -626,11 +642,11 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
         'wasTerminationRequested': wasTerminationRequested,
       },
     );
-  } on _WorkerCancellationCleanupFailure catch (error) {
+  } on WorkerCancellationCleanupFailure catch (error) {
     return _OrtWorkerRunCompletion(
       fatalCleanupFailure: true,
       reply: <String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'fatalWorkerError',
         'requestId': requestId,
         'message':
@@ -641,17 +657,17 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
   } on OrtException catch (error) {
     return _OrtWorkerRunCompletion(
       reply: <String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'ortError',
         'requestId': requestId,
-        'error': _encodeWorkerOrtError(error),
+        'error': encodeWorkerOrtError(error),
         'wasTerminationRequested': wasTerminationRequested,
       },
     );
   } on Object catch (error) {
     return _OrtWorkerRunCompletion(
       reply: <String, Object?>{
-        'version': _ortWorkerProtocolVersion,
+        'version': ortWorkerProtocolVersion,
         'type': 'workerError',
         'requestId': requestId,
         'message': _safeWorkerFailureText(error),
@@ -671,14 +687,14 @@ _OrtWorkerRunCompletion _executeOrtWorkerRun({
 String _safeWorkerFailureText(Object error) {
   if (error is OrtException) {
     return '${error.runtimeType}(${error.operation}, ${error.code}): '
-        '${_boundedWorkerText(error.message, 'native operation failed')}';
+        '${boundedWorkerText(error.message, 'native operation failed')}';
   }
   if (error is FormatException ||
       error is ArgumentError ||
       error is RangeError ||
       error is StateError ||
       error is UnsupportedError) {
-    return _boundedWorkerText(error.toString(), 'worker validation failed');
+    return boundedWorkerText(error.toString(), 'worker validation failed');
   }
   return 'Worker failure (${error.runtimeType}).';
 }
