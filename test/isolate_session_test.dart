@@ -528,6 +528,25 @@ void main() {
     });
   });
 
+  test('worker diagnostics are decoded with the session limits', () async {
+    // The default limit is 64 provider options; a session may raise it.
+    final OrtIsolateSession session =
+        await spawnOrtIsolateProtocolHarnessForTesting(
+          providerOptionCount: 65,
+          limits: OrtResourceLimits(maxProviderOptions: 128),
+        );
+    try {
+      expect(session.diagnostics.providers.single.options, hasLength(65));
+    } finally {
+      await session.close();
+    }
+
+    await expectLater(
+      spawnOrtIsolateProtocolHarnessForTesting(providerOptionCount: 65),
+      throwsA(isA<OrtException>()),
+    );
+  });
+
   group('pointer-free isolate values', () {
     test('copies typed input and preserves composite output structure', () {
       final Float32List caller = Float32List.fromList(<double>[1, 2, 3]);
