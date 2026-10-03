@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'runtime_source.dart';
 import 'strict_json.dart';
+import 'utf16.dart';
 import 'version.dart';
 
 const int _maximumInfoJsonBytes = 64 * 1024;
@@ -656,7 +657,7 @@ String _requiredString(
   final Object? value = object[key];
   if (value is! String ||
       value.isEmpty ||
-      !_hasWellFormedUtf16(value) ||
+      !hasWellFormedUtf16(value) ||
       utf8.encode(value).length > maximumBytes ||
       value.runes.any((int rune) => rune < 0x20 || rune == 0x7f)) {
     throw FormatException(
@@ -689,22 +690,3 @@ OrtLogSeverity _parseLogSeverity(String value) => switch (value) {
   'fatal' => OrtLogSeverity.fatal,
   _ => throw const FormatException('Unknown native log severity.'),
 };
-
-bool _hasWellFormedUtf16(String value) {
-  for (var index = 0; index < value.length; index += 1) {
-    final int unit = value.codeUnitAt(index);
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      if (index + 1 >= value.length) {
-        return false;
-      }
-      final int next = value.codeUnitAt(index + 1);
-      if (next < 0xdc00 || next > 0xdfff) {
-        return false;
-      }
-      index += 1;
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}

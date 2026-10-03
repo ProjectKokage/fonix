@@ -963,12 +963,6 @@ final class FonixNativeApi {
       )
       .cast<NativeFinalizerFunction>();
 
-  Pointer<NativeFinalizerFunction> get dataLeaseReleaseAddress => _symbols
-      .lookup<
-        NativeFunction<Void Function(Pointer<bindings.dort_data_lease_t>)>
-      >('dort_data_lease_release')
-      .cast<NativeFinalizerFunction>();
-
   Pointer<NativeFinalizerFunction> get runOptionsReleaseAddress => _symbols
       .lookup<
         NativeFunction<Void Function(Pointer<bindings.dort_run_options_t>)>

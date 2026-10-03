@@ -934,8 +934,8 @@ void main() {
 
       expect(fonixLinuxVersionScriptFlags(OS.linux, packageRoot), <String>[
         '-Xlinker',
-        '--version-script='
-            '${packageRoot.resolve(fonixElfExportMapPath).toFilePath()}',
+        ('--version-script='
+            '${packageRoot.resolve(fonixElfExportMapPath).toFilePath()}'),
       ]);
     });
 

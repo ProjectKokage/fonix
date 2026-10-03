@@ -550,40 +550,25 @@ void main() {
   group('native value boundary guards', () {
     test('rejects malformed kinds, child counts, and lease lengths', () {
       expect(
-        () => validateOrtNativeValueKindForTesting(1, OrtValueKind.tensor),
+        () => validateOrtNativeValueKind(1, OrtValueKind.tensor),
         returnsNormally,
       );
       expect(
-        () => validateOrtNativeValueKindForTesting(3, OrtValueKind.tensor),
+        () => validateOrtNativeValueKind(3, OrtValueKind.tensor),
         throwsFormatException,
       );
       expect(
-        () => validateOrtNativeValueKindForTesting(-1, OrtValueKind.unknown),
-        throwsFormatException,
-      );
-
-      expect(validateOrtValueChildCountForTesting(1024), 1024);
-      expect(
-        () => validateOrtValueChildCountForTesting(1025),
-        throwsFormatException,
-      );
-      expect(
-        () => validateOrtValueChildCountForTesting(-1),
+        () => validateOrtNativeValueKind(-1, OrtValueKind.unknown),
         throwsFormatException,
       );
 
-      expect(
-        () => validateOrtDataLeaseLengthForTesting(16, 16),
-        returnsNormally,
-      );
-      expect(
-        () => validateOrtDataLeaseLengthForTesting(15, 16),
-        throwsFormatException,
-      );
-      expect(
-        () => validateOrtDataLeaseLengthForTesting(-1, 0),
-        throwsFormatException,
-      );
+      expect(validateOrtValueChildCount(1024), 1024);
+      expect(() => validateOrtValueChildCount(1025), throwsFormatException);
+      expect(() => validateOrtValueChildCount(-1), throwsFormatException);
+
+      expect(() => validateOrtDataLeaseLength(16, 16), returnsNormally);
+      expect(() => validateOrtDataLeaseLength(15, 16), throwsFormatException);
+      expect(() => validateOrtDataLeaseLength(-1, 0), throwsFormatException);
     });
   });
 }

@@ -553,7 +553,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     FonixNativeDataLease? lease;
     try {
       lease = _nativeApi.acquireTensorData(_nativeHandle);
-      validateOrtDataLeaseLengthForTesting(lease.byteLength, _info.byteLength);
+      validateOrtDataLeaseLength(lease.byteLength, _info.byteLength);
       if (lease.byteLength == 0) {
         _nativeApi.releaseDataLease(lease.lease);
         account.release();

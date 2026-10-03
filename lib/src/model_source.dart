@@ -170,7 +170,7 @@ final class OrtFileModelSource extends OrtModelSource {
 void _validateModelId(String? value) {
   if (value == null) return;
   if (value.isEmpty ||
-      !_hasWellFormedUtf16(value) ||
+      !hasWellFormedUtf16(value) ||
       value.length > 256 ||
       utf8.encode(value).length > 256 ||
       value.runes.any((int rune) => rune < 0x20 || rune == 0x7f)) {
@@ -180,7 +180,7 @@ void _validateModelId(String? value) {
 
 void _validateModelPath(String value, String name) {
   if (value.isEmpty ||
-      !_hasWellFormedUtf16(value) ||
+      !hasWellFormedUtf16(value) ||
       value.length > 4096 ||
       utf8.encode(value).length > 4096 ||
       value.contains('\u0000') ||
@@ -196,7 +196,7 @@ const int _maxExternalDataNameBytes = 1024;
 void _validateExternalDataName(String value) {
   if (value.isEmpty ||
       value.length > _maxExternalDataNameBytes ||
-      !_hasWellFormedUtf16(value) ||
+      !hasWellFormedUtf16(value) ||
       value.contains('\u0000') ||
       value.contains('\\') ||
       value.contains(':') ||

@@ -106,8 +106,8 @@ void main() {
 
         for (final invalidBuildId in <String>[
           'process-macos-onnxruntime.dll',
-          'process-macos-libonnxruntime.1.27.0.dylib-buildinfo-'
-              '${List<String>.filled(63, 'a').join()}',
+          ('process-macos-libonnxruntime.1.27.0.dylib-buildinfo-'
+              '${List<String>.filled(63, 'a').join()}'),
           'fonix-test-external',
         ]) {
           expect(
