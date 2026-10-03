@@ -73,3 +73,12 @@ final class OrtRunOptions extends _NativeOwner {
     }
   }
 }
+
+/// Registers [options] in the shim's cancel-token registry and returns the
+/// token another isolate may use to request cancellation.
+int registerOrtRunCancelToken(OrtRunOptions options) =>
+    options._nativeApi.registerCancelToken(options._nativeHandle);
+
+/// Retires [token] and returns whether termination was requested through it.
+bool finishOrtRunCancelToken(OrtRunOptions options, int token) =>
+    options._nativeApi.finishCancelToken(token);

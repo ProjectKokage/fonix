@@ -20,7 +20,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Float32List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -33,7 +33,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Float64List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -46,7 +46,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Int8List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -59,7 +59,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Uint8List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -72,7 +72,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Int16List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -85,7 +85,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Uint16List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -98,7 +98,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Int32List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -111,7 +111,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Uint32List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -124,7 +124,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Int64List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -137,7 +137,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Uint64List values,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: values,
     shape: shape,
@@ -156,7 +156,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
       shape,
       limits,
     );
-    return _createCopiedTensor(
+    return createCopiedOrtTensor(
       runtime: runtime,
       values: normalized,
       shape: checkedShape.dimensions,
@@ -174,7 +174,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Uint16List bits,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: bits,
     shape: shape,
@@ -191,7 +191,7 @@ final class OrtTensor extends _NativeOwner implements OrtValue {
     required Uint16List bits,
     required Iterable<int> shape,
     OrtResourceLimits limits = OrtResourceLimits.defaults,
-  }) => _createCopiedTensor(
+  }) => createCopiedOrtTensor(
     runtime: runtime,
     values: bits,
     shape: shape,
@@ -678,7 +678,7 @@ OrtTypeInfo _concreteTensorType(OrtTensorInfo info) => OrtTypeInfo(
   ],
 );
 
-OrtTensor _createCopiedTensor({
+OrtTensor createCopiedOrtTensor({
   required OrtRuntime runtime,
   required TypedData values,
   required Iterable<int> shape,
@@ -832,3 +832,9 @@ final class _NativeTensorMemoryAccount
     _nativeApi.releaseValue(_handle);
   }
 }
+
+/// Copies [tensor]'s elements as the raw bytes of [elementType].
+Uint8List copyOrtTensorTypedBytes(
+  OrtTensor tensor,
+  OrtTensorElementType elementType,
+) => tensor._copyTypedBytes(elementType);

@@ -5,11 +5,12 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fonix/fonix.dart';
-import 'package:fonix/src/runtime.dart'
-    show
-        createOrtSessionPoolForTesting,
-        roundTripOrtWorkerSessionOptionsForTesting,
-        spawnOrtIsolateProtocolHarnessForTesting;
+import 'package:fonix/src/isolate_protocol.dart'
+    show roundTripOrtWorkerSessionOptionsForTesting;
+import 'package:fonix/src/isolate_protocol_harness.dart'
+    show spawnOrtIsolateProtocolHarnessForTesting;
+import 'package:fonix/src/isolate_session.dart'
+    show createOrtSessionPoolForTesting;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
