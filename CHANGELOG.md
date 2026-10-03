@@ -1,5 +1,12 @@
 ## Unreleased
 
+- Errors raised inside a worker isolate keep their exception type. Worker
+  protocol version 5 carries the type as a closed `kind`; previously the type
+  was rebuilt from the error domain, so `OrtModelLoadException` arrived as
+  `OrtRunException` and `OrtWorkerMessageTooLargeException` as `OrtException`.
+  Codes, domains and messages are unchanged. See the migration note in
+  `docs/13-support-matrix-and-migration.md`.
+
 - Fixed worker sessions rejecting their own diagnostics when a provider had
   more options than the default limit. The controller decoded worker
   diagnostics with `OrtResourceLimits.defaults`; it now uses the limits of the

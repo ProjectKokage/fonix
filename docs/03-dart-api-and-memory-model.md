@@ -395,6 +395,8 @@ Public calls throw typed exceptions. Every exception should include:
 
 Messages are diagnostic, not machine APIs. Applications should branch on exception type/code.
 
+An error raised inside a worker isolate reaches the caller as the same exception type. Worker protocol version 5 carries the type as a closed `kind` next to the operation, domain, code, optional ORT code, message and bounded context; a reply whose fields contradict its kind is a protocol failure. The `cause` object does not cross the boundary.
+
 Local errors such as use-after-dispose, invalid dimensions, duplicate input names, or unsupported platform mode should be detected before FFI.
 
 ## 3.13 Disposal

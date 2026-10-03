@@ -230,6 +230,17 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
 10. Re-run the exact final-package and target/device gates for every tuple the
    application intends to advertise.
 
+### Worker errors keep their type
+
+Before worker protocol version 5, an error raised inside a worker isolate was
+rebuilt from its domain only. A model-load failure arrived as
+`OrtRunException`, and `OrtInvalidArgumentException` or
+`OrtWorkerMessageTooLargeException` arrived as a plain `OrtException`. They
+now arrive as the type the worker raised. Code that catches `OrtException`, or
+that branches on `code` and `domain`, is unaffected. Code that catches
+`OrtRunException` to cover every `ortStatus` failure from an isolate session
+should also handle `OrtModelLoadException`.
+
 ## 13.7 Release gaps in this snapshot
 
 Fonix is not currently published. A future release advertises only the exact target and provider tuples that pass their owning build, final-package, and target-execution gates. Git owns tracked source identity; export source with ordinary `git archive`. Downloaded, provisioned, and distributed binary artifacts retain exact size and SHA-256 verification.
