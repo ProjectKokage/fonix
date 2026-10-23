@@ -1,46 +1,165 @@
 # Fonix
 
-Fonix is a local, explicit Dart and Flutter wrapper around the ONNX Runtime C
-API. It owns a small C shim, validates every native boundary, keeps ONNX Runtime
-ownership visible, and reports execution-provider discovery, registration, and
-per-run assignment separately.
+Fonix runs [ONNX Runtime](https://onnxruntime.ai) models from Dart and Flutter.
+It loads a pinned ONNX Runtime library through a small C shim, gives every
+native object an explicit owner, and tells you which execution provider
+actually ran your model instead of which one you asked for.
 
-The package is currently `0.1.0-dev.1` and is intentionally marked
-`publish_to: none`. The source implementation is usable for development and is
-licensed under version 3 of the GNU General Public License. A future release
-still needs the normal target testing, licensing, notices, signing, and
-distribution work for the platforms it advertises.
+```dart
+final result = session.run(inputs: {'input': tensor});
+print(result.tensor('output').copyFloat32Data());
+```
 
-## What is implemented
+Fonix is version `0.1.0-dev.1`, unpublished (`publish_to: none`), and licensed
+under the [GNU General Public License v3](LICENSE).
 
-- Runtime loading from a linked image, an application-local bundle, an
-  application-owned process runtime, or a trusted absolute desktop path.
-- Shim ABI validation, ONNX Runtime API-27 negotiation, exact runtime version
-  reporting, immutable diagnostics, and process-lifetime loader retention.
-- File and in-memory models, sandboxed external-data models, copied model
-  metadata, and typed input/output metadata.
-- Dense tensors for the practical ONNX scalar types, including strings,
-  float16, and bfloat16, plus sequences, maps, optionals, and native-backed
-  output leases.
-- Synchronous named inference, cancellation, bounded provider profiling,
-  worker-isolate sessions, and session pools bounded by both request count and
-  aggregate retained input bytes.
-- CPU, XNNPACK, CoreML, legacy NNAPI, QNN, and selected desktop execution-
-  provider configuration. Provider availability is never treated as proof of
-  node assignment.
-- Deterministic build hooks, a hash-pinned native lockfile, final-package
-  auditors, Android single-ORT ownership tooling, and reproducible release-
-  evidence generators, plus a bounded public-API CPU target protocol covering
-  the preserved serial path and a fixed two-worker session pool, five-launch
-  raw collection, and independent offline replay validator.
+## Contents
 
-Sparse tensors, opaque/custom values, arbitrary provider plugins, training,
-GenAI, and Web/WASM are outside the current API.
+- [What it does](#what-it-does)
+- [Platforms](#platforms)
+- [Add Fonix to an app](#add-fonix-to-an-app)
+- [Run a model](#run-a-model)
+- [Run without blocking the UI](#run-without-blocking-the-ui)
+- [Execution providers](#execution-providers)
+- [Diagnostics](#diagnostics)
+- [Working on Fonix](#working-on-fonix)
+- [Documentation](#documentation)
 
-## Minimal desktop example
+## What it does
 
-Provision the exact ONNX Runtime library yourself and pass an absolute trusted
-path. Fonix never downloads a runtime while the application is running.
+- **Models:** load from a file or from bytes, including models with external
+  data files. Input and output names, types, shapes, and model metadata are
+  readable before you run anything.
+- **Values:** dense tensors of every common ONNX element type (including
+  strings, `float16`, and `bfloat16`), plus sequences, maps, and optionals.
+- **Runs:** synchronous runs on the calling isolate, or asynchronous runs in a
+  worker isolate, singly or as a fixed-size pool. Runs can be cancelled.
+- **Execution providers:** CPU, XNNPACK, CoreML, NNAPI, QNN, and the desktop
+  GPU providers (CUDA, TensorRT, DirectML, OpenVINO, oneDNN, MIGraphX). Fonix
+  reads ONNX Runtime's profile to report which provider ran each node.
+- **Packaging:** a build hook compiles the shim and stages the exact ONNX
+  Runtime build named in [`native/versions.lock.yaml`](native/versions.lock.yaml),
+  checked by SHA-256. Nothing is downloaded while the app runs.
+- **Android with sherpa-onnx:** an app that already ships sherpa-onnx can let
+  Fonix use sherpa's copy of ONNX Runtime, so the process contains exactly one.
+
+Not supported: sparse tensors, custom operators, arbitrary provider plugins,
+training, ONNX Runtime GenAI, and the web.
+
+## Platforms
+
+All rows use ONNX Runtime 1.27.1 (C API 27). "Runtime" is where the ONNX
+Runtime library comes from by default.
+
+| Target | Minimum | Runtime | Tested so far |
+| --- | --- | --- | --- |
+| iOS arm64 device and simulator, x86_64 simulator | 15.1 | Linked into the app | arm64 Simulator inference; device builds are audited but not run |
+| macOS arm64 | 14.0 | Bundled with the app | Packaged-app inference |
+| Android arm64-v8a, x86_64 | API 24 | Bundled, or shared with sherpa-onnx | arm64 emulator inference (API 35), including alongside sherpa-onnx |
+| Linux x86_64, arm64 | glibc 2.27 | Supplied by the app, or bundled | Cross-built and audited, not run |
+| Windows x64 | Windows 10 | Supplied by the app, or bundled | Cross-built, not run |
+
+Nothing has been run on a physical device yet. The
+[support matrix](docs/13-support-matrix-and-migration.md) lists the exact
+evidence and what is still missing for every row and provider.
+
+## Add Fonix to an app
+
+### 1. Depend on it
+
+Fonix is not on pub.dev. Use a path or Git dependency:
+
+```yaml
+dependencies:
+  fonix:
+    path: ../fonix
+```
+
+### 2. Fetch the pinned ONNX Runtime archives
+
+The build hook never downloads. Put the archives your targets need into a
+directory (the *artifact cache*), using the file names from the lock file's
+`source.url` entries:
+
+| Targets | Archive |
+| --- | --- |
+| iOS, Android | `microsoft.ml.onnxruntime.1.27.1.nupkg` |
+| macOS arm64 | `onnxruntime-osx-arm64-1.27.1.tgz` |
+| Linux x86_64 | `onnxruntime-linux-x64-1.27.1.tgz` |
+| Linux arm64 | `onnxruntime-linux-aarch64-1.27.1.tgz` |
+| Windows x64 | `onnxruntime-win-x64-1.27.1.zip` |
+
+The hook rejects any archive whose SHA-256 differs from the lock file. Only
+targets that link or bundle the runtime need an archive; a sherpa-owned Android
+build or an external desktop build needs none.
+
+### 3. Configure the build hook
+
+Settings go under `hooks.user_defines.fonix` in the app's `pubspec.yaml`. For
+example, an app targeting iOS, macOS, and Android that shares ONNX Runtime
+with sherpa-onnx on Android:
+
+```yaml
+hooks:
+  user_defines:
+    fonix:
+      android_runtime_owner: sherpa
+      artifact_cache: /absolute/path/to/fonix-artifact-cache
+      application_minimum_os: '15.1'
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `android_runtime_owner` | Required for Android. `sherpa` uses sherpa-onnx's `libonnxruntime.so`; `application` bundles Fonix's own. |
+| `artifact_cache` / `artifact_mirror` | Directory holding the archives from step 2. Read only when a target stages a runtime. |
+| `application_minimum_os` | Required for iOS and macOS. Must match or exceed the lock file's minimum (iOS 15.1, macOS 14.0) and must not exceed your Xcode deployment target. |
+| `runtime_mode` | `linked`, `bundled`, or `external`. Usually omitted: the defaults are linked on iOS, bundled on macOS arm64 and application-owned Android, and external elsewhere. |
+| `process_runtime_basenames` | Desktop apps that ship their own ONNX Runtime. See [Build and Packaging](docs/05-build-and-packaging.md#flutter-application-contract-for-shared-settings-apple-floors-and-notices). |
+
+Unknown settings fail the build.
+
+### 4. Package the manifest and notices (iOS and macOS)
+
+Apple apps must ship the runtime's build manifest and third-party notices as
+Flutter assets. Generate them before `flutter build`:
+
+```sh
+dart run fonix:fonix_prepare_flutter_assets \
+  --target-os macos \
+  --architecture arm64 \
+  --variant default \
+  --cache /absolute/path/to/fonix-artifact-cache \
+  --output /absolute/path/to/app/assets/fonix
+```
+
+```yaml
+flutter:
+  assets:
+    - assets/fonix/fonix-native-artifact-manifest.json
+    - assets/fonix/ThirdPartyNotices.txt
+```
+
+### 5. Android with sherpa-onnx
+
+With `android_runtime_owner: sherpa`, Fonix ships no ONNX Runtime of its own
+and loads sherpa's at run time. The app must contain exactly one
+`libonnxruntime.so` per ABI; never resolve a duplicate with Gradle
+`pickFirst`. Read
+[Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md)
+before changing an Android build.
+
+## Run a model
+
+Open a runtime, create a session, run it, and dispose of everything you
+created. `OrtRuntimeSource` says where the runtime comes from and must match
+the build hook's runtime mode:
+
+| Source | Use on |
+| --- | --- |
+| `OrtRuntimeSource.linked()` | iOS |
+| `OrtRuntimeSource.bundled()` | macOS arm64, application-owned Android, bundled Linux or Windows |
+| `OrtRuntimeSource.process()` | sherpa-owned Android, or a desktop app that loads its own runtime |
+| `OrtRuntimeSource.file(absolutePath: ..., allowedRoot: ...)` | Desktop, with a runtime library at a known absolute path |
 
 ```dart
 import 'dart:typed_data';
@@ -48,20 +167,15 @@ import 'dart:typed_data';
 import 'package:fonix/fonix.dart';
 
 void main() {
-  final runtime = OrtRuntime.open(
-    source: OrtRuntimeSource.file(
-      absolutePath: '/opt/my-app/lib/libonnxruntime.so',
-      allowedRoot: '/opt/my-app/lib',
-    ),
-  );
+  final runtime = OrtRuntime.open(source: const OrtRuntimeSource.bundled());
   OrtSession? session;
   OrtTensor? input;
   OrtRunResult? result;
   try {
     session = OrtSession.fromFile(
       runtime: runtime,
-      modelPath: '/opt/my-app/models/model.onnx',
-      allowedRoot: '/opt/my-app/models',
+      modelPath: '/absolute/path/to/model.onnx',
+      allowedRoot: '/absolute/path/to',
     );
     input = OrtTensor.fromFloat32List(
       runtime: runtime,
@@ -69,8 +183,7 @@ void main() {
       shape: const <int>[1, 4],
     );
     result = session.run(inputs: <String, OrtTensor>{'input': input});
-    final values = result.tensor('output').copyFloat32Data();
-    print(values);
+    print(result.tensor('output').copyFloat32Data());
   } finally {
     result?.dispose();
     input?.dispose();
@@ -80,353 +193,160 @@ void main() {
 }
 ```
 
-Synchronous native owners have idempotent `dispose()` methods;
-`OrtIsolateSession` and `OrtSessionPool` have idempotent asynchronous `close()`
-methods. Finalizers are a leak safety net, not the normal lifecycle mechanism.
+Rules worth knowing:
 
-## Runtime ownership
+- **Dispose explicitly.** Runtimes, sessions, tensors, and results own native
+  memory. `dispose()` is safe to call twice; using an object after it throws.
+  Finalizers exist only as a leak safety net.
+- **Data is copied by default.** `copyFloat32Data()` and friends return Dart
+  copies, so they stay valid after the result is disposed. For zero-copy input,
+  allocate an `OrtNativeBuffer`.
+- **Paths are checked.** With `allowedRoot`, a model path outside that
+  directory is rejected.
+- **Errors are typed.** Failures throw subclasses of `OrtException` such as
+  `OrtModelLoadException` or `OrtRunException`, carrying ONNX Runtime's code and
+  message.
 
-Choose one source mode deliberately:
+See [Dart API and Memory Model](docs/03-dart-api-and-memory-model.md) for
+every value type, metadata, and native buffers.
 
-| Source | Intended use |
-| --- | --- |
-| `OrtRuntimeSource.linked()` | Current linked profile: iOS arm64 device/simulator and x86_64 simulator; no x86_64 device or Mac Catalyst |
-| `OrtRuntimeSource.bundled()` | A lock-pinned runtime in the shim-owned application bundle |
-| `OrtRuntimeSource.process()` | One application/process-owned runtime, including Android sherpa coexistence |
-| `OrtRuntimeSource.file(...)` | A trusted absolute desktop runtime beneath an optional allow-root |
+## Run without blocking the UI
 
-The native schema-3 build manifest contains the exact allowed source set. An
-Android build additionally declares either `sherpa` or `application` as the
-single runtime owner; conflicting sources and duplicate packaged ORT libraries
-fail closed.
+`session.run` blocks the calling isolate. In a Flutter app, run inference in a
+worker isolate with `OrtIsolateSession`. The worker opens its own runtime and
+session; inputs and outputs are copied across.
 
-A multi-platform Flutter workspace may keep target-specific Fonix settings in
-one `pubspec.yaml`. `android_runtime_owner` is interpreted and validated only
-for Android. `artifact_cache` and `artifact_mirror` are resolved only when the
-selected target/profile stages a pinned runtime, and `application_minimum_os`
-is parsed only for linked iOS or bundled macOS. Consequently, an Android
-`sherpa` build remains shim-only even when the shared field set also contains
-iOS artifact settings; Fonix does not read those paths or fall back to a
-wrapper-owned runtime. Unknown Fonix fields still fail closed.
-
-```yaml
-hooks:
-  user_defines:
-    fonix:
-      android_runtime_owner: sherpa
-      artifact_cache: /absolute/offline/cache
-      application_minimum_os: '15.1'
+```dart
+final worker = await OrtIsolateSession.spawn(
+  runtimeSource: const OrtRuntimeSource.linked(),
+  model: OrtModelSource.file(absolutePath: modelPath),
+);
+try {
+  final result = await worker.run(
+    inputs: <String, OrtIsolateValue>{
+      'input': OrtIsolateTensor.fromFloat32List(
+        values: Float32List.fromList(<double>[1, 2, 3, 4]),
+        shape: const <int>[1, 4],
+      ),
+    },
+  );
+  print(result.tensor('output').copyFloat32Data());
+} finally {
+  await worker.close();
+}
 ```
 
-Omit a global `runtime_mode` when targets need different defaults: linked on
-iOS, bundled on macOS arm64, external on Linux and Windows, and process-only
-on sherpa-owned Android. The bundled macOS default still requires the exact
-offline artifact cache or mirror and an explicit application minimum OS. A
-matching `process_runtime_basenames.macos` entry selects the external macOS
-profile for an application that deliberately owns that runtime instead.
+- `worker.startRun(...)` returns an `OrtIsolateRun` you can `cancel()`.
+- Runs on one worker are queued; `maxPendingRuns` and
+  `maxOutstandingInputBytes` bound the queue and fail fast with
+  `OrtWorkerQueueFullException`.
+- `OrtSessionPool.spawn(size: n, ...)` starts `n` workers with the same model
+  for parallel runs.
 
-An application that is the sole owner of a desktop process runtime may bind a
-closed, target-specific basename into the external shim:
+## Execution providers
 
-```yaml
-hooks:
-  user_defines:
-    fonix:
-      process_runtime_basenames:
-        macos: libonnxruntime.1.27.0.dylib
-        linux: libonnxruntime.so
-        windows: onnxruntime.dll
-      # Add only after the owning ORT fork freezes the complete exact string:
-      # process_runtime_build_info:
-      #   macos: <exact OrtApi GetBuildInfoString value>
-```
-
-Fonix uses only the entry for the active desktop target. The basename becomes
-part of the native build identity, and the process loader accepts only the
-exact regular file adjacent to the application-owned shim. It canonicalizes
-the path, verifies containment and loaded-image identity, and reuses an
-already-visible runtime only when it is that same image. Omit the map to retain
-the ordinary Fonix loader contract. Android keeps its fixed sherpa-owned
-`libonnxruntime.so` contract and does not accept an entry in this map.
-
-When supplied, `process_runtime_build_info` must contain the complete 1–1024
-byte closed printable-ASCII `OrtApi::GetBuildInfoString()` value for the same
-target. Fonix generates a private header, binds the marker's SHA-256 into the
-shim build ID, and requires a byte-for-byte match immediately after API
-negotiation and before environment creation. Basename and runtime marker checks
-are defense in depth, not independent byte provenance: release authority still
-comes from the consuming application's signed and sealed package, exact
-contained path/install ID, and package-bound hashes. An unsigned Simulator or
-local loader run is not release evidence.
-
-## Execution-provider evidence
-
-Provider configuration is ordered. CPU, when explicit, must be last. Use
-`OrtProviderRequirement.requireActive` or
-`OrtProviderRequirement.requireFullAssignment` when a run must prove
-assignment. Non-CPU reporting and strict fallback policies require an existing
-absolute `artifactRoot`, where Fonix creates a private per-run profiling area.
-On POSIX, that root must be a non-`/`, non-symlink directory owned by the
-effective user, with owner read/write/search permission and no group/world
-write permission.
+List providers in order of preference. CPU, if listed, must be last.
 
 ```dart
 final options = OrtSessionOptions(
-  artifactRoot: '/opt/my-app/private/ort-artifacts',
+  artifactRoot: '/absolute/private/dir/ort-artifacts',
   providers: <OrtExecutionProvider>[
     OrtExecutionProvider.coreMl(
-      computeUnits: OrtCoreMlComputeUnits.cpuOnly,
+      computeUnits: OrtCoreMlComputeUnits.all,
       requirement: OrtProviderRequirement.requireActive,
     ),
     OrtExecutionProvider.cpu(),
   ],
   fallbackPolicy: OrtFallbackPolicy.report,
 );
+final session = OrtSession.fromFile(
+  runtime: runtime,
+  modelPath: modelPath,
+  options: options,
+);
 ```
 
-The result carries immutable run evidence. A provider being compiled,
-discoverable, or successfully registered is not reported as active until a
-validated ORT profile assigns at least one node to it. CoreML compute-unit
-options express permission, not proof of GPU or Neural Engine execution.
+A provider can be compiled in, registered successfully, and still run no
+nodes. Fonix only calls a provider *active* when ONNX Runtime's profile shows
+it ran at least one node; `result.providerEvidence?.activeProviderIds` lists
+them. To get that evidence, set `artifactRoot` to a private directory Fonix
+can write profiles into.
 
-## Native artifacts and Flutter packaging
+Every listed provider must register, or session creation fails; Fonix never
+drops an unavailable provider silently. The requirement adds a check on each
+run:
 
-`native/versions.lock.yaml` owns artifact identity, version, source, SHA-256,
-platform, architecture, deployment floor, and notices. Build-time artifact
-resolution accepts an explicitly provisioned cache or mirror, rehashes the
-archive and staged bytes, and does not fall back to an unpinned download.
+| `OrtProviderRequirement` | The run also fails when |
+| --- | --- |
+| `preferred`, `required` | (no extra check) |
+| `requireActive` | the provider ran no nodes |
+| `requireFullAssignment` | any node ran on another provider |
 
-The standalone and sherpa-owned Android reference projects each commit Gradle
-dependency-verification metadata for their exact macOS-hosted Release graph.
-Their controlled gates require strict SHA-256 verification of Gradle/Maven
-inputs. They remove the named inherited JVM-option variables and
-verification-specific Gradle project-property override before setting a
-gate-owned strict system property. The gates assume a non-hostile local Gradle
-user home and init-script environment. The same exact Release graphs have a
-separate disposable staged-copy replay, performed only after cache
-provisioning with
-`./gradlew --offline --no-daemon --dependency-verification strict assembleRelease bundleRelease`.
-Gradle-wrapper/bootstrap resolution was not offline, and the Flutter build
-invocations are not claimed offline. The committed metadata currently selects
-macOS AAPT2 artifacts only; another build host needs separately generated,
-reviewed metadata and evidence.
+`OrtFallbackPolicy` decides what happens when nodes land elsewhere: `allow`
+and `report` continue (`report` records the reason), `rejectCpu` fails on CPU
+fallback, and `rejectAny` fails on any fallback.
 
-This checkpoint authenticates the pinned Gradle/Maven inputs consumed by those
-two graphs. It is not binary reproducibility, signing or distribution
-approval, Dart hosted-cache authentication, or API 24, physical-device,
-installed-AAB-split, performance, or QNN evidence.
+CoreML compute units say what CoreML *may* use; they do not prove that the GPU
+or Neural Engine ran anything. See
+[Execution Providers](docs/06-execution-providers.md) for each provider's
+options and limits.
 
-Apple applications must declare their own deployment floor and package the
-generated manifest and `ThirdPartyNotices.txt`. See
-[Build and Packaging](docs/05-build-and-packaging.md) for the hook settings and
-asset-preparation command. Android applications integrating sherpa-onnx must
-follow the one-runtime contract in
-[Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md).
-The audit tooling distinguishes source-built JNI artifacts from the current
-federated Flutter FFI layout (`libsherpa-onnx-c-api.so` plus
-`libsherpa-onnx-cxx-api.so`) and accepts exact raw `jniLibs` directories as
-source inputs. Static profile validation and source-to-final byte binding do
-not replace target execution. The current evidence path takes one raw
-schema-2 receipt from each exact APK run, validates it with
-`tool/ci/validate_android_load_order_receipt.py`, and gives only the emitted
-schema-1 validation records to `tool/ci/android_compatibility_manifest.py`.
-Those offline records establish closed structure and byte/hash consistency;
-they do not authenticate that target/logcat JSON came from `adb` or a real
-installation. A target-support claim additionally requires trusted capture
-provenance from the device runner. Both record layers therefore carry
-`claimStatus: offline-consistency-only`; that status cannot be promoted by
-supplying more self-authored JSON.
-For one ABI and build this requires four independent records: the
-`dart-first` and `sherpa-first` load orders on both 4 KiB and 16 KiB page-size
-environments. The runtime validator currently covers a sherpa-owned Flutter
-FFI APK only. The separate
-`tool/ci/android_static_package_manifest.py` gate binds one exact APK and one
-base-only AAB to the same selected raw sherpa/Fonix inputs, complete dependency
-graph, and file-backed loaded segments. Its output is deliberately
-`static-package-only`. In addition to synthetic/tamper coverage, the staged
-runner has built and passed this gate for the committed arm64-v8a Release
-sherpa reference composition. The corrected commit-bound pass also ran the
-exact audited APK through trusted `adb` capture for `dart-first` and
-`sherpa-first` on separate API 35 arm64 emulators with queried 4096-byte and
-16384-byte page sizes. All four bounded runs passed and their schema-1 records
-produced the required schema-2 compatibility aggregate. The validator and
-aggregate remain `offline-consistency-only`; separately retained capture
-manifests are the trusted-`adb` provenance layer. This exact four-tuple result
-does not establish general Android support. The asset-free committed template
-still emits
-`unavailable/native-fixtures-unprovisioned`, and no AAB runtime claim exists
-until an AAB-derived split is installed and exercised.
+## Diagnostics
 
-## Committed Flutter reference application
+`runtime.diagnostics` and each run result's `diagnostics` describe exactly
+what is loaded: wrapper and shim versions, the negotiated ONNX Runtime API, the
+runtime version string, where the runtime came from, the locked artifact, and
+each provider's state and normalized options. `toJson()` gives a redacted map
+that is safe to log; it never contains model contents, tensors, or private
+paths.
 
-[`example/`](example/) is a shared iOS arm64, macOS arm64, Android
-arm64-v8a, and Linux x86_64 Flutter reference application that imports only
-`package:fonix/fonix.dart`. It uses the lock-selected linked runtime on iOS and
-the bundled runtime on macOS, Android, and Linux, creates bounded worker-isolate
-sessions, runs an exact CPU-assignment smoke model, and owns retry,
-cancellation, suspension/resume, stale-result suppression, and idempotent
-shutdown. Its Android one-shot path also has a closed XNNPACK functional
-profile covering strict assignment, CPU parity, explicit fallback, recovery,
-and cleanup. The fixtures are deliberately tiny and are not benchmarks.
+## Working on Fonix
 
-The committed directory is a source template nested inside this package, so it
-must be copied outside the checkout before Flutter builds its native assets.
-The platform gates perform that copy, reproduce app-owned notices, analyze and
-test the app, and audit the packaged bytes. The macOS and Android gates build
-Release and respectively launch the final executable or install the final APK;
-the Android gate also audits the AAB but does not install an AAB-derived split.
-The iOS gate builds an unsigned arm64 device Release application and two
-consecutive arm64 simulator Debug applications, then installs and exercises
-only the audited simulator application. See the
-[reference-app guide](example/README.md).
-
-The Linux source includes a pinned Flutter scaffold, a relocatable
-`$ORIGIN/lib` Release layout, a closed GNU-versioned 67-symbol shim export
-surface, and an independent final-tree/ELF/provenance auditor. Its gate refuses
-anything except the required Ubuntu 18.04.6 x86_64/glibc 2.27 host before
-creating work, then builds, audits, and launches from an unrelated directory
-under Xvfb with an environment-isolated private profile. That target-host gate
-has not yet been run successfully; its presence and source-side synthetic tests are
-source evidence, not Linux final-application evidence.
-
-[`templates/android/sherpa_reference_app/`](templates/android/sherpa_reference_app/)
-is the separate sherpa-owned scaffold. Its locked runner copies it outside the
-checkout, guards all five hosted sherpa package trees and generated plugin
-bindings, runs its host contract tests, builds an arm64-v8a R8 Release APK and
-base-only AAB, and applies the closed package-pair audit. The bounded real
-Fonix and sherpa qualification adapters, authoritative lifecycle publication
-path, deterministic fixture generator, and trusted one-tuple target runner are
-implemented. Both load orders now pass on 4 KiB and 16 KiB API 35 emulators
-against one exact release-minified APK, and the four validated records pass
-schema-2 aggregation.
-
-## Verification
-
-For an ordinary source check:
+Read [`AGENTS.md`](AGENTS.md) before changing code. The ordinary local checks
+need only Dart and Python:
 
 ```sh
 dart format --output=none --set-exit-if-changed .
-dart analyze
+dart analyze --fatal-infos
 dart test
 python3 -B -m unittest discover -s tool/ci/tests -p 'test_*.py'
 python3 -B -m unittest discover -s tool/tests -p 'test_*.py'
 ```
 
-Real-runtime, cross-build, packaged-application, sanitizer, device, and
-provider qualification paths are opt-in because they require exact external
-artifacts or target hardware. [Validation](VALIDATION.md) records what was
-actually executed and, equally importantly, what it does not prove.
+Tests that need a real ONNX Runtime, a device, or provider hardware are skipped
+unless their inputs are provided. [`VALIDATION.md`](VALIDATION.md) records the
+latest local run and what it did not cover.
 
-Current evidence includes both a freshly generated final macOS arm64
-application CPU run and the committed public-API reference application's exact
-packaged CPU receipt, plus an exact ORT 1.27.1 CoreML `CPUOnly`
-assignment/parity run. The committed Android arm64-v8a reference app also has
-audited, development-signed R8 Release APK/AAB bytes and an exact
-CPU/full-assignment APK receipt from an API 35 arm64 emulator with a queried
-4096-byte page size. A separate Release build from the same source passed the
-closed XNNPACK profile with one-node full assignment across six MatMul runs,
-exact CPU parity, fallback report/rejection, recovery, and deterministic
-cleanup. This is a functional emulator checkpoint, not physical-device,
-performance, thermal, or provider-qualification evidence. The standalone path
-still lacks API 24, 16 KiB, physical-device, AAB-split, and x86_64 execution.
+[`example/`](example/) is a Flutter reference app used by the platform gate
+scripts in `tool/ci/`; it also has an opt-in CPU benchmark. Copy it outside
+this checkout before building it. See the
+[reference-app guide](example/README.md).
 
-The iOS arm64 reference source passes 72 application tests and analysis,
-including 25/25 reference-smoke tests and 5/5 iOS project-contract tests, and
-its simulator project has passed two consecutive linked Debug builds. The
-complete manifest-bound device/simulator gate result is
-`PASS (2026-08-07)`. The app delegate validates the exact native
-smoke/challenge pair and forwards only a cached null-or-closed activation over
-an argument-free app-owned channel; Dart revalidates it with a bounded wait and
-never receives the raw environment. That gate is limited to an unsigned arm64
-Release device `.app` build/static audit and an exact arm64 Debug simulator
-CPU/full-assignment run. It cannot establish physical-device execution,
-provisioning, approved device or distribution signing, an IPA or App Store
-path, CoreML/XNNPACK/GPU/Neural Engine assignment, performance, or sustained
-behavior. Its final
-Mach-O audit can exclude separately packaged ORT Mach-Os and audited
-load-command dependencies attributable to ORT, but cannot prove the absence of
-runtime `dlopen`, another static ORT copy in a different Mach-O, or exactly-one
-static archive linkage. Linux remains an active scoped-release gate. The
-deferred Windows target-host gaps remain gates only for five-platform,
-unqualified `Release-ready`, or 1.0 status.
+Repository layout:
 
-The Linux x86_64 source path now has the committed reference scaffold,
-cross-built GNU-versioned shim checks, and a fail-closed final-application gate
-with focused synthetic coverage. This macOS arm64 host cannot build or execute
-the final Linux x86_64 Flutter bundle, and no exact Ubuntu 18.04.6/glibc 2.27
-gate report exists yet. The Linux support row therefore remains unpromoted.
-
-The corrected sherpa-owned arm64-v8a checkpoint is bound to commit
-`8a9b6812c17237aeab7ec6d933f23932668c4b33`.
-The static gate produced a 45,070,602-byte API 35 release-minified APK with
-SHA-256
-`35cca3502504b07d2d21fd27cb46fd5833fab9c6337115adfd5a309818a28ac3`
-and a 26,045,592-byte base-only AAB with SHA-256
-`ce4cda9022a27c731522cfa75a8cb5bfb90d8a42d671ef0e608b5b1567b3396c`.
-The static package manifest, gate report, and harness contract have SHA-256
-values
-`99ccfb2f88eb16b9a7fdd3e03edf39c1529f771dedf210f5e481d85b3afd60e9`,
-`6ad082a3cdf3a498f88504e24a47eb6e239a0d62f13ea02e11b7fbe202e4764e`,
-and `5460d723423515d519819e6e369646e6f6cd70edb89760c02da133da40cb7f23`.
-
-That same exact APK passed independent trusted-`adb` captures for both load
-orders on an API 35 arm64 4096-byte emulator with fingerprint hash
-`acb4e14882d5e2e5cd4b91925de599cdc88a39b95d37a63ebe48c15f3000f384`
-and an API 35 `sdk_gphone16k_arm64` 16384-byte emulator with fingerprint hash
-`d4cb1bb60eaee567df547e52dfdbbd5a1898d186aa9aa64f09c9b62a962f01ee`.
-Every run used a distinct challenge and completed two alternating cycles,
-native Fonix cancellation, between-frame sherpa cancellation, stale completion
-suppression, recovery, both disposal orders, double disposal, and zero pending
-work. The capture-manifest/raw-receipt/validation SHA-256 values are:
-
-- 4 KiB `dart-first`:
-  `d5cf010cb70782bb9d542b0d3b68e8272b676d127f3c72679ad24c21ebb40821`,
-  `bfc81d2e02e88c0223687cde15bb0b1df91bb2feea37c912bd729092ffc29bce`,
-  `8c9da03a622cd6e97883396d6a9a8ff9ca5ee01c0ec477aaff12f6caf319c4ff`;
-- 4 KiB `sherpa-first`:
-  `6ab621e2f11ed7e3ce3b08b1bb60c1b228dc5f6385f6cabdf1685474fdb06abe`,
-  `224cded3e1070074b98e3ee8b9c3b1296699e7e3606b0bdc70bc290cfbadf2ef`,
-  `fc0f89c630b4ace1517e59db70fce6771b57a65a5040e151624666a01c4d501a`;
-- 16 KiB `dart-first`:
-  `56f13fa49e079c60a3deec3da4ed2068a3abe7a9409fe23d099dd87fa0b14e9c`,
-  `0ecd917d2d0fe2b1e93e570dd5c802878d4f638c7f64e61f09b5eb0345d91067`,
-  `82b811ba6f7f51e3793a76b4816e1d41e909478c3c41e21a33c8f6088f2b855f`;
-- 16 KiB `sherpa-first`:
-  `2c3371ce831eaae566c8abda5a6da9fe46ee857a23b919a5c69a4304ed646764`,
-  `145f1d98440b896adfda283e5a4dde8a943ac2fda3de5b5210ba9268e943147d`,
-  `e7255259522aec2c1fd8342ea68e1796d9a961f339127fdfc394d371cb91aa63`.
-
-The four schema-1 validation records passed schema-2 aggregation; the
-compatibility manifest has SHA-256
-`0eb7fece2610b0225060696aa8599a960d01955cc1a7bc6f2ba8d7596964f504`.
-Capture manifests retain `trusted-adb-capture` separately, while each validator
-record and the aggregate remain `offline-consistency-only`. This proves the
-exact API 35 arm64-v8a release-minified APK matrix only, not API 24, a physical
-device, an AAB-derived installation, another ABI/build, performance, signing,
-distribution, or general Android support.
-
-The next target-evidence step is executing and calibrating the Linux x86_64 gate on its exact target host. Android QNN and Windows target-host qualification remain deferred until their required SDK, hardware, or host environment exists. Existing portable, static, package, and loader-security tests remain useful for the narrower layers they exercise.
-
-The desktop reference app also exposes an ordinary opt-in CPU benchmark. It performs three warm-up runs and ten measured runs, verifies each result, and prints the raw microsecond samples plus simple summary statistics. Record the device, OS, build mode, runtime, and power state when comparing results; the command does not create a formal receipt or release claim.
-
-Git owns tracked source identity. Clean source copies use `git archive`; SHA-256 remains on downloaded or provisioned native artifacts and final packages where byte identity matters. The native C ABI review record remains at [`native-c-abi-v1.json`](release/native-c-abi-v1.json). Dart API changes are reviewed through normal code review, analysis, tests, and consuming applications while the package remains unpublished.
+| Path | Contents |
+| --- | --- |
+| `lib/` | Public Dart API (`package:fonix/fonix.dart`) |
+| `src/` | C shim (`dort_*` functions) and its header |
+| `hook/` | Build hook: shim compilation and runtime staging |
+| `native/versions.lock.yaml` | Pinned ONNX Runtime artifacts and hashes |
+| `tool/ci/` | Package auditors and platform gate scripts |
+| `example/` | Flutter reference app |
+| `templates/` | Android sherpa-onnx reference app and CI templates |
+| `docs/` | Design and contract documents |
 
 ## Documentation
 
-- [Scope and Requirements](docs/01-scope-and-requirements.md)
-- [Architecture](docs/02-architecture.md)
+Start with the [documentation index](docs/README.md). The most useful pages for
+app developers:
+
 - [Dart API and Memory Model](docs/03-dart-api-and-memory-model.md)
-- [Native C ABI](docs/04-native-c-abi.md)
 - [Build and Packaging](docs/05-build-and-packaging.md)
 - [Execution Providers](docs/06-execution-providers.md)
 - [Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md)
-- [Testing, Benchmarking, and CI](docs/08-testing-benchmarking-and-ci.md)
-- [Security, Release, and Maintenance](docs/09-security-release-and-maintenance.md)
-- [Implementation Plan](docs/10-implementation-plan.md)
-- [Decisions and Open Questions](docs/11-decisions-and-open-questions.md)
 - [Support Matrix and Migration](docs/13-support-matrix-and-migration.md)
+- [Changelog](CHANGELOG.md)
 
-Treat models, metadata, provider profiles, external data, and native artifact
-manifests as untrusted input. Fonix bounds and validates them, but callers still
-own model provenance, application privacy policy, provider SDK licensing,
-signing, and final-target qualification.
+Models, model metadata, and external data are treated as untrusted and are
+bounded by `OrtResourceLimits`. Your app still owns model provenance, privacy
+policy, provider SDK licensing, signing, and testing on its real targets.
