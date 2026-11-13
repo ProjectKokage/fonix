@@ -33,6 +33,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
   Duration startupTimeout = const Duration(seconds: 5),
   int initialRequestId = 1,
   int providerOptionCount = 0,
+  int unrequestedProviderCount = 0,
   OrtResourceLimits limits = OrtResourceLimits.defaults,
 }) {
   RangeError.checkValueInInterval(
@@ -40,6 +41,12 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
     0,
     128,
     'providerOptionCount',
+  );
+  RangeError.checkValueInInterval(
+    unrequestedProviderCount,
+    0,
+    15,
+    'unrequestedProviderCount',
   );
   final int effectiveMaxOutstandingInputBytes =
       maxOutstandingInputBytes ?? maxMessageBytes;
@@ -121,6 +128,7 @@ Future<OrtIsolateSession> spawnOrtIsolateProtocolHarnessForTesting({
       'startupLifecyclePort': startupLifecyclePort,
       'maxMessageBytes': maxMessageBytes,
       'providerOptionCount': providerOptionCount,
+      'unrequestedProviderCount': unrequestedProviderCount,
     },
     maxPendingRuns: maxPendingRuns,
     maxMessageBytes: maxMessageBytes,
@@ -148,6 +156,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
       'startupLifecyclePort',
       'maxMessageBytes',
       'providerOptionCount',
+      'unrequestedProviderCount',
     },
   );
   requireWorkerVersion(startup);
@@ -180,6 +189,12 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     'providerOptionCount',
     0,
     128,
+  );
+  final int unrequestedProviderCount = workerBoundedInt(
+    startup,
+    'unrequestedProviderCount',
+    0,
+    15,
   );
   final ReceivePort commands = ReceivePort();
   responsePort.send(<String, Object?>{
@@ -261,7 +276,10 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
     'outputNames': const <String>['Y'],
     'diagnostics': scenario == 'startupMalformedReady'
         ? 'malformed-diagnostics'
-        : _syntheticWorkerDiagnostics(providerOptionCount: providerOptionCount),
+        : _syntheticWorkerDiagnostics(
+            providerOptionCount: providerOptionCount,
+            unrequestedProviderCount: unrequestedProviderCount,
+          ),
   };
   if (scenario == 'startupReadyMissingCommandPort') {
     readyMessage.remove('commandPort');
@@ -604,6 +622,7 @@ void _ortIsolateProtocolHarnessMain(Map<String, Object?> initialMessage) async {
 
 Map<String, Object?> _syntheticWorkerDiagnostics({
   int providerOptionCount = 0,
+  int unrequestedProviderCount = 0,
 }) => <String, Object?>{
   'schemaVersion': 1,
   'dartPackageVersion': fonixPackageVersion,
@@ -644,6 +663,21 @@ Map<String, Object?> _syntheticWorkerDiagnostics({
           for (int index = 0; index < providerOptionCount; index += 1)
             'option_$index': 'value',
         },
+      ).toJson(),
+    // A runtime lists every provider it was built with or can discover, not
+    // only the ones the session asked for.
+    for (int index = 0; index < unrequestedProviderCount; index += 1)
+      OrtProviderDiagnostics(
+        wrapperId: 'unrequested$index',
+        registrationMechanism: OrtProviderRegistrationMechanism.unknown,
+        registrationName: null,
+        reportedName: null,
+        compiled: true,
+        discoverable: true,
+        registered: false,
+        active: null,
+        qualified: null,
+        options: const <String, String>{},
       ).toJson(),
   ],
 };

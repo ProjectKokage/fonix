@@ -12,6 +12,15 @@
   diagnostics with `OrtResourceLimits.defaults`; it now uses the limits of the
   session options, so a raised `maxProviderOptions` applies on both sides.
 
+- Fixed worker sessions failing to open with `worker:2003` when their
+  `maxProviders` was lower than the number of providers the runtime lists.
+  Diagnostics list every provider the runtime was built with or can discover,
+  and since the entry above the controller counted that list against the
+  session's `maxProviders`, which bounds only what a session requests. A
+  CPU-only session with `maxProviders: 1` could not open on a runtime that
+  also has CoreML. `OrtDiagnostics.fromJson` now accepts up to 16 providers
+  whatever `maxProviders` is; `maxProviderOptions` still applies per provider.
+
 - Use `code_assets` 2, `hooks` 2.2, and `native_toolchain_c` 0.19.4 for
   application build-hook compatibility; retain shim ABI 1, ORT API 27,
   and the existing pinned runtime artifacts.
