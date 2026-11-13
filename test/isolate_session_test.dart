@@ -502,6 +502,29 @@ void main() {
     );
   });
 
+  test('a session that may request one provider opens on a runtime '
+      'that lists several', () async {
+    // maxProviders bounds what the session requests. The diagnostics list the
+    // runtime's whole provider inventory, which the session does not choose.
+    final OrtIsolateSession session =
+        await spawnOrtIsolateProtocolHarnessForTesting(
+          providerOptionCount: 1,
+          unrequestedProviderCount: 15,
+          limits: OrtResourceLimits(maxProviders: 1, maxProviderOptions: 1),
+        );
+    try {
+      expect(session.diagnostics.providers, hasLength(16));
+      expect(
+        session.diagnostics.providers.where(
+          (OrtProviderDiagnostics provider) => provider.registered == true,
+        ),
+        hasLength(1),
+      );
+    } finally {
+      await session.close();
+    }
+  });
+
   group('real isolate protocol controller', () {
     test('round-trips copied and transferable composite values', () async {
       final OrtIsolateSession worker =

@@ -511,6 +511,40 @@ void main() {
       expect(options.entryReads, limits.maxProviderOptions + 1);
     });
 
+    test('the provider inventory is bounded by the wrapper, not by the '
+        'number of providers a session may request', () {
+      Map<String, Object?> withProviders(int count) {
+        final source = _diagnosticsJson();
+        final Map<String, Object?> cpu = _providerJson(source);
+        source['providers'] = <Object?>[
+          cpu,
+          for (var index = 1; index < count; index += 1)
+            <String, Object?>{
+              ...cpu,
+              'wrapperId': 'unrequested$index',
+              'registrationMechanism': 'unknown',
+              'reportedName': null,
+              'registered': false,
+            },
+        ];
+        return source;
+      }
+
+      final limits = OrtResourceLimits(maxProviders: 1);
+      expect(
+        OrtDiagnostics.fromJson(withProviders(16), limits: limits).providers,
+        hasLength(16),
+      );
+      expect(
+        () => OrtDiagnostics.fromJson(withProviders(17), limits: limits),
+        throwsFormatException,
+      );
+      expect(
+        () => OrtDiagnostics.fromJson(withProviders(17)),
+        throwsFormatException,
+      );
+    });
+
     test('provider diagnostic options enforce the provider text contract', () {
       OrtDiagnostics decodeOption(String key, String value) {
         final source = _diagnosticsJson();

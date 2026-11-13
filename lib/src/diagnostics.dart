@@ -3,6 +3,15 @@ import 'dart:convert';
 import 'resource_limits.dart';
 import 'strict_json.dart';
 
+/// The most providers one diagnostics snapshot may list.
+///
+/// The list is the runtime's inventory: every provider the session requested,
+/// the shim was built with, or the runtime can discover. A session does not
+/// choose its size, so [OrtResourceLimits.maxProviders], which bounds what a
+/// session may request, does not apply to it. The value is the number of
+/// provider wrappers and the cap the worker protocol puts on a run's list.
+const int _maximumInventoryProviders = 16;
+
 enum OrtRuntimeOwner { wrapper, sherpa, application, system }
 
 /// Runtime provenance reported by the built shim.
@@ -157,7 +166,7 @@ final class OrtDiagnostics {
       throw FormatException('Unsupported diagnostics schema $schemaVersion.');
     }
     final rawProviders = _list(json, 'providers');
-    if (rawProviders.length > limits.maxProviders) {
+    if (rawProviders.length > _maximumInventoryProviders) {
       throw const FormatException('Diagnostics contains too many providers.');
     }
     final providers = <OrtProviderDiagnostics>[];
