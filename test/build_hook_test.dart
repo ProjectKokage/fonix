@@ -7,6 +7,8 @@ import 'package:code_assets/code_assets.dart';
 import 'package:fonix/fonix.dart';
 import 'package:fonix/src/build/native_versions_lock.dart';
 import 'package:fonix/src/ffi/native_api.dart';
+import 'package:fonix/src/hook/build_config.dart';
+import 'package:fonix/src/hook/native_artifact_resolver.dart';
 import 'package:fonix/src/runtime.dart' as runtime_testing;
 import 'package:fonix/src/runtime_info.dart' as runtime_info_testing;
 import 'package:hooks/hooks.dart';
@@ -14,8 +16,6 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:test/test.dart';
 
 import '../hook/build.dart' as build_hook;
-import '../hook/src/build_config.dart';
-import '../hook/src/native_artifact_resolver.dart';
 
 void main() {
   final realMacosOrtMirror =

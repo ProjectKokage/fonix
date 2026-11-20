@@ -3,10 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:fonix/src/hook/native_artifact_resolver.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
-
-import '../hook/src/native_artifact_resolver.dart';
 
 void main() {
   group('portable native artifact resolver', () {
