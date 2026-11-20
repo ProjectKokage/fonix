@@ -10,8 +10,9 @@ final result = session.run(inputs: {'input': tensor});
 print(result.tensor('output').copyFloat32Data());
 ```
 
-Fonix is version `0.1.0-dev.1`, unpublished (`publish_to: none`), and licensed
-under the [GNU General Public License v3](LICENSE).
+Fonix is version `0.1.0-dev.1`, a pre-release on
+[pub.dev](https://pub.dev/packages/fonix), and licensed under the
+[GNU General Public License v3](LICENSE).
 
 ## Contents
 
@@ -60,20 +61,18 @@ Runtime library comes from by default.
 | Windows x64 | Windows 10 | Supplied by the app, or bundled | Cross-built, not run |
 
 Nothing has been run on a physical device yet. The
-[support matrix](docs/13-support-matrix-and-migration.md) lists the exact
+[support matrix](doc/13-support-matrix-and-migration.md) lists the exact
 evidence and what is still missing for every row and provider.
 
 ## Add Fonix to an app
 
 ### 1. Depend on it
 
-Fonix is not on pub.dev. Use a path or Git dependency:
-
-```yaml
-dependencies:
-  fonix:
-    path: ../fonix
+```sh
+dart pub add fonix
 ```
+
+Fonix is a pre-release, so this adds `fonix: ^0.1.0-dev.1`.
 
 ### 2. Fetch the pinned ONNX Runtime archives
 
@@ -114,7 +113,7 @@ hooks:
 | `artifact_cache` / `artifact_mirror` | Directory holding the archives from step 2. Read only when a target stages a runtime. |
 | `application_minimum_os` | Required for iOS and macOS. Must match or exceed the lock file's minimum (iOS 15.1, macOS 14.0) and must not exceed your Xcode deployment target. |
 | `runtime_mode` | `linked`, `bundled`, or `external`. Usually omitted: the defaults are linked on iOS, bundled on macOS arm64 and application-owned Android, and external elsewhere. |
-| `process_runtime_basenames` | Desktop apps that ship their own ONNX Runtime. See [Build and Packaging](docs/05-build-and-packaging.md#flutter-application-contract-for-shared-settings-apple-floors-and-notices). |
+| `process_runtime_basenames` | Desktop apps that ship their own ONNX Runtime. See [Build and Packaging](doc/05-build-and-packaging.md#flutter-application-contract-for-shared-settings-apple-floors-and-notices). |
 
 Unknown settings fail the build.
 
@@ -145,7 +144,7 @@ With `android_runtime_owner: sherpa`, Fonix ships no ONNX Runtime of its own
 and loads sherpa's at run time. The app must contain exactly one
 `libonnxruntime.so` per ABI; never resolve a duplicate with Gradle
 `pickFirst`. Read
-[Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md)
+[Android sherpa-onnx Coexistence](doc/07-android-sherpa-onnx-coexistence.md)
 before changing an Android build.
 
 ## Run a model
@@ -207,7 +206,7 @@ Rules worth knowing:
   `OrtModelLoadException` or `OrtRunException`, carrying ONNX Runtime's code and
   message.
 
-See [Dart API and Memory Model](docs/03-dart-api-and-memory-model.md) for
+See [Dart API and Memory Model](doc/03-dart-api-and-memory-model.md) for
 every value type, metadata, and native buffers.
 
 ## Run without blocking the UI
@@ -288,7 +287,7 @@ fallback, and `rejectAny` fails on any fallback.
 
 CoreML compute units say what CoreML *may* use; they do not prove that the GPU
 or Neural Engine ran anything. See
-[Execution Providers](docs/06-execution-providers.md) for each provider's
+[Execution Providers](doc/06-execution-providers.md) for each provider's
 options and limits.
 
 ## Diagnostics
@@ -333,18 +332,18 @@ Repository layout:
 | `tool/ci/` | Package auditors and platform gate scripts |
 | `example/` | Flutter reference app |
 | `templates/` | Android sherpa-onnx reference app and CI templates |
-| `docs/` | Design and contract documents |
+| `doc/` | Design and contract documents |
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md). The most useful pages for
+Start with the [documentation index](doc/README.md). The most useful pages for
 app developers:
 
-- [Dart API and Memory Model](docs/03-dart-api-and-memory-model.md)
-- [Build and Packaging](docs/05-build-and-packaging.md)
-- [Execution Providers](docs/06-execution-providers.md)
-- [Android sherpa-onnx Coexistence](docs/07-android-sherpa-onnx-coexistence.md)
-- [Support Matrix and Migration](docs/13-support-matrix-and-migration.md)
+- [Dart API and Memory Model](doc/03-dart-api-and-memory-model.md)
+- [Build and Packaging](doc/05-build-and-packaging.md)
+- [Execution Providers](doc/06-execution-providers.md)
+- [Android sherpa-onnx Coexistence](doc/07-android-sherpa-onnx-coexistence.md)
+- [Support Matrix and Migration](doc/13-support-matrix-and-migration.md)
 - [Changelog](CHANGELOG.md)
 
 Models, model metadata, and external data are treated as untrusted and are

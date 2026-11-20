@@ -1,0 +1,22 @@
+# https://dart.dev/tools/private-files
+# Created by `dart pub`
+.dart_tool/
+coverage/
+.DS_Store
+
+# Native and audit-tool build products.
+build/
+!/lib/src/build/
+/lib/src/build/*
+!/lib/src/build/native_versions_lock.dart
+cmake-build-*/
+__pycache__/
+*.py[cod]
+*.o
+dort_*.plist
+
+# Repository tooling that is not part of the published package.
+# A .pubignore replaces .gitignore for pub, so the rules above are repeated.
+/AGENTS.md
+/templates/
+/tool/

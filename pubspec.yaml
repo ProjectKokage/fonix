@@ -1,7 +1,13 @@
 name: fonix
 description: Safe, diagnosable ONNX Runtime inference for Dart and Flutter.
 version: 0.1.0-dev.1
-publish_to: none
+repository: https://github.com/ProjectKokage/fonix
+issue_tracker: https://github.com/ProjectKokage/fonix/issues
+topics:
+  - ffi
+  - onnx
+  - onnxruntime
+  - machine-learning
 
 environment:
   sdk: ^3.11.5

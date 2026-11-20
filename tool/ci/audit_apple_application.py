@@ -270,7 +270,7 @@ _IOS_DEPENDENCY_METADATA_SHA256 = {
     },
 }
 # Explicit consumer qualification; the historical reference profile stays pinned.
-# See docs/evidence/2026-09-28-ios27-consumer.md for the SDK/linker comparison.
+# See doc/evidence/2026-09-28-ios27-consumer.md for the SDK/linker comparison.
 _IOS27_CONSUMER_PROFILE = "consumer-ios27"
 _IOS27_SHIM_DEPENDENCY_METADATA_SHA256 = (
     "9add32b23d4d1e7ad5fff4b9ebe35deadb6a3dd7b4bd684de17987e4ae55ac1b"
