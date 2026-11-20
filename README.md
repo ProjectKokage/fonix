@@ -327,7 +327,7 @@ Repository layout:
 | --- | --- |
 | `lib/` | Public Dart API (`package:fonix/fonix.dart`) |
 | `src/` | C shim (`dort_*` functions) and its header |
-| `hook/` | Build hook: shim compilation and runtime staging |
+| `hook/`, `lib/src/hook/` | Build hook (`hook/build.dart`) and its helpers: shim compilation and runtime staging |
 | `native/versions.lock.yaml` | Pinned ONNX Runtime artifacts and hashes |
 | `tool/ci/` | Package auditors and platform gate scripts |
 | `example/` | Flutter reference app |

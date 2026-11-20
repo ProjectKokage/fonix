@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:fonix/src/hook/build_config.dart';
 import 'package:test/test.dart';
 
 import '../hook/build.dart' as build_hook;
-import '../hook/src/build_config.dart';
 
 void main() {
   final expectedExports = _expectedHeaderExports();

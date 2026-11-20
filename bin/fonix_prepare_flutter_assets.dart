@@ -2,9 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:fonix/src/hook/native_artifact_resolver.dart';
 import 'package:path/path.dart' as path;
-
-import '../hook/src/native_artifact_resolver.dart';
 
 const String _manifestName = 'fonix-native-artifact-manifest.json';
 const String _noticeName = 'ThirdPartyNotices.txt';

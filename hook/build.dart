@@ -2,13 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:fonix/src/hook/build_config.dart';
+import 'package:fonix/src/hook/native_artifact_auditor.dart';
+import 'package:fonix/src/hook/native_artifact_resolver.dart';
 import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:path/path.dart' as path;
-
-import 'src/build_config.dart';
-import 'src/native_artifact_auditor.dart';
-import 'src/native_artifact_resolver.dart';
 
 Future<void> main(List<String> arguments) async {
   await build(arguments, buildFonixShim);
