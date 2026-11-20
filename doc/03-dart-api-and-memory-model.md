@@ -582,6 +582,6 @@ substituted for that build fact.
 - Experimental APIs live under an explicit experimental library/annotation.
 - Provider option keys are versioned data, not stable Dart enum values unless the wrapper controls normalization for all supported ORT versions.
 
-While `publish_to: none` and the package is pre-1.0, Dart API changes are reviewed through the code diff, `dart analyze`, the package tests, and the committed reference application. Add a migration note when a change affects callers.
+While the package is pre-1.0, Dart API changes are reviewed through the code diff, `dart analyze`, the package tests, and the committed reference application. Add a migration note when a change affects callers.
 
 The native C shim has an independent ABI because packaged native code can outlive a Dart build; [`../release/native-c-abi-v1.json`](../release/native-c-abi-v1.json) remains the review record for that boundary.

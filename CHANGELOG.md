@@ -1,11 +1,13 @@
-## Unreleased
+## 0.1.0-dev.1
+
+- First release on pub.dev.
 
 - Errors raised inside a worker isolate keep their exception type. Worker
   protocol version 5 carries the type as a closed `kind`; previously the type
   was rebuilt from the error domain, so `OrtModelLoadException` arrived as
   `OrtRunException` and `OrtWorkerMessageTooLargeException` as `OrtException`.
   Codes, domains and messages are unchanged. See the migration note in
-  `docs/13-support-matrix-and-migration.md`.
+  `doc/13-support-matrix-and-migration.md`.
 
 - Fixed worker sessions rejecting their own diagnostics when a provider had
   more options than the default limit. The controller decoded worker
@@ -33,8 +35,6 @@
   benchmark that reports its raw timing samples and summary statistics.
 - Kept SHA-256 checks at external artifact and package boundaries; Git owns
   the identity of tracked source and benchmark fixture files.
-
-## 0.1.0-dev.1
 
 - Made the lock-selected macOS arm64 runtime default to bundled so a
   multi-platform application can use linked iOS, bundled macOS, external

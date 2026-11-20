@@ -8,7 +8,7 @@ Implement an idiomatic, high-performance, diagnosable, and safely packaged ONNX 
 
 ## Required reading
 
-Before modifying code, read `README.md` and every numbered document in `docs/`. When a task touches Android, read `docs/07-android-sherpa-onnx-coexistence.md` again before editing Gradle, CMake, build hooks, or native-loader code.
+Before modifying code, read `README.md` and every numbered document in `doc/`. When a task touches Android, read `doc/07-android-sherpa-onnx-coexistence.md` again before editing Gradle, CMake, build hooks, or native-loader code.
 
 ## Hard constraints
 

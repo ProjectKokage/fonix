@@ -203,7 +203,7 @@ Do not recommend substituting an ORT `.so`/DLL into an existing application with
 
 Fonix versions the Dart package, native shim ABI, required ONNX Runtime API, and native artifact tuple separately. A Dart breaking change needs a migration note; an incompatible C boundary increments the shim ABI; raising the ORT API floor requires rerunning the sherpa compatibility matrix.
 
-The package is pre-1.0 and `publish_to: none`. Dart API changes are reviewed through the diff, analysis, tests, and the reference application. The native C ABI keeps its canonical review record because packaged native libraries need an explicit compatibility boundary.
+The package is pre-1.0. Dart API changes are reviewed through the diff, analysis, tests, and the reference application. The native C ABI keeps its canonical review record because packaged native libraries need an explicit compatibility boundary.
 
 ## 9.11 Release contents
 
