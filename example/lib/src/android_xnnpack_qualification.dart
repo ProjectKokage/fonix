@@ -173,7 +173,7 @@ Future<AndroidXnnpackQualificationReceipt> runAndroidXnnpackQualification({
     },
   );
 
-  final _SessionOutcome<_FallbackRejection> rejectedFallback =
+  final _SessionOutcome<AndroidXnnpackFallbackRejection> rejectedFallback =
       await _withSession(
         modelBytes: fallbackModel,
         modelId: 'mul-1-sha256-$_fallbackModelSha256',
@@ -377,40 +377,49 @@ Future<_RunSnapshot> _runFallback(
   );
 }
 
-Future<_FallbackRejection> _requireRejectedFallback(
+Future<AndroidXnnpackFallbackRejection> _requireRejectedFallback(
   OrtIsolateSession session,
+) => requireAndroidXnnpackFallbackRejectionForTesting(
+  () => session.run(
+    inputs: <String, OrtIsolateValue>{
+      'X': OrtIsolateTensor.fromFloat32List(
+        values: Float32List.fromList(const <double>[1, 2, 3, 4, 5, 6]),
+        shape: const <int>[3, 2],
+      ),
+    },
+    outputNames: const <String>['Y'],
+  ),
+);
+
+/// Requires [strictRun] to end in the canonical strict-fallback rejection.
+///
+/// A worker session reports an unmet assignment or fallback policy as
+/// [OrtProviderEvidenceException]. A run that publishes an output, or a
+/// rejection with any other identity, fails the qualification.
+Future<AndroidXnnpackFallbackRejection>
+requireAndroidXnnpackFallbackRejectionForTesting(
+  Future<void> Function() strictRun,
 ) async {
-  var outputPublished = false;
   try {
-    await session.run(
-      inputs: <String, OrtIsolateValue>{
-        'X': OrtIsolateTensor.fromFloat32List(
-          values: Float32List.fromList(const <double>[1, 2, 3, 4, 5, 6]),
-          shape: const <int>[3, 2],
-        ),
-      },
-      outputNames: const <String>['Y'],
-    );
-    outputPublished = true;
-  } on OrtProviderUnavailableException catch (error) {
+    await strictRun();
+  } on OrtProviderEvidenceException catch (error) {
     if (error.domain != OrtErrorDomain.provider ||
         error.operation != 'provider_evidence_validate' ||
         error.code != 1001 ||
         error.ortCode != null ||
         error.context.length != 1 ||
-        error.context['providerId'] != 'xnnpack' ||
-        outputPublished) {
+        error.context['providerId'] != 'xnnpack') {
       throw const InferenceBackendFailure(
         summary: 'The strict fallback rejection was not canonical.',
         backendUnusable: true,
       );
     }
-    return _FallbackRejection(
+    return AndroidXnnpackFallbackRejection._(
       domain: error.domain.name,
       operation: error.operation,
       code: error.code,
       providerId: error.context['providerId']! as String,
-      outputPublished: outputPublished,
+      outputPublished: false,
     );
   }
   throw const InferenceBackendFailure(
@@ -841,8 +850,9 @@ final class _RuntimeIdentity {
   );
 }
 
-final class _FallbackRejection {
-  const _FallbackRejection({
+/// The identity of one strict-fallback rejection, as the receipt records it.
+final class AndroidXnnpackFallbackRejection {
+  const AndroidXnnpackFallbackRejection._({
     required this.domain,
     required this.operation,
     required this.code,

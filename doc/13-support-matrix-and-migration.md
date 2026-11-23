@@ -239,7 +239,10 @@ rebuilt from its domain only. A model-load failure arrived as
 now arrive as the type the worker raised. Code that catches `OrtException`, or
 that branches on `code` and `domain`, is unaffected. Code that catches
 `OrtRunException` to cover every `ortStatus` failure from an isolate session
-should also handle `OrtModelLoadException`.
+should also handle `OrtModelLoadException`. A strict assignment or fallback
+policy that a run did not meet arrived as `OrtProviderUnavailableException`
+and now arrives as `OrtProviderEvidenceException`; catch that type to handle a
+rejected fallback.
 
 ## 13.7 Release gaps in this snapshot
 

@@ -9,6 +9,11 @@
   Codes, domains and messages are unchanged. See the migration note in
   `doc/13-support-matrix-and-migration.md`.
 
+- Fixed the reference application's Android XNNPACK profile failing with
+  `OrtProviderEvidenceException`. Its strict-fallback step still caught
+  `OrtProviderUnavailableException`, the type a rejected fallback had before
+  the entry above, so the rejection it requires ended the run instead.
+
 - Fixed worker sessions rejecting their own diagnostics when a provider had
   more options than the default limit. The controller decoded worker
   diagnostics with `OrtResourceLimits.defaults`; it now uses the limits of the
