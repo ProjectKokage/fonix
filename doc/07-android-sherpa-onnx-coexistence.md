@@ -256,7 +256,7 @@ bytes survived merging, stripping, and packaging. At runtime:
 5. Fail with `OrtApiIncompatibleException` if unsupported.
 6. Query/provider-test the selected artifact rather than assuming XNNPACK/QNN/NNAPI exists.
 
-The base shim uses C API 27 in this snapshot because the observed sherpa Android runtime is 1.27.x. A standalone ORT 1.28 artifact may still be used while the base shim remains on API 27. Features requiring API 28 must be separately gated; never index beyond the negotiated function table.
+The base shim uses C API 27 in this snapshot because the sherpa Android runtime observed on 2026-08-06 was 1.27.x. The `sherpa_onnx` 2.0.1 arm64-v8a package observed on 2026-11-23 carries the version string `1.28.2`, which still provides API 27. A newer standalone ORT artifact may be used while the base shim remains on API 27. Features requiring a later API must be separately gated; never index beyond the negotiated function table.
 
 ## 7.7 Native-input and final-artifact inspection
 

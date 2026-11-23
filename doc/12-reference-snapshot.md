@@ -28,6 +28,64 @@ Implementation consequence:
 - Runtime-query and negotiate rather than comparing version strings alone.
 - Keep API-28-only features outside the API-27 function-table contract.
 
+### Re-check on 2026-11-23
+
+Observed from the official `Microsoft.ML.OnnxRuntime` NuGet packages, PyPI, and
+Maven Central. `github.com/microsoft/onnxruntime` returned 404 on this date, so
+release notes, tags, and release archives were not read.
+
+- The latest stable release is `1.32.0` (NuGet, published 2026-11-13, commit
+  `fab30a46491a40f5e4c968b80e8a59acbbb91b53`). Its header defines
+  `ORT_API_VERSION 32`. Releases since 1.27.1: 1.28.0, 1.29.0, 1.30.0, 1.31.0,
+  1.31.1, 1.32.0.
+- The API 27 `OrtApi` table (422 entries) is an unchanged prefix of the 1.32.0
+  table (429 entries). `OrtApiBase` is unchanged.
+- From 1.32.0, `onnxruntime_c_api.h` includes a new
+  `onnxruntime_error_code.h`.
+- The NuGet package ships the repository headers and `LICENSE` with CRLF line
+  endings. Removing the carriage returns from the 1.27.1 package's copies
+  reproduces the three vendored files byte for byte.
+- **Telemetry.** The `Privacy.md` in 1.27.1 and 1.28.0 says telemetry exists
+  only on Windows. From 1.29.0 it says official Linux, macOS, Android, and iOS
+  builds include the 1DS telemetry SDK, turned on by default, which sends trace
+  events to Microsoft over HTTPS with a persistent device identifier. The
+  documented ways to turn it off are the environment variable
+  `ORT_DISABLE_TELEMETRY=1`, set before the runtime initializes, and a source
+  build with `--no_telemetry`. The binaries agree: the macOS arm64 library
+  links `CFNetwork`, `Network`, and `SystemConfiguration` from 1.29.0, and
+  `libsqlite3` and `libz` as well in 1.32.0; the 1.28.0 library links none of
+  them. The 1.32.0 Android AAR manifest on Maven Central adds the `INTERNET`
+  and `ACCESS_NETWORK_STATE` permissions and a `TelemetryInitializer` content
+  provider.
+- **Linux floor.** The 1.32.0 Linux x86_64 and arm64 libraries reference
+  `GLIBC_2.28` and `GLIBCXX_3.4.22`; the 1.27.1 libraries stop at `GLIBC_2.27`
+  and `GLIBCXX_3.4.21`.
+- The 1.32.0 macOS arm64 library keeps minimum macOS 14.0 and the install name
+  `@rpath/libonnxruntime.1.dylib`. The 1.32.0 Android AAR keeps
+  `minSdkVersion 24`.
+- The NuGet package also carries the macOS arm64, Linux x86_64 and arm64, and
+  Windows x64 libraries. For 1.27.1 its macOS library has the same Mach-O UUID
+  as the GitHub release archive's library and differs only in its code
+  signature; its Linux and Windows libraries have the sizes the lock records.
+
+Official sources:
+
+- [NuGet package versions](https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/index.json)
+- [NuGet 1.32.0 package](https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg)
+- [Maven Central `onnxruntime-android`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/)
+- [PyPI `onnxruntime`](https://pypi.org/project/onnxruntime/)
+
+Implementation consequence:
+
+- The C API 27 floor is unaffected by a newer packaged runtime.
+- Packaging an official build from 1.29.0 on ships the telemetry SDK to every
+  application that links or bundles Fonix's runtime. Whether Fonix stays on a
+  release without it, turns it off before the runtime initializes, or builds
+  from source with `--no_telemetry` is an open decision on this date; the
+  baseline stays on 1.27.1 until it is made.
+- A Linux artifact from 1.32.0 needs a `glibc-2.28` minimum in the lock and a
+  target host that provides it.
+
 ## 12.2 Execution-provider behavior
 
 Observed:
@@ -225,7 +283,10 @@ Before changing any pinned runtime/provider/sherpa version:
 1. Check the current official ORT release and release notes.
 2. Read C header `ORT_API_VERSION` at the proposed runtime and compatibility-floor tags.
 3. Review security fixes and provider/platform breaking changes.
-4. Inspect selected ORT artifacts and dependency layout.
+4. Inspect selected ORT artifacts and dependency layout. Compare each
+   library's system-library dependencies and its minimum OS or libc version
+   with the current pin, and read the package's `Privacy.md` for a change in
+   data collection.
 5. Inspect current sherpa Android build scripts and the exact selected
    publication/source native inputs, including resolved raw `jniLibs` roots.
 6. Determine shared vs static sherpa ORT and per-ABI hashes.

@@ -164,7 +164,9 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
 - Shim ABI: 1. An incompatible C boundary must increment the ABI and retain an
   explicit mismatch error.
 - Required ORT API: 27. Raising it requires a new sherpa compatibility window
-  and migration record.
+  and migration record. Moving the packaged runtime to a newer ONNX Runtime
+  release does not raise it; see
+  [ADR-009](11-decisions-and-open-questions.md#adr-009-c-api-27-compatibility-floor-in-this-snapshot).
 - Native artifact lock and staged artifact manifest: schema 2.
 - Embedded shim build manifest: schema 3. It is an internal protocol and can
   evolve independently of the C ABI, but stale generated native assets are

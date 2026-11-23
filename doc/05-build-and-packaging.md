@@ -269,7 +269,7 @@ Prefer official release artifacts where they exactly match the target and EP req
 - sherpa-onnx must be aligned to the same runtime;
 - symbols/build metadata needed for qualification are absent.
 
-Do not mix headers from one ORT release with a shared library from another in linked mode. In process mode, compile to the declared compatibility-floor API and negotiate at runtime.
+Every runtime profile compiles the shim against the compatibility-floor headers and negotiates that API at runtime. The shim reaches ONNX Runtime only through `OrtGetApiBase` and the function table that `GetApi(floor)` returns; in linked mode `OrtGetApiBase` is its only link-time ORT symbol. A linked, bundled, or process-owned runtime may therefore be newer than the floor, and must never be older. Do not compile shim code against headers newer than the floor, and do not call any other ORT symbol directly: either would bind the shim to one runtime release. [ADR-009](11-decisions-and-open-questions.md#adr-009-c-api-27-compatibility-floor-in-this-snapshot) records why the floor is C API 27.
 
 Provider shared libraries and their matching `onnxruntime_providers_shared` library must remain adjacent to the ORT binary. Do not install them globally or rely on `LD_LIBRARY_PATH`/`PATH` as the product configuration.
 

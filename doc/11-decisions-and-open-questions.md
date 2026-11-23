@@ -69,12 +69,28 @@ recommendation, strict preset, or benchmark preset.
 
 ## ADR-009: C API 27 compatibility floor in this snapshot
 
-**Decision:** compile the base shim to the ONNX Runtime C API 27 contract and
-lock the current baseline artifacts to ORT 1.27.1.
+**Decision:** compile the base shim to the ONNX Runtime C API 27 contract,
+against the 1.27.1 headers, and request API 27 from whichever runtime is
+loaded. The baseline artifacts are currently locked to ORT 1.27.1. The floor
+is independent of that choice: the lock may select a newer ONNX Runtime
+release for the baseline artifacts without moving the floor.
 
-**Reasons:** current sherpa Android integration observed on 2026-08-06 uses ORT 1.27.x. API negotiation allows one base wrapper to coexist while avoiding unchecked newer function-table entries.
+**Reasons:** in sherpa-owned Android mode Fonix does not choose the runtime;
+it uses the `libonnxruntime.so` that the application's sherpa-onnx package
+ships. The shim must therefore request an API that every sherpa runtime in use
+provides. The sherpa Android integration observed on 2026-08-06 used ORT
+1.27.x. API negotiation allows one base wrapper to coexist while avoiding
+unchecked newer function-table entries.
 
 **Review trigger:** sherpa raises its Android floor, a security issue requires dropping 1.27.x, or a required wrapper feature cannot be implemented with API 27.
+
+**Review, 2026-11-23:** the floor stays at 27. Kokage's Android build uses
+`sherpa_onnx` 2.0.1, whose arm64-v8a `libonnxruntime.so` carries the version
+string `1.28.2`. A shim requiring any API above 28 would fail negotiation in
+that application, and nothing Fonix implements needs an entry added after
+API 27. The API 27 `OrtApi` table (422 entries) is an unchanged prefix of the
+1.32.0 table (429 entries), and `OrtApiBase` is unchanged, so the same shim
+negotiates API 27 with every release from 1.27 through 1.32.
 
 **Migration:** raise through a documented shim/package release and preserve a compatibility flavor/window where practical.
 
