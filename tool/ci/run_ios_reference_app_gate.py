@@ -146,6 +146,10 @@ _IOS_NORMALIZED_COMPARISON_SCOPE = (
     "semantics, canonical LC_DYSYMTAB table payloads, immutable load commands, "
     "and referenced dyld fixup/export payloads"
 )
+# These digests cover the shim's section bytes, which include the statically
+# linked runtime. Both come from the 2026-08-07 gate build with ONNX Runtime
+# 1.27.1. The lock now links 1.28.0, so this gate fails closed here until both
+# are re-pinned from a gate build under the pinned toolchain.
 _IOS_NORMALIZED_RUNTIME_FIELDS_SHA256 = {
     "device": "268705a45b764c01370f6e78b5e28d7d403dac008ee685391b666f9d1a3880ab",
     "simulator": "303896da46bab6fef75f29e4a3ff15a9f6b0042ba06187940e086090114c7892",

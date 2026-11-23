@@ -22,6 +22,7 @@ from typing import BinaryIO, Mapping
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 
 
 MAX_LOCK_BYTES = 1024 * 1024
@@ -554,7 +555,14 @@ def main(argv: list[str] | None = None) -> int:
                     "ort_archive_dir",
                     cached_archive.parent,
                 )
-    except (ArtifactVerificationError, OSError, zipfile.BadZipFile) as error:
+    except (
+        ArtifactVerificationError,
+        OSError,
+        zipfile.BadZipFile,
+        zlib.error,
+        # zipfile raises these for encrypted or unsupported-method members.
+        RuntimeError,
+    ) as error:
         print(f"pinned ORT staging failed: {error}", file=sys.stderr)
         return 1
     print(

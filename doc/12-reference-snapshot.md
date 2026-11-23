@@ -81,7 +81,7 @@ Implementation consequence:
 - Packaging an official build from 1.29.0 on ships the telemetry SDK to every
   application that links or bundles Fonix's runtime. The baseline therefore
   moves to 1.28.0, the newest official release without it, and no further;
-  [ADR-016](11-decisions-and-open-questions.md#adr-016-packaged-runtime-is-the-newest-official-release-without-telemetry)
+  [ADR-016](11-decisions-and-open-questions.md#adr-016-packaged-runtime-is-the-newest-official-release-without-the-telemetry-sdk)
   records the decision.
 - The 1.28.0 package was inspected in full before it was locked. Its
   libraries have the same dependencies, minimum OS versions, glibc maxima

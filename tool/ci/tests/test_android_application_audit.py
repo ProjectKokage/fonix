@@ -551,6 +551,35 @@ class AndroidBundleIntegrityAuditTest(unittest.TestCase):
             audit._validate_archive_inspections(type_tamper)
 
 
+class CommittedAndroidManifestTest(unittest.TestCase):
+    def test_committed_manifest_and_notice_pass_against_the_committed_lock(
+        self,
+    ) -> None:
+        # The fixtures above are built from the auditor's own constants. This
+        # binds those constants to the committed lock and generated assets.
+        lock_bytes = (REPOSITORY / "native/versions.lock.yaml").read_bytes()
+        lock = json.loads(lock_bytes)
+        artifact = next(
+            entry for entry in lock["artifacts"] if entry["id"] == audit.ARTIFACT_ID
+        )
+        directory = REPOSITORY / "example/assets/fonix/android-arm64-v8a"
+        manifest_bytes = (
+            directory / "fonix-native-artifact-manifest.json"
+        ).read_bytes()
+
+        audit._validate_packaged_manifest(
+            manifest_bytes,
+            (directory / "ThirdPartyNotices.txt").read_bytes(),
+            lock=lock,
+            lock_sha256=hashlib.sha256(lock_bytes).hexdigest(),
+            artifact=artifact,
+        )
+        self.assertEqual(
+            tuple(json.loads(manifest_bytes)["archiveInspections"]),
+            audit.EXPECTED_ARCHIVE_INSPECTIONS,
+        )
+
+
 class AndroidArtifactSnapshotTest(unittest.TestCase):
     def test_final_hash_rejects_in_place_tamper(self) -> None:
         with tempfile.TemporaryDirectory(prefix="fonix-artifact-snapshot-") as temporary:

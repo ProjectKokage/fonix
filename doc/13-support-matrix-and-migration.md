@@ -55,7 +55,7 @@ arm64 host, these ran against the 1.28.0 artifacts and passed:
 - the 30 native POSIX CTests and both standalone Phase-3 fixture CTests
   against the real macOS runtime;
 - the Dart suite with the real runtime, the built shim, the strict fake
-  runtimes, and the offline cache: 287 passed, 2 skipped (the Linux-host
+  runtimes, and the offline cache: 290 passed, 2 skipped (the Linux-host
   `readelf` test and, in that run, the Zig cross-build). It covers CPU
   inference, CoreML `CPUOnly` assignment and parity, worker isolates, the
   bundled macOS and Android hooks, and the linked iOS hook for all three
@@ -78,9 +78,10 @@ reference-gate results:
   assignment, double close.
 - Android emulator: a Debug APK on an API 35 arm64 emulator with 16384-byte
   pages returned the passing CPU receipt: ORT 1.28.0, application-owned
-  bundled, output `[1,4,9,16,25,36]`, full assignment, double close. Every
-  `PT_LOAD` segment of the packaged `libonnxruntime.so` matched the locked
-  library.
+  bundled, output `[1,4,9,16,25,36]`, full assignment, double close. A
+  one-off byte comparison of the APK's `libonnxruntime.so` with the locked
+  library found every `PT_LOAD` segment identical; the Android auditor, which
+  owns that check, was not run.
 
 The Android XNNPACK profile failed in that same Debug/16 KiB/Flutter 3.50
 setup with `OrtProviderEvidenceException`. A control build from the 1.27.1
@@ -95,6 +96,13 @@ Android XNNPACK functional profile, and the Linux gate. The sherpa-owned
 Android evidence does not depend on the packaged runtime, because that mode
 uses sherpa's library. Until the gates run again, the rows above describe
 1.27.1, and no reference-gate or provider result may be claimed for 1.28.0.
+
+The iOS gate also pins two digests of the linked shim's section bytes
+(`_IOS_NORMALIZED_RUNTIME_FIELDS_SHA256` in
+`tool/ci/run_ios_reference_app_gate.py`). They were measured with 1.27.1 and
+change with the linked runtime, so the gate fails closed until both are
+re-pinned from a gate build under its pinned toolchain. The Apple auditor's
+dependency and load-command digests were not re-measured either.
 
 The [September 28 SDK 27.0 consumer qualification](evidence/2026-09-28-ios27-consumer.md)
 adds a strict arm64 iOS 27.0 Simulator CPU receipt and an unsigned Kokage

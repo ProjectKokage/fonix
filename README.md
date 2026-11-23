@@ -69,7 +69,7 @@ evidence and what is still missing for every row and provider.
 
 Fonix pins 1.28.0 because it is the newest official ONNX Runtime release
 without Microsoft's telemetry SDK; official builds from 1.29.0 on include it,
-turned on by default. [ADR-016](doc/11-decisions-and-open-questions.md#adr-016-packaged-runtime-is-the-newest-official-release-without-telemetry)
+turned on by default. [ADR-016](doc/11-decisions-and-open-questions.md#adr-016-packaged-runtime-is-the-newest-official-release-without-the-telemetry-sdk)
 records the decision and what it leaves out.
 
 ## Add Fonix to an app

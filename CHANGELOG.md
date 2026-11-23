@@ -11,8 +11,8 @@
   Linux, and Windows entries no longer use the GitHub release archives. An
   application's artifact cache needs only that file; regenerate the app's
   `fonix-native-artifact-manifest.json` and `ThirdPartyNotices.txt` with
-  `fonix_prepare_flutter_assets`. On macOS and Linux the staged
-  `ThirdPartyNotices.txt` is now the package's CRLF copy.
+  `fonix_prepare_flutter_assets`. On macOS and Linux the staged `LICENSE`
+  and `ThirdPartyNotices.txt` are now the package's CRLF copies.
 - The required ONNX Runtime C API stays 27 and the shim ABI stays 1. The shim
   still compiles against the 1.27.1 headers and negotiates API 27, so
   sherpa-owned Android builds are unaffected.

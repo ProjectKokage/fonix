@@ -240,6 +240,69 @@ void main() {
         ? 'Set FONIX_ORT_ARTIFACT_CACHE to opt into the local official-archive smoke.'
         : false,
   );
+
+  // No active lock entry is a tar.gz archive or declares a symbolic link, so
+  // these fixtures keep both resolver paths exercised.
+  group('tar.gz source archive', () {
+    test('stages a member beside a locked symbolic link', () async {
+      final fixture = _TarFixture.create();
+      addTearDown(fixture.dispose);
+
+      final staged = await fixture.stage('stage-tar');
+
+      expect(staged.payloadFiles.map((file) => path.basename(file.path)), [
+        'libonnxruntime.so.1',
+        'libonnxruntime_next.so.1',
+      ]);
+      expect(staged.payloadFiles.first.readAsBytesSync(), fixture.payload);
+      final manifest = _object(
+        jsonDecode(staged.manifestFile.readAsStringSync()),
+      );
+      expect(_list(manifest['verifiedSymlinks']), [
+        <String, Object?>{
+          'path': 'pkg/lib/libruntime.so.1',
+          'target': 'libruntime.so.1.0.0',
+        },
+      ]);
+    });
+
+    test(
+      'rejects a symbolic link whose target differs from the lock',
+      () async {
+        final fixture = _TarFixture.create(
+          archivedTarget: 'libruntime.so.1.0.1',
+        );
+        addTearDown(fixture.dispose);
+
+        await expectLater(
+          fixture.stage('stage-tar-link'),
+          throwsA(
+            isA<NativeArtifactResolutionException>().having(
+              (error) => error.message,
+              'message',
+              contains('expected "libruntime.so.1.0.0"'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('rejects an archive missing a locked symbolic link', () async {
+      final fixture = _TarFixture.create(archivedTarget: null);
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        fixture.stage('stage-tar-missing'),
+        throwsA(
+          isA<NativeArtifactResolutionException>().having(
+            (error) => error.message,
+            'message',
+            contains('missing expected symbolic links'),
+          ),
+        ),
+      );
+    });
+  });
 }
 
 final class _Fixture {
@@ -393,6 +456,165 @@ final class _Fixture {
       root.deleteSync(recursive: true);
     }
   }
+}
+
+final class _TarFixture {
+  _TarFixture._({
+    required this.root,
+    required this.packageRoot,
+    required this.cache,
+    required this.payload,
+  });
+
+  final Directory root;
+  final Directory packageRoot;
+  final Directory cache;
+  final Uint8List payload;
+
+  /// [archivedTarget] is the link target written into the archive; the lock
+  /// always expects `libruntime.so.1.0.0`. `null` omits the link.
+  static _TarFixture create({String? archivedTarget = 'libruntime.so.1.0.0'}) {
+    final root = Directory.systemTemp.createTempSync('fonix-resolver-tar-');
+    final packageRoot = Directory(path.join(root.path, 'package'))
+      ..createSync(recursive: true);
+    final cache = Directory(path.join(root.path, 'cache'))..createSync();
+    final payload = Uint8List.fromList(utf8.encode('verified tar runtime'));
+    final next = Uint8List.fromList(utf8.encode('next tar runtime'));
+    final license = Uint8List.fromList(utf8.encode('MIT fixture license'));
+    final notices = Uint8List.fromList(utf8.encode('fixture notices'));
+    final archive = _tarGz(<_TarFixtureEntry>[
+      _TarFixtureEntry('pkg/lib/libruntime.so.1.0.0', bytes: payload),
+      _TarFixtureEntry('pkg/lib/libruntime.so.1.0.1', bytes: next),
+      if (archivedTarget != null)
+        _TarFixtureEntry('pkg/lib/libruntime.so.1', linkTarget: archivedTarget),
+      _TarFixtureEntry('pkg/LICENSE', bytes: license),
+      _TarFixtureEntry('pkg/ThirdPartyNotices.txt', bytes: notices),
+    ]);
+    File(path.join(cache.path, 'fixture.tgz')).writeAsBytesSync(archive);
+
+    final value = _object(
+      jsonDecode(File('native/versions.lock.yaml').readAsStringSync()),
+    );
+    final artifact = _object(
+      _list(value['artifacts']).singleWhere((value) {
+        final target = _object(_object(value)['target']);
+        return target['os'] == 'linux' && target['architecture'] == 'x86_64';
+      }),
+    );
+    Map<String, Object?> digest(Uint8List bytes) => <String, Object?>{
+      'sha256': sha256.convert(bytes).toString(),
+      'size_bytes': bytes.length,
+    };
+    artifact['id'] = 'fixture-tar-linux-x86-64';
+    artifact['source'] = <String, Object?>{
+      'url': 'https://artifacts.invalid/fixture.tgz',
+      'source_revision': List.filled(40, 'a').join(),
+      ...digest(archive),
+      'archive': 'tgz',
+    };
+    artifact['containers'] = <Object?>[];
+    artifact['expected_files'] = <Object?>[
+      <String, Object?>{
+        'path': 'pkg/lib/libruntime.so.1.0.0',
+        'staged_path': 'libonnxruntime.so.1',
+        ...digest(payload),
+      },
+      <String, Object?>{
+        'path': 'pkg/lib/libruntime.so.1.0.1',
+        'staged_path': 'libonnxruntime_next.so.1',
+        ...digest(next),
+      },
+    ];
+    artifact['expected_symlinks'] = <Object?>[
+      <String, Object?>{
+        'path': 'pkg/lib/libruntime.so.1',
+        'target': 'libruntime.so.1.0.0',
+      },
+    ];
+    artifact['notices'] = <Object?>[
+      <String, Object?>{
+        'id': 'MIT',
+        'container_depth': 0,
+        'path': 'pkg/LICENSE',
+        'staged_path': 'notices/LICENSE',
+        ...digest(license),
+      },
+      <String, Object?>{
+        'id': 'ThirdPartyNotices',
+        'container_depth': 0,
+        'path': 'pkg/ThirdPartyNotices.txt',
+        'staged_path': 'notices/ThirdPartyNotices.txt',
+        ...digest(notices),
+      },
+    ];
+    value['artifacts'] = <Object?>[artifact];
+    final lockFile = File(
+      path.join(packageRoot.path, 'native', 'versions.lock.yaml'),
+    );
+    lockFile.parent.createSync(recursive: true);
+    lockFile.writeAsStringSync(jsonEncode(value));
+    return _TarFixture._(
+      root: root,
+      packageRoot: packageRoot,
+      cache: cache,
+      payload: payload,
+    );
+  }
+
+  Future<StagedNativeArtifact> stage(String directoryName) =>
+      const NativeArtifactResolver().stage(
+        packageRoot: packageRoot,
+        stagingDirectory: Directory(path.join(root.path, directoryName)),
+        target: _Fixture.target,
+        cacheDirectory: cache,
+      );
+
+  void dispose() {
+    if (root.existsSync()) {
+      root.deleteSync(recursive: true);
+    }
+  }
+}
+
+final class _TarFixtureEntry {
+  _TarFixtureEntry(this.name, {Uint8List? bytes, this.linkTarget})
+    : bytes = bytes ?? Uint8List(0);
+
+  final String name;
+  final Uint8List bytes;
+  final String? linkTarget;
+}
+
+/// A gzip-compressed POSIX ustar stream of regular files and symbolic links.
+Uint8List _tarGz(List<_TarFixtureEntry> entries) {
+  final output = BytesBuilder(copy: false);
+  for (final entry in entries) {
+    final header = Uint8List(512);
+    void put(int offset, String text) =>
+        header.setRange(offset, offset + text.length, ascii.encode(text));
+    put(0, entry.name);
+    put(100, '0000644');
+    put(108, '0000000');
+    put(116, '0000000');
+    put(124, entry.bytes.length.toRadixString(8).padLeft(11, '0'));
+    put(136, '00000000000');
+    header[156] = entry.linkTarget == null ? 0x30 : 0x32;
+    if (entry.linkTarget case final target?) {
+      put(157, target);
+    }
+    put(257, 'ustar');
+    put(263, '00');
+    header.fillRange(148, 156, 0x20);
+    final checksum = header.fold<int>(0, (sum, byte) => sum + byte);
+    put(148, checksum.toRadixString(8).padLeft(6, '0'));
+    header[154] = 0;
+    output
+      ..add(header)
+      ..add(entry.bytes)
+      ..add(Uint8List((512 - entry.bytes.length % 512) % 512));
+  }
+  output.add(Uint8List(1024));
+  return Uint8List.fromList(gzip.encode(output.takeBytes()));
 }
 
 enum _ZipFixtureKind { regular, symbolicLink }

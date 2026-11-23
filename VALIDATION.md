@@ -18,9 +18,9 @@ local checks:
   workspace the analyzer also reports two infos in `example/`, both the
   Flutter 3.50 deprecation of `package:flutter/material.dart`; `main` has
   them too.
-- `dart test`: 242 passed, 19 environment-gated tests skipped.
+- `dart test`: 245 passed, 19 environment-gated tests skipped.
 - `python3 -B -m unittest discover -s tool/ci/tests -p 'test_*.py'`:
-  601 passed.
+  603 passed.
 - `python3 -B -m unittest discover -s tool/tests -p 'test_*.py'`:
   59 passed.
 - `python3 -B tool/ci/check_c_source_quality.py --repository .`:
@@ -40,7 +40,7 @@ the offline cache:
   `FONIX_TEST_MACOS_ORT_ARCHIVE_DIR`, `FONIX_TEST_REAL_ORT_PATH`,
   `FONIX_TEST_SHIM_PATH`, `FONIX_TEST_ORT_PATH`,
   `FONIX_TEST_UNSUPPORTED_ORT_PATH`, and `FONIX_TEST_FAKE_ORT_PATH` set:
-  287 passed, 2 skipped.
+  290 passed, 2 skipped.
 - `dart test test/portable_cross_build_test.dart` with `FONIX_TEST_ZIG`
   (Zig 0.17.1): the Linux x86_64/arm64 and Windows x64 bundles cross-built
   and passed their static audit.
@@ -54,7 +54,9 @@ Functional checks of the example built from an external copy with Flutter
 - iOS Simulator Debug app on iPhone 17 Pro / iOS 26.5: passing CPU receipt
   from the linked 1.28.0 runtime.
 - Android Debug APK on an API 35 arm64 emulator with 16 KiB pages: passing
-  CPU receipt from the bundled 1.28.0 runtime.
+  CPU receipt from the bundled 1.28.0 runtime. A one-off byte comparison found
+  every `PT_LOAD` segment of the packaged `libonnxruntime.so` identical to the
+  locked library.
 
 ## Not run
 
@@ -65,6 +67,10 @@ Functional checks of the example built from an external copy with Flutter
   static audit; the Linux target-host gate; anything on Windows.
 - `tool/ci/verify_bindings.py`: the vendored headers and generated bindings
   did not change.
+- Re-pinning the iOS gate's two linked-shim digests
+  (`_IOS_NORMALIZED_RUNTIME_FIELDS_SHA256`). They still hold the 1.27.1
+  values, so that gate fails closed until a build under its pinned toolchain
+  supplies new ones.
 - Any physical device.
 
 ## Observed and unexplained

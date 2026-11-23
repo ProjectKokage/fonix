@@ -576,7 +576,9 @@ class IosReferenceArchiveTest(unittest.TestCase):
                     f"Fonix iOS {variant} asset preparation", operations
                 )
 
-    def test_prepare_copies_a_shared_package_once(self) -> None:
+    def _prepare_with_shared_basename(
+        self, name: str, *, host_sha256: str | None
+    ) -> tuple[Path, bytes]:
         gate = run_ios_reference_app_gate
         package = b"one package for iOS and the macOS host"
         archive = gate.PinnedArchive(
@@ -588,13 +590,13 @@ class IosReferenceArchiveTest(unittest.TestCase):
         )
         host_archive = SimpleNamespace(
             basename=archive.basename,
-            sha256=archive.sha256,
+            sha256=host_sha256 or archive.sha256,
             size_bytes=archive.size_bytes,
         )
-        cache = self.root / "cache-shared"
+        cache = self.root / f"cache-{name}"
         cache.mkdir()
         (cache / archive.basename).write_bytes(package)
-        destination = self.root / "work-shared"
+        destination = self.root / f"work-{name}"
 
         def copy_example(_: Path, target: Path) -> object:
             target.mkdir()
@@ -624,11 +626,24 @@ class IosReferenceArchiveTest(unittest.TestCase):
                 host_archive=host_archive,
                 run_source_checks=False,
             )
+        return destination, package
+
+    def test_prepare_copies_a_shared_package_once(self) -> None:
+        destination, package = self._prepare_with_shared_basename(
+            "shared", host_sha256=None
+        )
         relative_cache = destination / ".fonix-artifact-cache"
         self.assertEqual(
             [entry.name for entry in relative_cache.iterdir()], ["shared.nupkg"]
         )
         self.assertEqual((relative_cache / "shared.nupkg").read_bytes(), package)
+
+    def test_prepare_rejects_a_shared_basename_with_a_different_digest(self) -> None:
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "selected macOS host archive destination already exists",
+        ):
+            self._prepare_with_shared_basename("conflict", host_sha256="b" * 64)
 
     def test_prepare_rejects_host_archive_tamper_for_both_variants(self) -> None:
         for variant in ("device", "simulator"):

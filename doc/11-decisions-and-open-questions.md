@@ -73,7 +73,7 @@ recommendation, strict preset, or benchmark preset.
 against the 1.27.1 headers, and request API 27 from whichever runtime is
 loaded. The floor is independent of the packaged runtime: the lock selects
 ONNX Runtime 1.28.0 for the baseline artifacts
-([ADR-016](#adr-016-packaged-runtime-is-the-newest-official-release-without-telemetry))
+([ADR-016](#adr-016-packaged-runtime-is-the-newest-official-release-without-the-telemetry-sdk))
 without moving the floor.
 
 **Reasons:** in sherpa-owned Android mode Fonix does not choose the runtime;
@@ -139,7 +139,7 @@ accepts them; Dart adds typed constructors and repeats option validation.
 
 **Review trigger:** ORT establishes a portable, signed, dependency-isolated plugin distribution contract that is proven across the supported platforms.
 
-## ADR-016: packaged runtime is the newest official release without telemetry
+## ADR-016: packaged runtime is the newest official release without the telemetry SDK
 
 **Decision (2026-11-23):** the baseline artifacts are ONNX Runtime 1.28.0, and
 all nine targets take their library from the one official
@@ -151,7 +151,11 @@ SDK on Linux, macOS, Android, and iOS, turned on by default. It sends trace
 events over HTTPS with a persistent device identifier. An application that
 links or bundles Fonix's runtime would ship that SDK. 1.28.0 is the newest
 release whose `Privacy.md` limits telemetry to Windows and whose libraries
-link no networking framework. The latest release on this date was 1.32.0.
+link no networking framework. On Windows, 1.28.0 keeps the TraceLogging
+provider that official Windows builds have long carried, as 1.27.1 did; the
+operating system collects those events only under its own consent settings,
+and this decision neither adds nor removes it. The latest release on this
+date was 1.32.0.
 [The reference snapshot](12-reference-snapshot.md#re-check-on-2026-11-23)
 holds the evidence.
 

@@ -6,9 +6,8 @@ import 'package:test/test.dart';
 
 const String _modelSha256 =
     '71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10';
+// macOS and Android stage the same notices file from the one NuGet package.
 const String _noticeSha256 =
-    'fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866';
-const String _androidNoticeSha256 =
     'fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866';
 
 void main() {
@@ -85,7 +84,7 @@ void main() {
       final File notice = File('$directory/ThirdPartyNotices.txt');
       expect(
         sha256.convert(notice.readAsBytesSync()).toString(),
-        _androidNoticeSha256,
+        _noticeSha256,
       );
 
       final Map<String, Object?> manifest = _object(
