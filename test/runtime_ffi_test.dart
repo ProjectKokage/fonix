@@ -67,9 +67,9 @@ void main() {
           'runtimeProfile': 'bundled',
           'androidRuntimeOwner': null,
           'allowedRuntimeSources': <String>['bundled'],
-          'buildId': 'onnxruntime-1.27.1-macos-arm64-cpu',
+          'buildId': 'onnxruntime-1.28.0-macos-arm64-cpu',
           'artifact': <String, Object?>{
-            'id': 'onnxruntime-1.27.1-macos-arm64-cpu',
+            'id': 'onnxruntime-1.28.0-macos-arm64-cpu',
             'lockSha256': digestA,
             'sourceSha256': digestB,
             'targetOs': 'macos',
@@ -93,7 +93,7 @@ void main() {
         }),
       );
 
-      expect(buildInfo.artifact?.id, 'onnxruntime-1.27.1-macos-arm64-cpu');
+      expect(buildInfo.artifact?.id, 'onnxruntime-1.28.0-macos-arm64-cpu');
       expect(buildInfo.artifact?.minimumOs, '14.0');
       expect(buildInfo.artifact?.sourceSha256, digestB);
       expect(buildInfo.artifact?.thirdPartyNoticesSha256, digestC);

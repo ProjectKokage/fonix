@@ -17,7 +17,7 @@ from bounded_process import BoundedProcessError, CommandOutput, run_bounded
 
 
 BUILD_CONFIGURATION = "RelWithDebInfo"
-PINNED_ORT_VERSION = "1.27.1"
+PINNED_ORT_VERSION = "1.28.0"
 BYTE_CHECK_TIMEOUT_SECONDS = 2 * 60
 CONFIGURE_TIMEOUT_SECONDS = 5 * 60
 BUILD_TIMEOUT_SECONDS = 20 * 60

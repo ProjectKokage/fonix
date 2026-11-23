@@ -71,9 +71,10 @@ recommendation, strict preset, or benchmark preset.
 
 **Decision:** compile the base shim to the ONNX Runtime C API 27 contract,
 against the 1.27.1 headers, and request API 27 from whichever runtime is
-loaded. The baseline artifacts are currently locked to ORT 1.27.1. The floor
-is independent of that choice: the lock may select a newer ONNX Runtime
-release for the baseline artifacts without moving the floor.
+loaded. The floor is independent of the packaged runtime: the lock selects
+ONNX Runtime 1.28.0 for the baseline artifacts
+([ADR-016](#adr-016-packaged-runtime-is-the-newest-official-release-without-telemetry))
+without moving the floor.
 
 **Reasons:** in sherpa-owned Android mode Fonix does not choose the runtime;
 it uses the `libonnxruntime.so` that the application's sherpa-onnx package
@@ -137,6 +138,53 @@ accepts them; Dart adds typed constructors and repeats option validation.
 **Trade-off:** more artifacts and qualification lanes. Accepted because a portable all-provider binary would be larger, less reproducible, and more failure-prone.
 
 **Review trigger:** ORT establishes a portable, signed, dependency-isolated plugin distribution contract that is proven across the supported platforms.
+
+## ADR-016: packaged runtime is the newest official release without telemetry
+
+**Decision (2026-11-23):** the baseline artifacts are ONNX Runtime 1.28.0, and
+all nine targets take their library from the one official
+`Microsoft.ML.OnnxRuntime` 1.28.0 NuGet package. Fonix does not package an
+official build that contains the 1DS telemetry SDK.
+
+**Reasons:** official builds from 1.29.0 on include Microsoft's 1DS telemetry
+SDK on Linux, macOS, Android, and iOS, turned on by default. It sends trace
+events over HTTPS with a persistent device identifier. An application that
+links or bundles Fonix's runtime would ship that SDK. 1.28.0 is the newest
+release whose `Privacy.md` limits telemetry to Windows and whose libraries
+link no networking framework. The latest release on this date was 1.32.0.
+[The reference snapshot](12-reference-snapshot.md#re-check-on-2026-11-23)
+holds the evidence.
+
+The NuGet package is the single source because `github.com/microsoft/onnxruntime`
+returned 404 on this date, which made the macOS, Linux, and Windows release
+archives unreachable for every version. For 1.27.1 the package's Linux and
+Windows libraries are byte-identical to the release archives' libraries, and
+its macOS library is the same link output with Microsoft's Developer ID
+signature in place of the ad-hoc linker signature.
+
+**Trade-off:** 1.28.0 carries the security fixes of that release over 1.27.1
+and omits what later releases added. According to copies of the upstream
+release notes quoted in other projects' dependency-update pull requests
+(upstream's own pages were unreachable), those are the input-validation and
+out-of-bounds fixes of 1.29.0, 1.30.0, and 1.31.0; parallel CPU weight
+prepacking at session start, CoreML taking part in device-based provider
+selection, and a fix for concurrent XNNPACK allocator initialization in
+1.31.0; and ONNX opset 28 in 1.32.0. The models Fonix runs in its current
+applications are chosen by the application, which limits the exposure to the
+missing validation fixes; an application that loads user-supplied models
+should weigh that differently.
+
+**Way past it:** build a current release from its source tag with
+`--no_telemetry`, lock the result as a source-built artifact
+([Build and Packaging](05-build-and-packaging.md) §5.6), and prove in the
+packaged application that no connection is opened. Setting
+`ORT_DISABLE_TELEMETRY=1` before an official build initializes is upstream's
+documented runtime switch; it leaves the SDK in the shipped binary and cannot
+cover a process-owned runtime, so it is not the chosen route.
+
+**Review trigger:** upstream publishes official builds without the telemetry
+SDK, the source-build route is implemented, or a security issue requires
+leaving 1.28.0.
 
 ## Open question 1: publication/package names
 

@@ -65,7 +65,8 @@ The ORT C API does not expose the producer-version field. The deterministic
 byte check pins that field; the real-runtime validator checks every metadata
 field exposed by C API 27.
 
-The real ORT 1.27.1 runs also pin these composite-value details:
+The real ORT runs (1.27.1, and 1.28.0 since the lock moved) also pin these
+composite-value details:
 
 - the shaped rank-zero float64 tensor has rank zero, one element, and exact
   binary64 output `-3.25`;
@@ -139,7 +140,7 @@ checked before output storage is read:
 ```sh
 cmake -S test/fixtures -B /tmp/fonix-phase3-fixtures \
   -DFONIX_REAL_ORT_LIBRARY=/absolute/path/to/libonnxruntime.dylib \
-  -DFONIX_EXPECTED_ORT_VERSION=1.27.1
+  -DFONIX_EXPECTED_ORT_VERSION=1.28.0
 cmake --build /tmp/fonix-phase3-fixtures --parallel
 ctest --test-dir /tmp/fonix-phase3-fixtures --output-on-failure
 ```

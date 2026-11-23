@@ -250,8 +250,8 @@ override environment variables are removed before launch.
 
 `tool/ci/run_ios_reference_app_gate.py` takes one more bounded external copy,
 freezes its source epoch, and derives linked arm64 device and simulator variants
-from the same tree. It requires the exact lock-selected iOS NuGet and macOS host
-archives, macOS 26.5.2 (25F84), Xcode 26.6 (17F113), both iOS 26.5 SDKs, and
+from the same tree. It requires the exact lock-selected NuGet archive, which
+serves both the iOS tuples and the macOS host, macOS 26.5.2 (25F84), Xcode 26.6 (17F113), both iOS 26.5 SDKs, and
 Flutter revision `bd1e75d918605c91b411e8789fb911e6c9a84534` (Flutter
 `3.47.0-0.1.pre`). The app contract is iOS 15.1; exact audited binary floors
 remain 15.1 for Runner and the shim and 15.0 for App and Flutter.
@@ -269,7 +269,7 @@ exact smoke/challenge process-environment pair and exposes only its cached
 null-or-closed activation over an argument-free app-owned channel; Dart
 revalidates it within five seconds and never receives the raw environment. The
 gate then binds a resident receipt to a fresh 256-bit challenge and PID. It
-requires ORT 1.27.1 linked wrapper-owned CPU, output
+requires ORT 1.28.0 linked wrapper-owned CPU, output
 `[1,4,9,16,25,36]`, full assignment, double close, process settlement, and
 uninstall.
 
@@ -277,7 +277,7 @@ The frozen source checkpoint passed all 72 application tests and analysis;
 `reference_smoke_test.dart` passed 25/25 and
 `ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
 Debug builds passed. The complete iOS gate result is
-`PASS (2026-08-07)`, bound to manifest SHA-256
+`PASS (2026-08-07)`, obtained with ONNX Runtime 1.27.1 and bound to manifest SHA-256
 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a`
 and closed source-tree SHA-256
 `2c275c655d3569ec767f36d9e99522b5e38ba937e6236666abe0795ea43a03a2`.
@@ -533,7 +533,7 @@ The checked-in pull-request/push workflow currently runs:
   documented Address/UndefinedBehavior sanitizers, a separate Linux x64 TSan
   lane, plus the Windows x64 shim/security contract without real ORT inference;
   and
-- the exact ORT 1.27.1 macOS arm64 runtime, native bridge, worker lifecycle,
+- the exact ORT 1.28.0 macOS arm64 runtime, native bridge, worker lifecycle,
   Dart value/provider profile, build-hook, freshly generated final Flutter
   application gate, and committed public-API reference-application gate.
 

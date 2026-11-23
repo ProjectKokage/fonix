@@ -15,7 +15,7 @@ void main() {
     test(
       'official ONNX Runtime Phase-3 fixture is provisioned',
       () {},
-      skip: 'Set FONIX_TEST_REAL_ORT_PATH to ONNX Runtime v1.27.1.',
+      skip: 'Set FONIX_TEST_REAL_ORT_PATH to ONNX Runtime v1.28.0.',
     );
     return;
   }

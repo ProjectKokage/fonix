@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Download and safely stage the exact lock-pinned macOS arm64 ORT dylib."""
+"""Download and safely stage the exact lock-pinned macOS arm64 ORT dylib.
+
+The lock takes the dylib from the official Microsoft.ML.OnnxRuntime NuGet
+package, which is a zip archive.
+"""
 
 from __future__ import annotations
 
@@ -13,11 +17,11 @@ import re
 import shutil
 import stat
 import sys
-import tarfile
 import tempfile
 from typing import BinaryIO, Mapping
 import urllib.parse
 import urllib.request
+import zipfile
 
 
 MAX_LOCK_BYTES = 1024 * 1024
@@ -25,7 +29,10 @@ MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 100_000
 MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
 CHUNK_BYTES = 1024 * 1024
-PINNED_VERSION = "1.27.1"
+PINNED_VERSION = "1.28.0"
+PINNED_ARCHIVE_NAME = f"microsoft.ml.onnxruntime.{PINNED_VERSION}.nupkg"
+PINNED_RUNTIME_MEMBER = "runtimes/osx-arm64/native/libonnxruntime.dylib"
+PINNED_STAGED_NAME = "libonnxruntime.1.dylib"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -42,12 +49,6 @@ class ExpectedFile:
 
 
 @dataclass(frozen=True)
-class ExpectedSymlink:
-    path: str
-    target: str
-
-
-@dataclass(frozen=True)
 class PinnedRuntime:
     artifact_id: str
     url: str
@@ -55,7 +56,6 @@ class PinnedRuntime:
     archive_size_bytes: int
     runtime: ExpectedFile
     expected_files: tuple[ExpectedFile, ...]
-    expected_symlinks: tuple[ExpectedSymlink, ...]
 
 
 def _without_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -150,22 +150,6 @@ def load_pinned_runtime(lock_path: Path) -> PinnedRuntime:
         ) from error
     root_object = _mapping(root, "lock")
 
-    floor = _mapping(
-        _mapping(root_object.get("onnxruntime"), "onnxruntime").get(
-            "compatibility_floor"
-        ),
-        "onnxruntime.compatibility_floor",
-    )
-    header_version = _string(
-        _mapping(floor.get("header"), "compatibility header").get("version"),
-        "compatibility header version",
-    )
-    if header_version != PINNED_VERSION:
-        raise ArtifactVerificationError(
-            f"macOS integration is pinned to ORT {PINNED_VERSION}; lock has "
-            f"{header_version}"
-        )
-
     artifacts = _list(root_object.get("artifacts"), "artifacts")
     candidates: list[Mapping[str, object]] = []
     for index, raw_artifact in enumerate(artifacts):
@@ -202,20 +186,24 @@ def load_pinned_runtime(lock_path: Path) -> PinnedRuntime:
         )
 
     source = _mapping(artifact.get("source"), "artifact.source")
-    if source.get("archive") != "tgz":
-        raise ArtifactVerificationError("macOS ORT archive must be tgz")
+    if source.get("archive") != "zip":
+        raise ArtifactVerificationError("macOS ORT archive must be zip")
+    if _list(artifact.get("containers"), "containers"):
+        raise ArtifactVerificationError(
+            "macOS ORT dylib must be a direct member of the source archive"
+        )
     revision = _string(source.get("source_revision"), "source_revision")
     if REVISION_RE.fullmatch(revision) is None:
         raise ArtifactVerificationError("source_revision must be a 40-byte Git SHA")
     url = _string(source.get("url"), "artifact.source.url")
     parsed_url = urllib.parse.urlsplit(url)
     expected_url = (
-        "https://github.com/microsoft/onnxruntime/releases/download/"
-        f"v{PINNED_VERSION}/onnxruntime-osx-arm64-{PINNED_VERSION}.tgz"
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/"
+        f"{PINNED_VERSION}/{PINNED_ARCHIVE_NAME}"
     )
     if url != expected_url or "latest" in url.lower():
         raise ArtifactVerificationError(
-            "macOS ORT URL must be the exact versioned official release URL"
+            "macOS ORT URL must be the exact versioned official NuGet package URL"
         )
     if (
         parsed_url.scheme != "https"
@@ -235,31 +223,29 @@ def load_pinned_runtime(lock_path: Path) -> PinnedRuntime:
     expected_paths = [item.path for item in expected_files]
     if len(expected_paths) != len(set(expected_paths)):
         raise ArtifactVerificationError("expected_files contains duplicate paths")
-    runtime_path = (
-        f"onnxruntime-osx-arm64-{PINNED_VERSION}/lib/"
-        f"libonnxruntime.{PINNED_VERSION}.dylib"
-    )
-    runtime_matches = [item for item in expected_files if item.path == runtime_path]
+    runtime_matches = [
+        item for item in expected_files if item.path == PINNED_RUNTIME_MEMBER
+    ]
     if len(runtime_matches) != 1:
         raise ArtifactVerificationError(
-            f"expected_files must pin exactly one {runtime_path}"
+            f"expected_files must pin exactly one {PINNED_RUNTIME_MEMBER}"
         )
-
-    expected_symlinks = tuple(
-        ExpectedSymlink(
-            path=_canonical_path(value_object.get("path"), f"symlink[{index}].path"),
-            target=_canonical_path(
-                value_object.get("target"), f"symlink[{index}].target"
-            ),
+    staged_names = [
+        _mapping(value, f"expected_files[{index}]").get("staged_path")
+        for index, value in enumerate(
+            _list(artifact.get("expected_files"), "expected_files")
         )
-        for index, raw_value in enumerate(
-            _list(artifact.get("expected_symlinks"), "expected_symlinks")
+        if _mapping(value, f"expected_files[{index}]").get("path")
+        == PINNED_RUNTIME_MEMBER
+    ]
+    if staged_names != [PINNED_STAGED_NAME]:
+        raise ArtifactVerificationError(
+            f"{PINNED_RUNTIME_MEMBER} must be staged as {PINNED_STAGED_NAME}"
         )
-        for value_object in [_mapping(raw_value, f"expected_symlinks[{index}]")]
-    )
-    symlink_paths = [item.path for item in expected_symlinks]
-    if len(symlink_paths) != len(set(symlink_paths)):
-        raise ArtifactVerificationError("expected_symlinks contains duplicate paths")
+    if _list(artifact.get("expected_symlinks"), "expected_symlinks"):
+        raise ArtifactVerificationError(
+            "a zip source archive cannot declare expected symlinks"
+        )
 
     return PinnedRuntime(
         artifact_id=artifact_id,
@@ -272,7 +258,6 @@ def load_pinned_runtime(lock_path: Path) -> PinnedRuntime:
         ),
         runtime=runtime_matches[0],
         expected_files=expected_files,
-        expected_symlinks=expected_symlinks,
     )
 
 
@@ -365,10 +350,9 @@ def retain_archive_in_cache(
     archive_path = archive_path.resolve(strict=True)
     _regular_file(archive_path, "downloaded ORT archive")
     archive_name = PurePosixPath(urllib.parse.urlsplit(runtime.url).path).name
-    expected_name = f"onnxruntime-osx-arm64-{PINNED_VERSION}.tgz"
-    if archive_name != expected_name:
+    if archive_name != PINNED_ARCHIVE_NAME:
         raise ArtifactVerificationError(
-            f"pinned ORT archive basename must be {expected_name}"
+            f"pinned ORT archive basename must be {PINNED_ARCHIVE_NAME}"
         )
 
     cache_directory.mkdir(parents=True, exist_ok=True)
@@ -405,30 +389,31 @@ def retain_archive_in_cache(
     return destination.resolve(strict=True)
 
 
-def _member_map(archive: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
-    members = archive.getmembers()
+def _member_map(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
+    members = archive.infolist()
     if len(members) > MAX_ARCHIVE_MEMBERS:
         raise ArtifactVerificationError(
             f"ORT archive exceeds {MAX_ARCHIVE_MEMBERS} members"
         )
-    result: dict[str, tarfile.TarInfo] = {}
+    result: dict[str, zipfile.ZipInfo] = {}
     total_size = 0
     for member in members:
-        canonical = _canonical_path(member.name.rstrip("/"), "archive member")
+        canonical = _canonical_path(member.filename.rstrip("/"), "archive member")
         if canonical in result:
             raise ArtifactVerificationError(
                 f"ORT archive contains duplicate member {canonical}"
             )
         result[canonical] = member
-        if member.size < 0 or member.size > MAX_UNCOMPRESSED_BYTES - total_size:
+        if (
+            member.file_size < 0
+            or member.file_size > MAX_UNCOMPRESSED_BYTES - total_size
+        ):
             raise ArtifactVerificationError(
                 "ORT archive exceeds the uncompressed size budget"
             )
-        total_size += member.size
-        if member.isdir() or member.isreg():
-            continue
-        if member.issym() or member.islnk():
-            _canonical_path(member.linkname, f"archive link {canonical}")
+        total_size += member.file_size
+        unix_type = stat.S_IFMT(member.external_attr >> 16)
+        if member.is_dir() or unix_type in {0, stat.S_IFREG}:
             continue
         raise ArtifactVerificationError(
             f"ORT archive contains unsupported member type at {canonical}"
@@ -437,18 +422,15 @@ def _member_map(archive: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
 
 
 def _verify_member(
-    archive: tarfile.TarFile,
-    member: tarfile.TarInfo,
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
     expected: ExpectedFile,
 ) -> None:
-    if not member.isreg():
+    if member.is_dir():
         raise ArtifactVerificationError(f"{expected.path} is not a regular file")
-    if member.size != expected.size_bytes:
+    if member.file_size != expected.size_bytes:
         raise ArtifactVerificationError(f"{expected.path} size does not match the lock")
-    stream = archive.extractfile(member)
-    if stream is None:
-        raise ArtifactVerificationError(f"could not read {expected.path}")
-    with stream:
+    with archive.open(member) as stream:
         size, digest = _copy_and_hash(stream, maximum=expected.size_bytes)
     if size != expected.size_bytes or digest != expected.sha256:
         raise ArtifactVerificationError(
@@ -478,7 +460,7 @@ def stage_runtime(
     output_directory.parent.mkdir(parents=True, exist_ok=True)
     output_directory.mkdir(mode=0o700)
     try:
-        with tarfile.open(archive_path, mode="r:gz") as archive:
+        with zipfile.ZipFile(archive_path, mode="r") as archive:
             members = _member_map(archive)
             for expected in runtime.expected_files:
                 member = members.get(expected.path)
@@ -487,24 +469,13 @@ def stage_runtime(
                         f"ORT archive is missing locked file {expected.path}"
                     )
                 _verify_member(archive, member, expected)
-            for expected in runtime.expected_symlinks:
-                member = members.get(expected.path)
-                if member is None or not member.issym():
-                    raise ArtifactVerificationError(
-                        f"ORT archive is missing locked symlink {expected.path}"
-                    )
-                if member.linkname != expected.target:
-                    raise ArtifactVerificationError(
-                        f"ORT archive symlink target changed for {expected.path}"
-                    )
 
             runtime_member = members[runtime.runtime.path]
-            source = archive.extractfile(runtime_member)
-            if source is None:
-                raise ArtifactVerificationError("could not stage locked ORT dylib")
-            destination = output_directory / PurePosixPath(runtime.runtime.path).name
+            destination = output_directory / PINNED_STAGED_NAME
             temporary_destination = output_directory / ".runtime.tmp"
-            with source, temporary_destination.open("xb") as output:
+            with archive.open(runtime_member) as source, temporary_destination.open(
+                "xb"
+            ) as output:
                 size, digest = _copy_and_hash(
                     source, output, maximum=runtime.runtime.size_bytes
                 )
@@ -566,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         runtime = load_pinned_runtime(arguments.lock)
         with tempfile.TemporaryDirectory(prefix="fonix-ort-download-") as temporary:
-            archive_path = Path(temporary) / "onnxruntime.tgz"
+            archive_path = Path(temporary) / PINNED_ARCHIVE_NAME
             download_archive(runtime, archive_path)
             if arguments.archive_cache_dir is not None:
                 cached_archive = retain_archive_in_cache(
@@ -583,7 +554,7 @@ def main(argv: list[str] | None = None) -> int:
                     "ort_archive_dir",
                     cached_archive.parent,
                 )
-    except (ArtifactVerificationError, OSError, tarfile.TarError) as error:
+    except (ArtifactVerificationError, OSError, zipfile.BadZipFile) as error:
         print(f"pinned ORT staging failed: {error}", file=sys.stderr)
         return 1
     print(

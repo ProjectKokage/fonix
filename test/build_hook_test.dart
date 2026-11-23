@@ -821,7 +821,7 @@ void main() {
         targetAndroidNdkApi: 24,
         androidRuntimeOwner: fonixAndroidApplicationRuntimeOwner,
       );
-      const artifactId = 'onnxruntime-1.27.1-android-x86_64-cpu';
+      const artifactId = 'onnxruntime-1.28.0-android-x86_64-cpu';
       final defines = fonixAndroidOwnershipDefines(
         options,
         artifactId: artifactId,
@@ -1143,17 +1143,17 @@ void main() {
               );
               expect(
                 runtime.buildInfo.artifact?.id,
-                'onnxruntime-1.27.1-macos-arm64-cpu',
+                'onnxruntime-1.28.0-macos-arm64-cpu',
               );
               expect(runtime.buildInfo.buildId, runtime.buildInfo.artifact?.id);
               expect(runtime.buildInfo.artifact?.minimumOs, '14.0');
               expect(
                 runtime.buildInfo.artifact?.sourceSha256,
-                'e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6',
+                '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
               );
               expect(
                 runtime.buildInfo.artifact?.thirdPartyNoticesSha256,
-                '0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2',
+                'fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866',
               );
               expect(runtime.buildInfo.artifact?.providers, <String, String?>{
                 'cpu': 'CPUExecutionProvider',
@@ -1161,7 +1161,7 @@ void main() {
                 'webgpu': 'WebGpuExecutionProvider',
               });
               expect(runtime.info.runtimeSource, OrtRuntimeSourceKind.bundled);
-              expect(runtime.info.runtimeVersion, '1.27.1');
+              expect(runtime.info.runtimeVersion, '1.28.0');
               session = OrtSession.fromBytes(
                 runtime: runtime,
                 modelBytes: File('test/fixtures/mul_1.onnx').readAsBytesSync(),
@@ -1219,17 +1219,17 @@ void main() {
         (
           Architecture.arm64,
           IOSSdk.iPhoneOS,
-          'onnxruntime-1.27.1-ios-arm64-device-cpu',
+          'onnxruntime-1.28.0-ios-arm64-device-cpu',
         ),
         (
           Architecture.arm64,
           IOSSdk.iPhoneSimulator,
-          'onnxruntime-1.27.1-ios-arm64-simulator-cpu',
+          'onnxruntime-1.28.0-ios-arm64-simulator-cpu',
         ),
         (
           Architecture.x64,
           IOSSdk.iPhoneSimulator,
-          'onnxruntime-1.27.1-ios-x86_64-simulator-cpu',
+          'onnxruntime-1.28.0-ios-x86_64-simulator-cpu',
         ),
       ]) {
         await testCodeBuildHook(
@@ -1286,7 +1286,7 @@ void main() {
               output.dependencies.any(
                 (dependency) =>
                     dependency.pathSegments.last ==
-                    'microsoft.ml.onnxruntime.1.27.1.nupkg',
+                    'microsoft.ml.onnxruntime.1.28.0.nupkg',
               ),
               isTrue,
             );

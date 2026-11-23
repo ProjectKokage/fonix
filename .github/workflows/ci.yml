@@ -240,7 +240,7 @@ jobs:
           --build-dir "$env:RUNNER_TEMP\fonix-bundled-windows"
 
   real-ort-macos-arm64:
-    name: macOS arm64 real ORT 1.27.1 runtime and session integration
+    name: macOS arm64 real ORT 1.28.0 runtime and session integration
     runs-on: macos-14
     timeout-minutes: 45
     steps:
@@ -281,7 +281,7 @@ jobs:
         run: >-
           python -B tool/ci/fetch_pinned_macos_ort.py
           --lock native/versions.lock.yaml
-          --output-dir "$RUNNER_TEMP/fonix-ort-1.27.1"
+          --output-dir "$RUNNER_TEMP/fonix-ort-1.28.0"
           --archive-cache-dir "$RUNNER_TEMP/fonix-ort-archive-cache"
           --github-output "$GITHUB_OUTPUT"
       - name: Audit the pinned Mach-O runtime contract
@@ -340,7 +340,7 @@ jobs:
           real-runtime
           --build-dir "$RUNNER_TEMP/fonix-phase3-fixtures"
           --real-ort "${{ steps.ort.outputs.ort_path }}"
-          --expected-ort-version "1.27.1"
+          --expected-ort-version "1.28.0"
       - name: Run the env-gated real runtime and session suite
         env:
           FONIX_TEST_REAL_ORT_PATH: ${{ steps.ort.outputs.ort_path }}

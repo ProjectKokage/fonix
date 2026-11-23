@@ -247,7 +247,7 @@ void main() {
                 ).readAsStringSync(),
               )
               as Map<String, Object?>;
-      expect(manifest['artifactId'], 'onnxruntime-1.27.1-macos-arm64-cpu');
+      expect(manifest['artifactId'], 'onnxruntime-1.28.0-macos-arm64-cpu');
       final notices = manifest['notices']! as List<Object?>;
       final notice = notices.cast<Map<String, Object?>>().singleWhere(
         (entry) => entry['id'] == 'ThirdPartyNotices',

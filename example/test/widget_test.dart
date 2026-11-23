@@ -44,7 +44,7 @@ void main() {
     expect(
       find.text(
         'Artifact SHA-256: '
-        'e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6',
+        '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
       ),
       findsOneWidget,
     );

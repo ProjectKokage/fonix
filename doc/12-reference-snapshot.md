@@ -1,6 +1,6 @@
 # 12. Reference Snapshot and Upstream Sources
 
-Snapshot date: **2026-08-07**
+Snapshot date: **2026-08-07**. ONNX Runtime release facts were re-checked on **2026-11-23**; see [the re-check](#re-check-on-2026-11-23).
 
 This file records facts used to design the initial implementation. It is not a permanent compatibility guarantee. Before each release, re-check the current official sources and the exact artifacts selected by the application.
 
@@ -79,10 +79,15 @@ Implementation consequence:
 
 - The C API 27 floor is unaffected by a newer packaged runtime.
 - Packaging an official build from 1.29.0 on ships the telemetry SDK to every
-  application that links or bundles Fonix's runtime. Whether Fonix stays on a
-  release without it, turns it off before the runtime initializes, or builds
-  from source with `--no_telemetry` is an open decision on this date; the
-  baseline stays on 1.27.1 until it is made.
+  application that links or bundles Fonix's runtime. The baseline therefore
+  moves to 1.28.0, the newest official release without it, and no further;
+  [ADR-016](11-decisions-and-open-questions.md#adr-016-packaged-runtime-is-the-newest-official-release-without-telemetry)
+  records the decision.
+- The 1.28.0 package was inspected in full before it was locked. Its
+  libraries have the same dependencies, minimum OS versions, glibc maxima
+  (`GLIBC_2.27`, `GLIBCXX_3.4.21`), SONAMEs, and install name as 1.27.1; its
+  `Privacy.md`, `LICENSE`, and `ThirdPartyNotices.txt` are byte-identical to
+  1.27.1's; and its header defines `ORT_API_VERSION 28`.
 - A Linux artifact from 1.32.0 needs a `glibc-2.28` minimum in the lock and a
   target host that provides it.
 

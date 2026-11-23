@@ -758,7 +758,7 @@ void main() {
   test('startup receipt owns and validates every native identity', () {
     final List<String> providers = <String>['cpu'];
     final InferenceStartupReceipt receipt = InferenceStartupReceipt(
-      runtimeVersion: '1.27.1',
+      runtimeVersion: '1.28.0',
       runtimeSource: 'bundled',
       runtimeOwner: 'application',
       artifactFlavor: 'cpu',
@@ -766,7 +766,7 @@ void main() {
       architecture: 'arm64-v8a',
       shimBuildId: 'android-owner-application-source-bundled',
       artifactSha256:
-          '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383',
+          '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
       modelSha256: referenceModelSha256,
       registeredProviders: providers,
     );
@@ -776,7 +776,7 @@ void main() {
     expect(receipt.shimBuildId, 'android-owner-application-source-bundled');
     expect(
       receipt.artifactSha256,
-      '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383',
+      '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
     );
     expect(
       () => receipt.registeredProviders.add('xnnpack'),
@@ -788,10 +788,10 @@ void main() {
     InferenceStartupReceipt create({
       String shimBuildId = 'fonix-test',
       String artifactSha256 =
-          '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383',
+          '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
       Iterable<String> providers = const <String>['cpu'],
     }) => InferenceStartupReceipt(
-      runtimeVersion: '1.27.1',
+      runtimeVersion: '1.28.0',
       runtimeSource: 'bundled',
       runtimeOwner: 'application',
       artifactFlavor: 'cpu',
