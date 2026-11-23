@@ -85,9 +85,11 @@ reference-gate results:
 
 The Android XNNPACK profile failed in that same Debug/16 KiB/Flutter 3.50
 setup with `OrtProviderEvidenceException`. A control build from the 1.27.1
-lock failed identically, so the failure belongs to that setup and not to the
-runtime move; it is unexplained and has no bearing on the 2026-08-07 Release
-result on a 4 KiB emulator.
+lock failed identically, so the failure does not come from the runtime move.
+Its cause is in the example: the strict-fallback step caught the exception
+type a rejected fallback had before worker protocol version 5, so the
+rejection it requires ended the run. That fix is a separate change, and the
+profile has not been re-run on 1.28.0 with it.
 
 Not repeated with 1.28.0: the macOS, iOS, and Android reference-application
 gates under their pinned toolchains (Release and R8 builds, AAB, the exact

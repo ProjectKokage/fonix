@@ -73,11 +73,13 @@ Functional checks of the example built from an external copy with Flutter
   supplies new ones.
 - Any physical device.
 
-## Observed and unexplained
+## Observed
 
 The Android XNNPACK smoke profile failed with `OrtProviderEvidenceException`
 in the Debug/16 KiB/Flutter 3.50 setup above. A control build from the 1.27.1
-lock failed the same way, so it is not caused by the runtime move.
+lock failed the same way, so it is not caused by the runtime move. The cause
+is the example's strict-fallback step catching the exception type used before
+worker protocol version 5; its fix is a separate change.
 
 Downloaded native archives and final packages continue to use their existing
 size and SHA-256 integrity checks. Git owns the identity of tracked source and
