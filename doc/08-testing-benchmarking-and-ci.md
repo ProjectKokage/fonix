@@ -227,9 +227,11 @@ numeric CPU result.
 The Apple auditor defaults to the exact Fonix reference-app inventory. A real
 consumer app with additional native frameworks selects
 `--ios-application-profile consumer`; that profile still inventories every
-Mach-O and signature, requires the declared, plist, Runner, hook, and packaged
-Fonix identities to agree, and rejects a separately packaged or dynamically
-linked ONNX Runtime.
+Mach-O and signature, requires the declared, plist, app executable, hook, and
+packaged Fonix identities to agree, and rejects a separately packaged or
+dynamically linked ONNX Runtime. The consumer profiles take the app executable
+from `CFBundleExecutable`, so an app may name it something other than
+`Runner`; the reference profile still requires the exact `Runner` app.
 
 For the separately qualified SDK 27.0 shim, select `consumer-ios27` explicitly.
 Its [qualification and limits](evidence/2026-09-28-ios27-consumer.md) include

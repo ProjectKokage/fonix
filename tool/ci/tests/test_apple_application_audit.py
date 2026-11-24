@@ -175,9 +175,10 @@ def _ios_application(
     *,
     app_dependencies: tuple[str, ...] = (),
     app_rpaths: tuple[str, ...] | None = None,
+    executable: str = "Runner",
 ) -> tuple[tempfile.TemporaryDirectory[str], Path]:
     temporary = tempfile.TemporaryDirectory(prefix="fonix-ios-audit-")
-    application = Path(temporary.name) / "Runner.app"
+    application = Path(temporary.name) / f"{executable}.app"
     app_options = dict(
         _SYNTHETIC_IOS_BINARY_OPTIONS["Frameworks/App.framework/App"]
     )
@@ -196,7 +197,7 @@ def _ios_application(
         for relative in _SYNTHETIC_IOS_BINARY_OPTIONS
     }
     for relative, data in files.items():
-        path = application / relative
+        path = application / (executable if relative == "Runner" else relative)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
     return temporary, application
@@ -960,6 +961,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         minimum_os_overrides: dict[str, str] | None = None,
         maximum_os: tuple[int, int, int] = (15, 1, 0),
         application_profile: str = "reference",
+        executable: str = "Runner",
     ) -> dict[str, object]:
         minimum_os = {
             path: ".".join(str(part) for part in version[:2])
@@ -987,7 +989,7 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         ):
             return audit_apple_application._inventory_ios_application(
                 application,
-                "Runner",
+                executable,
                 platform="ios-device",
                 application_profile=application_profile,
                 architecture="arm64",
@@ -1217,6 +1219,38 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
         self.assertEqual(parsed.reference_shim, Path("/tmp/libfonix_shim.dylib"))
         self.assertEqual(parsed.ios_application_profile, "reference")
 
+    def test_profiles_key_the_app_executable_by_its_bundle_name(self) -> None:
+        application = Path("/tmp/build/ios/iphoneos/Kokage.app")
+        for platform in ("ios-device", "ios-simulator"):
+            with self.subTest(platform=platform):
+                _, runner, _ = audit_apple_application._ios_native_profile(
+                    application, platform, "Runner"
+                )
+                _, renamed, _ = audit_apple_application._ios_native_profile(
+                    application, platform, "Kokage"
+                )
+                self.assertNotIn("Runner", renamed)
+                self.assertEqual(renamed["Kokage"], runner["Runner"])
+                self.assertEqual(
+                    set(renamed) - {"Kokage"}, set(runner) - {"Runner"}
+                )
+
+    def test_profiles_reject_an_executable_outside_the_app_root(self) -> None:
+        application = Path("/tmp/build/ios/iphoneos/Kokage.app")
+        for executable in (
+            "",
+            ".",
+            "..",
+            "Frameworks",
+            "Frameworks/App.framework/App",
+        ):
+            with self.subTest(executable=executable), self.assertRaises(
+                audit_apple_application.AppleApplicationAuditError
+            ):
+                audit_apple_application._ios_native_profile(
+                    application, "ios-device", executable
+                )
+
     def test_profiles_require_exact_four_macho_configuration(self) -> None:
         application = Path("/tmp/build/ios/iphonesimulator/Runner.app")
         for platform, expected_name in (
@@ -1338,6 +1372,30 @@ class AppleApplicationIosPolicyTest(unittest.TestCase):
             "Frameworks/Extra.framework",
             {entry["path"] for entry in inventory["frameworks"]},
         )
+
+    def test_consumer_profile_accepts_a_renamed_app_executable(self) -> None:
+        temporary, application = _ios_application(executable="Kokage")
+        self.addCleanup(temporary.cleanup)
+
+        inventory = self._inventory(
+            application,
+            application_profile="consumer",
+            executable="Kokage",
+        )
+
+        paths = {entry["path"] for entry in inventory["machOBinaries"]}
+        self.assertIn("Kokage", paths)
+        self.assertNotIn("Runner", paths)
+
+    def test_reference_profile_requires_the_runner_executable(self) -> None:
+        temporary, application = _ios_application(executable="Kokage")
+        self.addCleanup(temporary.cleanup)
+
+        with self.assertRaisesRegex(
+            audit_apple_application.AppleApplicationAuditError,
+            "exact Runner reference app",
+        ):
+            self._inventory(application, executable="Kokage")
 
     def test_consumer_profile_rejects_dynamic_ort_dependency(self) -> None:
         temporary, application = _ios_application()
