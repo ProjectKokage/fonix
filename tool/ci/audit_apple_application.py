@@ -1347,12 +1347,32 @@ def _require_ios27_shim_build(data: bytes, platform_number: int) -> None:
         )
 
 
+def _key_app_executable(
+    binaries: dict[str, dict[str, Any]], executable: str
+) -> dict[str, dict[str, Any]]:
+    return {
+        (executable if path == "Runner" else path): facts
+        for path, facts in binaries.items()
+    }
+
+
 def _ios_native_profile(
     application: Path, platform: str, executable: str
 ) -> tuple[str, dict[str, dict[str, Any]], dict[str, str]]:
-    if executable != "Runner":
+    """Returns the exact Mach-O facts, keying the app's own by [executable].
+
+    The facts were recorded from the Runner reference app; a consumer app
+    may name its executable differently (CFBundleExecutable), so the table
+    is keyed by that name rather than by the literal "Runner".
+    """
+    if (
+        not executable
+        or executable in {".", ".."}
+        or "/" in executable
+        or executable == "Frameworks"
+    ):
         raise AppleApplicationAuditError(
-            "iOS native inventory accepts only the exact Runner reference app"
+            "iOS CFBundleExecutable must name one file at the app root"
         )
     common = {
         "Frameworks/App.framework/App": {
@@ -1434,7 +1454,7 @@ def _ios_native_profile(
             )
         return (
             "ios-device-release",
-            binaries,
+            _key_app_executable(binaries, executable),
             {},
         )
     if platform == "ios-simulator":
@@ -1462,7 +1482,7 @@ def _ios_native_profile(
             )
         return (
             "ios-simulator-debug-no-debug-dylib",
-            binaries,
+            _key_app_executable(binaries, executable),
             {},
         )
     raise AppleApplicationAuditError("iOS native inventory received a non-iOS platform")
@@ -1587,11 +1607,15 @@ def _inventory_ios_application(
     nm: str,
     dyld_info: str,
 ) -> dict[str, Any]:
+    if application_profile not in {"reference", "consumer", _IOS27_CONSUMER_PROFILE}:
+        raise AppleApplicationAuditError("unsupported iOS application profile")
+    if application_profile == "reference" and executable != "Runner":
+        raise AppleApplicationAuditError(
+            "iOS reference inventory accepts only the exact Runner reference app"
+        )
     profile_name, reference_binary_profile, rpath_aliases = _ios_native_profile(
         application, platform, executable
     )
-    if application_profile not in {"reference", "consumer", _IOS27_CONSUMER_PROFILE}:
-        raise AppleApplicationAuditError("unsupported iOS application profile")
     if application_profile == "reference":
         binary_profile = reference_binary_profile
         binary_profile[executable]["minimumOs"] = maximum_os
@@ -1722,7 +1746,7 @@ def _inventory_ios_application(
         if application_profile != "reference" and relative == executable:
             if binary_floor != maximum_os:
                 raise AppleApplicationAuditError(
-                    "iOS consumer Runner deployment floor differs from the "
+                    "iOS consumer app executable deployment floor differs from the "
                     "declared/plist floor"
                 )
         if exact_facts_required:
