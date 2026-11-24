@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fonix/fonix.dart';
 import 'package:fonix_reference/src/android_xnnpack_qualification.dart';
 import 'package:fonix_reference/src/inference_backend.dart';
 import 'package:fonix_reference/src/reference_smoke.dart';
@@ -68,6 +69,67 @@ void main() {
     expect(
       utf8.encode(androidXnnpackExpectedReceiptJson).length,
       lessThanOrEqualTo(maximumReferenceSmokeReceiptBytes),
+    );
+  });
+
+  test('accepts the evidence rejection a strict fallback run raises', () async {
+    final AndroidXnnpackFallbackRejection rejection =
+        await requireAndroidXnnpackFallbackRejectionForTesting(
+          () async => throw OrtProviderEvidenceException(
+            message: 'Required provider "xnnpack" did not execute the graph.',
+            context: const <String, Object?>{'providerId': 'xnnpack'},
+          ),
+        );
+
+    final Map<String, Object?> expected =
+        _decodedReceipt()['fallback']! as Map<String, Object?>;
+    expect(rejection.domain, expected['rejectionDomain']);
+    expect(rejection.operation, expected['rejectionOperation']);
+    expect(rejection.code, expected['rejectionCode']);
+    expect(rejection.providerId, expected['rejectionProviderId']);
+    expect(rejection.outputPublished, expected['outputPublished']);
+  });
+
+  test('rejects a strict fallback run that publishes an output', () async {
+    await expectLater(
+      requireAndroidXnnpackFallbackRejectionForTesting(() async {}),
+      throwsA(isA<InferenceBackendFailure>()),
+    );
+  });
+
+  test('rejects an evidence rejection for another provider', () async {
+    final List<Map<String, Object?>> contexts = <Map<String, Object?>>[
+      const <String, Object?>{},
+      const <String, Object?>{'providerId': 'cpu'},
+      const <String, Object?>{'providerId': 'xnnpack', 'extra': 1},
+    ];
+    for (final Map<String, Object?> context in contexts) {
+      await expectLater(
+        requireAndroidXnnpackFallbackRejectionForTesting(
+          () async => throw OrtProviderEvidenceException(
+            message: 'evidence',
+            context: context,
+          ),
+        ),
+        throwsA(isA<InferenceBackendFailure>()),
+      );
+    }
+  });
+
+  test('does not take a provider registration failure for the rejection', () {
+    final OrtProviderUnavailableException unavailable =
+        OrtProviderUnavailableException(
+          operation: 'provider_evidence_validate',
+          code: 1001,
+          message: 'unavailable',
+          context: const <String, Object?>{'providerId': 'xnnpack'},
+        );
+
+    expect(
+      requireAndroidXnnpackFallbackRejectionForTesting(
+        () async => throw unavailable,
+      ),
+      throwsA(same(unavailable)),
     );
   });
 
