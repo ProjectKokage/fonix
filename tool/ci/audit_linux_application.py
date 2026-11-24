@@ -24,20 +24,21 @@ from typing import Any, Iterable, Mapping, Sequence
 import zlib
 
 
-ARTIFACT_ID = "onnxruntime-1.27.1-linux-x86_64-cpu"
-ARTIFACT_SHA256 = "25b1ef1fea1acd210d63f8f24dc870ad6e077795ce1f54876252c6d3803c15af"
-ARTIFACT_SIZE_BYTES = 8_828_892
-ARTIFACT_SOURCE_REVISION = "df2ba1cf8108aa63627cf4cdf8f807880b938616"
+ARTIFACT_ID = "onnxruntime-1.28.0-linux-x86_64-cpu"
+ARTIFACT_SHA256 = "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db"
+ARTIFACT_SIZE_BYTES = 139_145_017
+ARTIFACT_SOURCE_REVISION = "da9b5e364c465de65c49d91e696cd6485270757f"
+ARTIFACT_ARCHIVE_NAME = "microsoft.ml.onnxruntime.1.28.0.nupkg"
 ARTIFACT_URL = (
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/"
-    "onnxruntime-linux-x64-1.27.1.tgz"
+    "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.28.0/"
+    + ARTIFACT_ARCHIVE_NAME
 )
-RUNTIME_SHA256 = "50e214fa23276cf2f3fb96d90d8e7ca9fc5ba29f42e298eccf3b23f7d8a81ae2"
-RUNTIME_SIZE_BYTES = 23_658_512
+RUNTIME_SHA256 = "1461ef7cc3d9e49982591721683cc3e3a55580aeca9a5254e7aac47b75ee4bab"
+RUNTIME_SIZE_BYTES = 24_268_848
 PROVIDER_SHA256 = "086ec1d5388f64153d9c63470d126693db9a182c8ce236d3a1119068471b8a0d"
 PROVIDER_SIZE_BYTES = 14_632
-NOTICE_SHA256 = "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
-NOTICE_SIZE_BYTES = 325_054
+NOTICE_SHA256 = "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866"
+NOTICE_SIZE_BYTES = 331_175
 FLUTTER_NOTICES_SHA256 = "1de586c69a9f3847ca9aa50a26912f54a928044327989d1e17eac5e64023495e"
 FLUTTER_NOTICES_SIZE_BYTES = 99_081
 FLUTTER_ENGINE_SHA256 = "d8d3b60530b06ba43cfc34a9e7a1688d53b743d5133702a3ca2f269e071c9afe"
@@ -902,7 +903,7 @@ def _validate_hook_input(
         repository / "third_party/onnxruntime/include/onnxruntime_c_api.h",
         repository / "third_party/onnxruntime/include/onnxruntime_ep_c_api.h",
         artifact_cache,
-        artifact_cache / "onnxruntime-linux-x64-1.27.1.tgz",
+        artifact_cache / ARTIFACT_ARCHIVE_NAME,
         *sorted((repository / "src").glob("*.c")),
         *sorted((repository / "src").glob("*.h")),
     }

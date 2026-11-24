@@ -142,14 +142,14 @@ class MainActivity : FlutterActivity() {
         const val XNNPACK_PROFILE = "xnnpack"
         const val EXPECTED_SHIM_BUILD_ID =
             "android-owner-application-source-bundled-artifact-" +
-                "onnxruntime-1.27.1-android-arm64-v8a-cpu"
+                "onnxruntime-1.28.0-android-arm64-v8a-cpu"
         const val EXPECTED_ARTIFACT_SHA256 =
-            "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383"
+            "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db"
         // Dart's insertion-ordered map and jsonEncode emit this exact ASCII
         // sequence. Reordering, whitespace, or alternate JSON syntax fails.
         const val EXPECTED_PASSED_RECEIPT =
             "{\"schemaVersion\":1,\"status\":\"passed\"," +
-                "\"runtimeVersion\":\"1.27.1\",\"runtimeSource\":\"bundled\"," +
+                "\"runtimeVersion\":\"1.28.0\",\"runtimeSource\":\"bundled\"," +
                 "\"runtimeOwner\":\"application\",\"artifactFlavor\":\"cpu\"," +
                 "\"platform\":\"android\",\"architecture\":\"arm64-v8a\"," +
                 "\"shimBuildId\":\"$EXPECTED_SHIM_BUILD_ID\"," +
@@ -161,12 +161,12 @@ class MainActivity : FlutterActivity() {
                 "\"doubleClose\":\"passed\"}"
         const val EXPECTED_XNNPACK_PASSED_RECEIPT =
             "{\"schemaVersion\":1,\"status\":\"passed\",\"smokeProfile\":\"xnnpack\"," +
-                "\"runtime\":{\"version\":\"1.27.1\",\"source\":\"bundled\"," +
+                "\"runtime\":{\"version\":\"1.28.0\",\"source\":\"bundled\"," +
                 "\"owner\":\"application\",\"artifactFlavor\":\"cpu\"," +
                 "\"platform\":\"android\",\"architecture\":\"arm64-v8a\"," +
                 "\"shimBuildId\":\"android-owner-application-source-bundled-artifact-" +
-                "onnxruntime-1.27.1-android-arm64-v8a-cpu\"," +
-                "\"artifactSha256\":\"9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383\"}," +
+                "onnxruntime-1.28.0-android-arm64-v8a-cpu\"," +
+                "\"artifactSha256\":\"769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db\"}," +
                 "\"models\":{\"assignmentSha256\":" +
                 "\"c75aaa93b0e1ae09e0bb12ddee5786c2fda803dfa5f565234e2b65e238623482\"," +
                 "\"assignmentManifestSha256\":" +

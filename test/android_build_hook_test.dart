@@ -210,14 +210,14 @@ void main() {
                 stagedManifest['source']! as Map<String, Object?>;
             expect(
               stagedManifest['artifactId'],
-              'onnxruntime-1.27.1-android-${target.$2}-cpu',
+              'onnxruntime-1.28.0-android-${target.$2}-cpu',
             );
             expect(targetIdentity['os'], 'android');
             expect(targetIdentity['architecture'], target.$2);
             expect(targetIdentity['runtimeMode'], fonixBundledRuntimeMode);
             expect(
               sourceIdentity['sha256'],
-              '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383',
+              '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
             );
             final shimFile = File.fromUri(assets[fonixShimAssetId]!.file!);
             expect(
@@ -225,7 +225,7 @@ void main() {
                 shimFile.readAsBytesSync(),
                 utf8.encode(
                   'android-owner-application-source-bundled-'
-                  'artifact-onnxruntime-1.27.1-android-${target.$2}-cpu',
+                  'artifact-onnxruntime-1.28.0-android-${target.$2}-cpu',
                 ),
               ),
               isTrue,

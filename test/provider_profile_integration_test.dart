@@ -230,7 +230,7 @@ void main() {
             ],
           ),
         );
-        expect(worker.diagnostics.runtimeVersion, '1.27.1');
+        expect(worker.diagnostics.runtimeVersion, '1.28.0');
         expect(worker.diagnostics.providers.first.active, isNull);
         final OrtIsolateRunResult result = await worker.run(
           inputs: <String, OrtIsolateValue>{

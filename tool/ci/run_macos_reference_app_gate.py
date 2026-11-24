@@ -22,8 +22,9 @@ VALIDATED_FLUTTER_REVISION = "bd1e75d918605c91b411e8789fb911e6c9a84534"
 APPLICATION_MINIMUM_OS = "14.0"
 APPLICATION_BUNDLE_NAME = "Fonix Reference.app"
 APPLICATION_EXECUTABLE_NAME = "Fonix Reference"
-ARTIFACT_ID = "onnxruntime-1.27.1-macos-arm64-cpu"
-ARTIFACT_VERSION = "1.27.1"
+ARTIFACT_ID = "onnxruntime-1.28.0-macos-arm64-cpu"
+ARTIFACT_VERSION = "1.28.0"
+ARCHIVE_BASENAME = f"microsoft.ml.onnxruntime.{ARTIFACT_VERSION}.nupkg"
 MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
 
 FLUTTER_VERSION_TIMEOUT_SECONDS = 2 * 60
@@ -78,7 +79,7 @@ GENERATED_EXCLUSIONS = frozenset(
 EXPECTED_REFERENCE_RECEIPT: dict[str, object] = {
     "schemaVersion": 1,
     "status": "passed",
-    "runtimeVersion": "1.27.1",
+    "runtimeVersion": "1.28.0",
     "runtimeSource": "bundled",
     "runtimeOwner": "wrapper",
     "artifactFlavor": "cpu",
@@ -86,7 +87,7 @@ EXPECTED_REFERENCE_RECEIPT: dict[str, object] = {
     "architecture": "arm64",
     "shimBuildId": ARTIFACT_ID,
     "artifactSha256": (
-        "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6"
+        "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db"
     ),
     "modelSha256": MODEL_SHA256,
     "outputValues": [1, 4, 9, 16, 25, 36],
@@ -440,12 +441,12 @@ def _load_pinned_archive(lock_path: Path) -> PinnedArchive:
     if target.get("min_os") != APPLICATION_MINIMUM_OS:
         raise MacOsReferenceAppGateError("selected macOS artifact minimum OS changed")
     source = artifact.get("source")
-    if not isinstance(source, dict) or source.get("archive") != "tgz":
+    if not isinstance(source, dict) or source.get("archive") != "zip":
         raise MacOsReferenceAppGateError("selected macOS artifact source is invalid")
     url = _string(source.get("url"), "selected artifact URL")
     expected_url = (
-        "https://github.com/microsoft/onnxruntime/releases/download/"
-        f"v{ARTIFACT_VERSION}/onnxruntime-osx-arm64-{ARTIFACT_VERSION}.tgz"
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/"
+        f"{ARTIFACT_VERSION}/{ARCHIVE_BASENAME}"
     )
     parsed = urllib.parse.urlsplit(url)
     if (
@@ -458,7 +459,7 @@ def _load_pinned_archive(lock_path: Path) -> PinnedArchive:
     ):
         raise MacOsReferenceAppGateError("selected macOS artifact URL changed")
     basename = PurePosixPath(parsed.path).name
-    if basename != f"onnxruntime-osx-arm64-{ARTIFACT_VERSION}.tgz":
+    if basename != ARCHIVE_BASENAME:
         raise MacOsReferenceAppGateError("selected macOS archive basename changed")
     digest = _string(source.get("sha256"), "selected archive SHA-256")
     if _SHA256.fullmatch(digest) is None:

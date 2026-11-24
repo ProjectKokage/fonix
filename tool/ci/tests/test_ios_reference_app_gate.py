@@ -40,8 +40,8 @@ def _artifact(variant: str) -> dict[str, object]:
         "source": {
             "url": (
                 "https://api.nuget.org/v3-flatcontainer/"
-                "microsoft.ml.onnxruntime/1.27.1/"
-                "microsoft.ml.onnxruntime.1.27.1.nupkg"
+                "microsoft.ml.onnxruntime/1.28.0/"
+                "microsoft.ml.onnxruntime.1.28.0.nupkg"
             ),
             "sha256": gate.ARCHIVE_SHA256,
             "size_bytes": gate.ARCHIVE_SIZE_BYTES,
@@ -575,6 +575,75 @@ class IosReferenceArchiveTest(unittest.TestCase):
                 self.assertIn(
                     f"Fonix iOS {variant} asset preparation", operations
                 )
+
+    def _prepare_with_shared_basename(
+        self, name: str, *, host_sha256: str | None
+    ) -> tuple[Path, bytes]:
+        gate = run_ios_reference_app_gate
+        package = b"one package for iOS and the macOS host"
+        archive = gate.PinnedArchive(
+            variant="simulator",
+            artifact_id=gate.ARTIFACT_IDS["simulator"],
+            basename="shared.nupkg",
+            sha256=hashlib.sha256(package).hexdigest(),
+            size_bytes=len(package),
+        )
+        host_archive = SimpleNamespace(
+            basename=archive.basename,
+            sha256=host_sha256 or archive.sha256,
+            size_bytes=archive.size_bytes,
+        )
+        cache = self.root / f"cache-{name}"
+        cache.mkdir()
+        (cache / archive.basename).write_bytes(package)
+        destination = self.root / f"work-{name}"
+
+        def copy_example(_: Path, target: Path) -> object:
+            target.mkdir()
+            (target / "pubspec.yaml").write_text("fixture\n", encoding="utf-8")
+            return gate._COMMON.CopySummary(file_count=1, byte_count=8)
+
+        with (
+            mock.patch.object(gate._COMMON, "_copy_example", side_effect=copy_example),
+            mock.patch.object(gate._COMMON, "_patch_fonix_path_dependency"),
+            mock.patch.object(gate, "_require_ios_source_contract"),
+            mock.patch.object(
+                gate,
+                "_run",
+                return_value=gate._COMMON.CommandOutput(stdout="", stderr=""),
+            ),
+            mock.patch.object(gate, "_validate_prepared_assets", return_value="a" * 64),
+            mock.patch.object(gate, "_patch_ios_hook_config"),
+        ):
+            gate._prepare_variant(
+                repository=self.root,
+                source_example=self.root,
+                destination=destination,
+                flutter=self.root / "flutter",
+                dart=self.root / "dart",
+                artifact_cache=cache,
+                archive=archive,
+                host_archive=host_archive,
+                run_source_checks=False,
+            )
+        return destination, package
+
+    def test_prepare_copies_a_shared_package_once(self) -> None:
+        destination, package = self._prepare_with_shared_basename(
+            "shared", host_sha256=None
+        )
+        relative_cache = destination / ".fonix-artifact-cache"
+        self.assertEqual(
+            [entry.name for entry in relative_cache.iterdir()], ["shared.nupkg"]
+        )
+        self.assertEqual((relative_cache / "shared.nupkg").read_bytes(), package)
+
+    def test_prepare_rejects_a_shared_basename_with_a_different_digest(self) -> None:
+        with self.assertRaisesRegex(
+            run_ios_reference_app_gate.IosReferenceAppGateError,
+            "selected macOS host archive destination already exists",
+        ):
+            self._prepare_with_shared_basename("conflict", host_sha256="b" * 64)
 
     def test_prepare_rejects_host_archive_tamper_for_both_variants(self) -> None:
         for variant in ("device", "simulator"):

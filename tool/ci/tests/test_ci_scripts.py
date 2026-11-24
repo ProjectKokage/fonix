@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from io import BytesIO
 import hashlib
 import json
 from pathlib import Path
 import re
+import stat
 import sys
-import tarfile
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 
@@ -122,7 +122,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("executable publishes exact locked assets twice", real_job)
         self.assertIn("real-runtime", real_job)
         self.assertIn('--real-ort "${{ steps.ort.outputs.ort_path }}"', real_job)
-        self.assertIn('--expected-ort-version "1.27.1"', real_job)
+        self.assertIn('--expected-ort-version "1.28.0"', real_job)
         self.assertIn("test/phase3_cpu_inference_test.dart", real_job)
         self.assertIn("test/runtime_ffi_test.dart", real_job)
         self.assertIn("test/isolate_session_test.dart", real_job)
@@ -817,9 +817,9 @@ class Phase3FixtureRunnerTest(unittest.TestCase):
             run_phase3_fixture_tests.PINNED_ORT_VERSION,
             fetch_pinned_macos_ort.PINNED_VERSION,
         )
-        run_phase3_fixture_tests.validate_expected_ort_version("1.27.1")
+        run_phase3_fixture_tests.validate_expected_ort_version("1.28.0")
         with self.assertRaises(run_phase3_fixture_tests.Phase3FixtureError):
-            run_phase3_fixture_tests.validate_expected_ort_version("1.27.0")
+            run_phase3_fixture_tests.validate_expected_ort_version("1.27.1")
 
 
 class WindowsBinaryReportTest(unittest.TestCase):
@@ -1235,10 +1235,7 @@ class MacOsRuntimeReportTest(unittest.TestCase):
         self, contents: bytes
     ) -> fetch_pinned_macos_ort.ExpectedFile:
         return fetch_pinned_macos_ort.ExpectedFile(
-            path=(
-                "onnxruntime-osx-arm64-1.27.1/lib/"
-                "libonnxruntime.1.27.1.dylib"
-            ),
+            path=fetch_pinned_macos_ort.PINNED_RUNTIME_MEMBER,
             sha256=hashlib.sha256(contents).hexdigest(),
             size_bytes=len(contents),
         )
@@ -1249,12 +1246,11 @@ class MacOsRuntimeReportTest(unittest.TestCase):
         expected = self._expected_macos_runtime(contents)
         return fetch_pinned_macos_ort.PinnedRuntime(
             artifact_id="synthetic-macos-runtime",
-            url="https://example.invalid/runtime.tgz",
+            url="https://example.invalid/runtime.nupkg",
             archive_sha256="0" * 64,
             archive_size_bytes=1,
             runtime=expected,
             expected_files=(expected,),
-            expected_symlinks=(),
         )
 
     def test_runtime_snapshot_is_one_exact_regular_copy(self) -> None:
@@ -1262,7 +1258,7 @@ class MacOsRuntimeReportTest(unittest.TestCase):
         expected = self._expected_macos_runtime(contents)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "libonnxruntime.1.27.1.dylib"
+            source = root / "libonnxruntime.1.dylib"
             source.write_bytes(contents)
             source.chmod(0o755)
             original_mode = source.stat().st_mode
@@ -1292,7 +1288,7 @@ class MacOsRuntimeReportTest(unittest.TestCase):
             root = Path(temporary)
             probe_directory = root / "private-probe"
             probe_directory.mkdir(mode=0o700)
-            tampered = root / "libonnxruntime.1.27.1.dylib"
+            tampered = root / "libonnxruntime.1.dylib"
             tampered.write_bytes(b"tamper")
 
             with self.assertRaisesRegex(
@@ -1340,7 +1336,7 @@ class MacOsRuntimeReportTest(unittest.TestCase):
                 repository / "third_party" / "onnxruntime" / "include"
             )
             header_directory.mkdir(parents=True)
-            runtime = repository / "libonnxruntime.1.27.1.dylib"
+            runtime = repository / "libonnxruntime.1.dylib"
             runtime.write_bytes(contents)
             snapshot_directory = repository / "private-snapshot"
             snapshot_directory.mkdir(mode=0o700)
@@ -1374,7 +1370,7 @@ class MacOsRuntimeReportTest(unittest.TestCase):
                 return ""
 
             provider_output = (
-                "runtimeVersion=1.27.1\n"
+                "runtimeVersion=1.28.0\n"
                 "CoreMLExecutionProvider\n"
                 "WebGpuExecutionProvider\n"
                 "CPUExecutionProvider\n"
@@ -1491,7 +1487,7 @@ class MacOsRuntimeReportTest(unittest.TestCase):
         pinned = self._pinned_macos_runtime(locked_contents)
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
-            original = repository / "libonnxruntime.1.27.1.dylib"
+            original = repository / "libonnxruntime.1.dylib"
             original.write_bytes(locked_contents)
             lock = repository / "versions.lock.yaml"
             snapshot_paths: list[Path] = []
@@ -1640,7 +1636,7 @@ MH_MAGIC_64    ARM64        ALL  0x00       DYLIB
     def test_exact_pinned_macos_runtime_reports_pass(self) -> None:
         check_macos_runtime.validate_reports(**self._reports())
         check_macos_runtime.validate_provider_probe_output(
-            "runtimeVersion=1.27.1\n"
+            "runtimeVersion=1.28.0\n"
             "CoreMLExecutionProvider\n"
             "WebGpuExecutionProvider\n"
             "CPUExecutionProvider\n"
@@ -1669,7 +1665,7 @@ MH_MAGIC_64    ARM64        ALL  0x00       DYLIB
 
         with self.assertRaises(check_macos_runtime.MacOsRuntimeError):
             check_macos_runtime.validate_provider_probe_output(
-                "runtimeVersion=1.27.1\nCPUExecutionProvider\n"
+                "runtimeVersion=1.28.0\nCPUExecutionProvider\n"
             )
 
 
@@ -1680,38 +1676,38 @@ class PinnedOrtStagingTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.runtime_bytes = b"synthetic-locked-macho"
 
-    def _archive(self, *, traversal: bool = False) -> Path:
-        prefix = "onnxruntime-osx-arm64-1.27.1/lib"
-        archive_path = self.root / ("traversal.tgz" if traversal else "ort.tgz")
-        with tarfile.open(archive_path, "w:gz") as archive:
-            for name in (
-                f"{prefix}/libonnxruntime.1.27.1.dylib",
-                f"{prefix}/libonnxruntime.dylib",
-            ):
-                member = tarfile.TarInfo(name)
-                member.size = len(self.runtime_bytes)
-                archive.addfile(member, BytesIO(self.runtime_bytes))
-            symlink = tarfile.TarInfo(f"{prefix}/libonnxruntime.1.dylib")
-            symlink.type = tarfile.SYMTYPE
-            symlink.linkname = "libonnxruntime.1.27.1.dylib"
-            archive.addfile(symlink)
+    def _archive(self, *, traversal: bool = False, symlink: bool = False) -> Path:
+        name = "traversal.nupkg" if traversal else "ort.nupkg"
+        archive_path = self.root / name
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(
+                fetch_pinned_macos_ort.PINNED_RUNTIME_MEMBER, self.runtime_bytes
+            )
+            archive.writestr("LICENSE", b"license")
             if traversal:
-                member = tarfile.TarInfo("../outside")
-                member.size = 1
-                archive.addfile(member, BytesIO(b"x"))
+                archive.writestr("../outside", b"x")
+            if symlink:
+                link = zipfile.ZipInfo("runtimes/osx-arm64/native/link.dylib")
+                link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(link, b"libonnxruntime.dylib")
         return archive_path
 
-    def _lock(self, archive_path: Path, *, url: str | None = None) -> Path:
+    def _lock(
+        self,
+        archive_path: Path,
+        *,
+        url: str | None = None,
+        symlinks: list[dict[str, str]] | None = None,
+    ) -> Path:
         runtime_digest = hashlib.sha256(self.runtime_bytes).hexdigest()
         archive_bytes = archive_path.read_bytes()
-        prefix = "onnxruntime-osx-arm64-1.27.1/lib"
         value = {
             "onnxruntime": {
                 "compatibility_floor": {"header": {"version": "1.27.1"}}
             },
             "artifacts": [
                 {
-                    "id": "onnxruntime-1.27.1-macos-arm64-cpu",
+                    "id": "onnxruntime-1.28.0-macos-arm64-cpu",
                     "target": {
                         "os": "macos",
                         "architecture": "arm64",
@@ -1723,33 +1719,25 @@ class PinnedOrtStagingTest(unittest.TestCase):
                     "source": {
                         "url": url
                         or (
-                            "https://github.com/microsoft/onnxruntime/releases/"
-                            "download/v1.27.1/"
-                            "onnxruntime-osx-arm64-1.27.1.tgz"
+                            "https://api.nuget.org/v3-flatcontainer/"
+                            "microsoft.ml.onnxruntime/1.28.0/"
+                            "microsoft.ml.onnxruntime.1.28.0.nupkg"
                         ),
                         "source_revision": "a" * 40,
                         "sha256": hashlib.sha256(archive_bytes).hexdigest(),
                         "size_bytes": len(archive_bytes),
-                        "archive": "tgz",
+                        "archive": "zip",
                     },
+                    "containers": [],
                     "expected_files": [
                         {
-                            "path": f"{prefix}/libonnxruntime.1.27.1.dylib",
-                            "sha256": runtime_digest,
-                            "size_bytes": len(self.runtime_bytes),
-                        },
-                        {
-                            "path": f"{prefix}/libonnxruntime.dylib",
+                            "path": fetch_pinned_macos_ort.PINNED_RUNTIME_MEMBER,
+                            "staged_path": "libonnxruntime.1.dylib",
                             "sha256": runtime_digest,
                             "size_bytes": len(self.runtime_bytes),
                         },
                     ],
-                    "expected_symlinks": [
-                        {
-                            "path": f"{prefix}/libonnxruntime.1.dylib",
-                            "target": "libonnxruntime.1.27.1.dylib",
-                        }
-                    ],
+                    "expected_symlinks": symlinks or [],
                 }
             ],
         }
@@ -1771,8 +1759,41 @@ class PinnedOrtStagingTest(unittest.TestCase):
         self.assertEqual(staged.read_bytes(), self.runtime_bytes)
         self.assertEqual(
             [path.name for path in output_directory.iterdir()],
-            ["libonnxruntime.1.27.1.dylib"],
+            ["libonnxruntime.1.dylib"],
         )
+
+    def test_floor_header_version_does_not_bind_the_runtime_version(self) -> None:
+        # The compatibility floor stays on the 1.27.1 headers while the lock
+        # selects a newer runtime; _lock() writes exactly that combination.
+        runtime = fetch_pinned_macos_ort.load_pinned_runtime(
+            self._lock(self._archive())
+        )
+        self.assertEqual(runtime.artifact_id, "onnxruntime-1.28.0-macos-arm64-cpu")
+
+    def test_symlink_members_and_declared_symlinks_are_rejected(self) -> None:
+        archive_path = self._archive(symlink=True)
+        runtime = fetch_pinned_macos_ort.load_pinned_runtime(
+            self._lock(archive_path)
+        )
+        output_directory = self.root / "rejected-symlink"
+        with self.assertRaises(fetch_pinned_macos_ort.ArtifactVerificationError):
+            fetch_pinned_macos_ort.stage_runtime(
+                archive_path, runtime, output_directory
+            )
+        self.assertFalse(output_directory.exists())
+
+        with self.assertRaises(fetch_pinned_macos_ort.ArtifactVerificationError):
+            fetch_pinned_macos_ort.load_pinned_runtime(
+                self._lock(
+                    self._archive(),
+                    symlinks=[
+                        {
+                            "path": "runtimes/osx-arm64/native/alias.dylib",
+                            "target": "libonnxruntime.dylib",
+                        }
+                    ],
+                )
+            )
 
     def test_verified_archive_is_retained_for_the_offline_build_hook(self) -> None:
         archive_path = self._archive()
@@ -1786,7 +1807,7 @@ class PinnedOrtStagingTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            retained.name, "onnxruntime-osx-arm64-1.27.1.tgz"
+            retained.name, "microsoft.ml.onnxruntime.1.28.0.nupkg"
         )
         self.assertEqual(retained.read_bytes(), archive_path.read_bytes())
         self.assertEqual(
@@ -1821,8 +1842,9 @@ class PinnedOrtStagingTest(unittest.TestCase):
         lock_path = self._lock(
             archive_path,
             url=(
-                "https://github.com/microsoft/onnxruntime/releases/latest/"
-                "download/onnxruntime-osx-arm64.tgz"
+                "https://api.nuget.org/v3-flatcontainer/"
+                "microsoft.ml.onnxruntime/latest/"
+                "microsoft.ml.onnxruntime.latest.nupkg"
             ),
         )
 

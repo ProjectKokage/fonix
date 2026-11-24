@@ -188,11 +188,11 @@ class MacOsReferenceAppGateConfigurationTest(unittest.TestCase):
                     "runtime_mode": "bundled",
                     "source": {
                         "url": (
-                            "https://github.com/microsoft/onnxruntime/releases/"
-                            "download/v1.27.1/"
-                            "onnxruntime-osx-arm64-1.27.1.tgz"
+                            "https://api.nuget.org/v3-flatcontainer/"
+                            "microsoft.ml.onnxruntime/1.28.0/"
+                            "microsoft.ml.onnxruntime.1.28.0.nupkg"
                         ),
-                        "archive": "tgz",
+                        "archive": "zip",
                         "sha256": digest,
                         "size_bytes": len(archive_bytes),
                     },

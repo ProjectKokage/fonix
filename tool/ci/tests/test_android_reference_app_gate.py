@@ -478,8 +478,8 @@ class AndroidReferenceConfigurationTest(unittest.TestCase):
                     "source": {
                         "url": (
                             "https://api.nuget.org/v3-flatcontainer/"
-                            "microsoft.ml.onnxruntime/1.27.1/"
-                            "microsoft.ml.onnxruntime.1.27.1.nupkg"
+                            "microsoft.ml.onnxruntime/1.28.0/"
+                            "microsoft.ml.onnxruntime.1.28.0.nupkg"
                         ),
                         "archive": "zip",
                         "sha256": gate.ARTIFACT_SOURCE_SHA256,

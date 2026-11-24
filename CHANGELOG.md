@@ -1,3 +1,25 @@
+## Unreleased
+
+- Moved the packaged ONNX Runtime from 1.27.1 to 1.28.0, the newest official
+  release without Microsoft's telemetry SDK. Official builds from 1.29.0 on
+  include that SDK, turned on by default, so Fonix stops at 1.28.0; ADR-016 in
+  `doc/11-decisions-and-open-questions.md` records the decision, what 1.28.0
+  leaves out, and the source-build route past it. 1.28.0 includes that
+  release's security fixes over 1.27.1.
+- Every target now takes its library from one archive,
+  `microsoft.ml.onnxruntime.1.28.0.nupkg` (139,145,017 bytes). The macOS,
+  Linux, and Windows entries no longer use the GitHub release archives. An
+  application's artifact cache needs only that file; regenerate the app's
+  `fonix-native-artifact-manifest.json` and `ThirdPartyNotices.txt` with
+  `fonix_prepare_flutter_assets`. On macOS and Linux the staged `LICENSE`
+  and `ThirdPartyNotices.txt` are now the package's CRLF copies.
+- The required ONNX Runtime C API stays 27 and the shim ABI stays 1. The shim
+  still compiles against the 1.27.1 headers and negotiates API 27, so
+  sherpa-owned Android builds are unaffected.
+- `tool/ci/fetch_pinned_macos_ort.py` reads the NuGet package and stages the
+  macOS library as `libonnxruntime.1.dylib`; pass that path as
+  `--reference-runtime`.
+
 ## 0.1.0-dev.1
 
 - First release on pub.dev.

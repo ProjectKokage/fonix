@@ -597,7 +597,7 @@ class LinuxHookProvenanceTests(unittest.TestCase):
             repository / "src/a.h",
             repository / "third_party/onnxruntime/include/onnxruntime_c_api.h",
             repository / "third_party/onnxruntime/include/onnxruntime_ep_c_api.h",
-            cache / "onnxruntime-linux-x64-1.27.1.tgz",
+            cache / audit.ARTIFACT_ARCHIVE_NAME,
         ]
         for path in critical:
             path.parent.mkdir(parents=True, exist_ok=True)

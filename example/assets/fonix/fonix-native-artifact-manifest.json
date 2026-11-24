@@ -1,10 +1,10 @@
 {
   "schema": 2,
-  "artifactId": "onnxruntime-1.27.1-macos-arm64-cpu",
+  "artifactId": "onnxruntime-1.28.0-macos-arm64-cpu",
   "lock": {
     "path": "native/versions.lock.yaml",
-    "sha256": "ea0f101c6c901287ef498a3f4b04c0fb9d5e3abd20c8fa796534b8f7e141658b",
-    "snapshotDate": "2026-08-06",
+    "sha256": "166a551199fbac4636b8daa6723d04e5607523834081b1089a6e6cf963b2ea9d",
+    "snapshotDate": "2026-11-23",
     "releaseState": "unreleased-preview"
   },
   "target": {
@@ -16,61 +16,50 @@
     "runtimeMode": "bundled"
   },
   "source": {
-    "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.27.1/onnxruntime-osx-arm64-1.27.1.tgz",
-    "sourceRevision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
-    "archive": "tgz",
-    "sha256": "e42b77a7281cc6e55141bf44fcfbac2c782b823a491bbb6ac33c781dd991f8a6",
-    "sizeBytes": 31959937
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.28.0/microsoft.ml.onnxruntime.1.28.0.nupkg",
+    "sourceRevision": "da9b5e364c465de65c49d91e696cd6485270757f",
+    "archive": "zip",
+    "sha256": "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db",
+    "sizeBytes": 139145017
   },
   "containers": [],
   "payloadFiles": [
     {
-      "archivePath": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.1.27.1.dylib",
+      "archivePath": "runtimes/osx-arm64/native/libonnxruntime.dylib",
       "stagedPath": "libonnxruntime.1.dylib",
-      "sha256": "a441a94433ebf38f1918009aba0199f88c6f877251b9946d89816427839964c8",
-      "sizeBytes": 38502216
-    },
-    {
-      "archivePath": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.dylib",
-      "stagedPath": "libonnxruntime.dylib",
-      "sha256": "a441a94433ebf38f1918009aba0199f88c6f877251b9946d89816427839964c8",
-      "sizeBytes": 38502216
+      "sha256": "244e53902258550e4b3afc3231c3cf8ba860173fc47a1fb572082ed822e6973f",
+      "sizeBytes": 39345168
     }
   ],
-  "verifiedSymlinks": [
-    {
-      "path": "onnxruntime-osx-arm64-1.27.1/lib/libonnxruntime.1.dylib",
-      "target": "libonnxruntime.1.27.1.dylib"
-    }
-  ],
+  "verifiedSymlinks": [],
   "notices": [
     {
       "id": "MIT",
       "containerDepth": 0,
-      "archivePath": "onnxruntime-osx-arm64-1.27.1/LICENSE",
+      "archivePath": "LICENSE",
       "stagedPath": "notices/LICENSE",
-      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
-      "sizeBytes": 1073
+      "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
+      "sizeBytes": 1094
     },
     {
       "id": "ThirdPartyNotices",
       "containerDepth": 0,
-      "archivePath": "onnxruntime-osx-arm64-1.27.1/ThirdPartyNotices.txt",
+      "archivePath": "ThirdPartyNotices.txt",
       "stagedPath": "notices/ThirdPartyNotices.txt",
-      "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
-      "sizeBytes": 325054
+      "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
+      "sizeBytes": 331175
     }
   ],
   "archiveInspections": [
     {
       "depth": 0,
-      "format": "tar",
-      "memberCount": 49,
-      "regularFileCount": 33,
-      "directoryCount": 15,
-      "symbolicLinkCount": 1,
-      "compressedBytes": 31959937,
-      "uncompressedBytes": 128769976
+      "format": "zip",
+      "memberCount": 53,
+      "regularFileCount": 53,
+      "directoryCount": 0,
+      "symbolicLinkCount": 0,
+      "compressedBytes": 139136267,
+      "uncompressedBytes": 219152338
     }
   ],
   "claimBoundary": "Successful staging proves exact archive and member bytes only. It does not prove loading, linking, provider registration, inference, packaging, signing, or target-device support."

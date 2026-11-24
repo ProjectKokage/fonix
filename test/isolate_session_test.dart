@@ -2490,7 +2490,7 @@ void main() {
         ),
       );
       try {
-        expect(worker.diagnostics.runtimeVersion, '1.27.1');
+        expect(worker.diagnostics.runtimeVersion, '1.28.0');
         expect(
           worker.diagnostics.providers
               .singleWhere(
@@ -2538,7 +2538,7 @@ void main() {
       }
     },
     skip: runtimePath == null
-        ? 'Set FONIX_TEST_REAL_ORT_PATH to the exact ORT v1.27.1 runtime.'
+        ? 'Set FONIX_TEST_REAL_ORT_PATH to the exact ORT v1.28.0 runtime.'
         : false,
   );
 
@@ -2600,7 +2600,7 @@ void main() {
             36,
           ]);
           expect(result.providerEvidence?.isFullyAssignedTo('cpu'), isTrue);
-          expect(result.diagnostics.runtimeVersion, '1.27.1');
+          expect(result.diagnostics.runtimeVersion, '1.28.0');
         }
         expect(pool.outstandingRuns, 0);
         expect(pool.outstandingInputBytes, 0);
@@ -2617,7 +2617,7 @@ void main() {
       }
     },
     skip: runtimePath == null
-        ? 'Set FONIX_TEST_REAL_ORT_PATH to the exact ORT v1.27.1 runtime.'
+        ? 'Set FONIX_TEST_REAL_ORT_PATH to the exact ORT v1.28.0 runtime.'
         : false,
   );
 }

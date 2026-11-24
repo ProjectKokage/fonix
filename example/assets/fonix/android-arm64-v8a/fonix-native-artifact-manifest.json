@@ -1,10 +1,10 @@
 {
   "schema": 2,
-  "artifactId": "onnxruntime-1.27.1-android-arm64-v8a-cpu",
+  "artifactId": "onnxruntime-1.28.0-android-arm64-v8a-cpu",
   "lock": {
     "path": "native/versions.lock.yaml",
-    "sha256": "ea0f101c6c901287ef498a3f4b04c0fb9d5e3abd20c8fa796534b8f7e141658b",
-    "snapshotDate": "2026-08-06",
+    "sha256": "166a551199fbac4636b8daa6723d04e5607523834081b1089a6e6cf963b2ea9d",
+    "snapshotDate": "2026-11-23",
     "releaseState": "unreleased-preview"
   },
   "target": {
@@ -16,27 +16,27 @@
     "runtimeMode": "bundled"
   },
   "source": {
-    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg",
-    "sourceRevision": "df2ba1cf8108aa63627cf4cdf8f807880b938616",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.28.0/microsoft.ml.onnxruntime.1.28.0.nupkg",
+    "sourceRevision": "da9b5e364c465de65c49d91e696cd6485270757f",
     "archive": "zip",
-    "sha256": "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383",
-    "sizeBytes": 135152698
+    "sha256": "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db",
+    "sizeBytes": 139145017
   },
   "containers": [
     {
       "depth": 1,
       "path": "runtimes/android/native/onnxruntime.aar",
       "archive": "zip",
-      "sha256": "6c4390433cf5ad9c38aa7e515f4e22d405613f3b872c0ed2b7d27cf1a714f32d",
-      "sizeBytes": 44522169
+      "sha256": "f351a0638696f54b35184290dbc001d66daae17281ad0b548d2c70347d53b8a9",
+      "sizeBytes": 45634470
     }
   ],
   "payloadFiles": [
     {
       "archivePath": "jni/arm64-v8a/libonnxruntime.so",
       "stagedPath": "libonnxruntime.so",
-      "sha256": "a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2",
-      "sizeBytes": 27983536
+      "sha256": "f826d8efb03adf0a84f10e7ba408f9d4cd11b0a2ccd8d08aeb0f7451fb50cacc",
+      "sizeBytes": 28637280
     }
   ],
   "verifiedSymlinks": [],
@@ -62,22 +62,22 @@
     {
       "depth": 0,
       "format": "zip",
-      "memberCount": 49,
-      "regularFileCount": 49,
+      "memberCount": 53,
+      "regularFileCount": 53,
       "directoryCount": 0,
       "symbolicLinkCount": 0,
-      "compressedBytes": 135144668,
-      "uncompressedBytes": 213482687
+      "compressedBytes": 139136267,
+      "uncompressedBytes": 219152338
     },
     {
       "depth": 1,
       "format": "zip",
-      "memberCount": 36,
-      "regularFileCount": 25,
+      "memberCount": 40,
+      "regularFileCount": 29,
       "directoryCount": 11,
       "symbolicLinkCount": 0,
-      "compressedBytes": 44516967,
-      "uncompressedBytes": 117418063
+      "compressedBytes": 45628572,
+      "uncompressedBytes": 119779939
     }
   ],
   "claimBoundary": "Successful staging proves exact archive and member bytes only. It does not prove loading, linking, provider registration, inference, packaging, signing, or target-device support."

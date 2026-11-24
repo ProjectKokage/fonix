@@ -73,15 +73,15 @@ APPLICATION_MINIMUM_OS = "15.1"
 APPLICATION_BUNDLE_NAME = "Runner.app"
 APPLICATION_EXECUTABLE_NAME = "Runner"
 APPLICATION_BUNDLE_IDENTIFIER = "dev.fonix.fonixReference"
-ARTIFACT_VERSION = "1.27.1"
-ARCHIVE_BASENAME = "microsoft.ml.onnxruntime.1.27.1.nupkg"
-ARCHIVE_SHA256 = "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383"
-ARCHIVE_SIZE_BYTES = 135_152_698
+ARTIFACT_VERSION = "1.28.0"
+ARCHIVE_BASENAME = "microsoft.ml.onnxruntime.1.28.0.nupkg"
+ARCHIVE_SHA256 = "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db"
+ARCHIVE_SIZE_BYTES = 139_145_017
 MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
 
 ARTIFACT_IDS = {
-    "device": "onnxruntime-1.27.1-ios-arm64-device-cpu",
-    "simulator": "onnxruntime-1.27.1-ios-arm64-simulator-cpu",
+    "device": "onnxruntime-1.28.0-ios-arm64-device-cpu",
+    "simulator": "onnxruntime-1.28.0-ios-arm64-simulator-cpu",
 }
 
 REFERENCE_RECEIPT_PREFIX = "FONIX_REFERENCE_RECEIPT="
@@ -146,6 +146,10 @@ _IOS_NORMALIZED_COMPARISON_SCOPE = (
     "semantics, canonical LC_DYSYMTAB table payloads, immutable load commands, "
     "and referenced dyld fixup/export payloads"
 )
+# These digests cover the shim's section bytes, which include the statically
+# linked runtime. Both come from the 2026-08-07 gate build with ONNX Runtime
+# 1.27.1. The lock now links 1.28.0, so this gate fails closed here until both
+# are re-pinned from a gate build under the pinned toolchain.
 _IOS_NORMALIZED_RUNTIME_FIELDS_SHA256 = {
     "device": "268705a45b764c01370f6e78b5e28d7d403dac008ee685391b666f9d1a3880ab",
     "simulator": "303896da46bab6fef75f29e4a3ff15a9f6b0042ba06187940e086090114c7892",
@@ -1778,14 +1782,22 @@ def _prepare_variant(
     # Every Dart command activates the package build hook on this macOS host,
     # including the explicit iOS asset-preparation executable. Keep the exact
     # host tuple beside the selected iOS archive in both clean variant copies.
-    _copy_cache_member(
-        source_cache=artifact_cache,
-        destination_directory=relative_archive.parent,
-        basename=host_archive.basename,
-        expected_sha256=host_archive.sha256,
-        expected_size=host_archive.size_bytes,
-        label="selected macOS host archive",
+    # A lock that takes both tuples from one package needs no second copy: the
+    # archive just copied and verified is the host archive.
+    host_identity = (
+        host_archive.basename,
+        host_archive.sha256,
+        host_archive.size_bytes,
     )
+    if host_identity != (archive.basename, archive.sha256, archive.size_bytes):
+        _copy_cache_member(
+            source_cache=artifact_cache,
+            destination_directory=relative_archive.parent,
+            basename=host_archive.basename,
+            expected_sha256=host_archive.sha256,
+            expected_size=host_archive.size_bytes,
+            label="selected macOS host archive",
+        )
     _run(
         (str(flutter), "pub", "get", "--offline"),
         cwd=destination,

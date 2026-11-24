@@ -29,12 +29,12 @@ from android_gate_common import (
 
 
 ABI = "arm64-v8a"
-ARTIFACT_ID = "onnxruntime-1.27.1-android-arm64-v8a-cpu"
+ARTIFACT_ID = "onnxruntime-1.28.0-android-arm64-v8a-cpu"
 ARTIFACT_SOURCE_SHA256 = (
-    "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383"
+    "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db"
 )
-ORT_SHA256 = "a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2"
-ORT_SIZE_BYTES = 27_983_536
+ORT_SHA256 = "f826d8efb03adf0a84f10e7ba408f9d4cd11b0a2ccd8d08aeb0f7451fb50cacc"
+ORT_SIZE_BYTES = 28_637_280
 MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
 MODEL_SIZE_BYTES = 130
 MODEL_METADATA_SHA256 = (
@@ -78,28 +78,28 @@ EXPECTED_AAB_SIGNATURE_METADATA = frozenset(
 )
 EXPECTED_SHIM_BUILD_ID = (
     "android-owner-application-source-bundled-artifact-"
-    "onnxruntime-1.27.1-android-arm64-v8a-cpu"
+    "onnxruntime-1.28.0-android-arm64-v8a-cpu"
 )
 EXPECTED_ARCHIVE_INSPECTIONS = (
     {
         "depth": 0,
         "format": "zip",
-        "memberCount": 49,
-        "regularFileCount": 49,
+        "memberCount": 53,
+        "regularFileCount": 53,
         "directoryCount": 0,
         "symbolicLinkCount": 0,
-        "compressedBytes": 135_144_668,
-        "uncompressedBytes": 213_482_687,
+        "compressedBytes": 139_136_267,
+        "uncompressedBytes": 219_152_338,
     },
     {
         "depth": 1,
         "format": "zip",
-        "memberCount": 36,
-        "regularFileCount": 25,
+        "memberCount": 40,
+        "regularFileCount": 29,
         "directoryCount": 11,
         "symbolicLinkCount": 0,
-        "compressedBytes": 44_516_967,
-        "uncompressedBytes": 117_418_063,
+        "compressedBytes": 45_628_572,
+        "uncompressedBytes": 119_779_939,
     },
 )
 CLAIM_BOUNDARY = (

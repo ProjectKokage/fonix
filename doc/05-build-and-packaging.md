@@ -269,7 +269,7 @@ Prefer official release artifacts where they exactly match the target and EP req
 - sherpa-onnx must be aligned to the same runtime;
 - symbols/build metadata needed for qualification are absent.
 
-Do not mix headers from one ORT release with a shared library from another in linked mode. In process mode, compile to the declared compatibility-floor API and negotiate at runtime.
+Every runtime profile compiles the shim against the compatibility-floor headers and negotiates that API at runtime. The shim reaches ONNX Runtime only through `OrtGetApiBase` and the function table that `GetApi(floor)` returns; in linked mode `OrtGetApiBase` is its only link-time ORT symbol. A linked, bundled, or process-owned runtime may therefore be newer than the floor, and must never be older. Do not compile shim code against headers newer than the floor, and do not call any other ORT symbol directly: either would bind the shim to one runtime release. [ADR-009](11-decisions-and-open-questions.md#adr-009-c-api-27-compatibility-floor-in-this-snapshot) records why the floor is C API 27.
 
 Provider shared libraries and their matching `onnxruntime_providers_shared` library must remain adjacent to the ORT binary. Do not install them globally or rely on `LD_LIBRARY_PATH`/`PATH` as the product configuration.
 
@@ -319,10 +319,11 @@ Mach-O does not contain a separate static ORT copy.
 
 The committed [`../example/`](../example/) is the current linked iOS arm64 CPU
 reference. Its external-copy gate consumes the device and simulator slices of
-the exact 135,152,698-byte
-`microsoft.ml.onnxruntime.1.27.1.nupkg` archive (SHA-256
-`9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383`)
-and the lock-selected macOS host archive from one offline cache:
+the exact 139,145,017-byte
+`microsoft.ml.onnxruntime.1.28.0.nupkg` archive (SHA-256
+`769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db`)
+from one offline cache. The same archive is the lock-selected macOS host
+archive, so the gate copies it once:
 
 ```bash
 python3 -B tool/ci/run_ios_reference_app_gate.py \
@@ -344,8 +345,9 @@ pinned App and Flutter frameworks.
 The frozen source checkpoint passed all 72 application tests and analysis;
 `reference_smoke_test.dart` passed 25/25 and
 `ios_project_contract_test.dart` passed 5/5. Two consecutive linked simulator
-Debug builds passed. The complete gate result is `PASS (2026-08-07)`.
-That result is bound to source commit
+Debug builds passed. The complete gate result is `PASS (2026-08-07)`,
+obtained with the ONNX Runtime 1.27.1 archive; the gate has not been run since
+the lock moved to 1.28.0. That result is bound to source commit
 `3716a4cc706f3186e1dafac4dc0ee6eeef1823cf`, manifest SHA-256
 `9c790a572f9876262496ffc47f85e2cbc4c027a9e3846cdd43c5d5489a14f23a`,
 and closed source-tree SHA-256
@@ -366,7 +368,7 @@ environment pair and expose only its cached null-or-closed activation over an
 argument-free app-owned channel; Dart revalidates it within five seconds and
 never receives the raw environment. It binds a resident CPU receipt on the
 named iOS 26.5 arm64-capable iPhone 17 Pro simulator to a fresh 256-bit
-challenge and PID. The receipt requires ORT 1.27.1, linked wrapper ownership,
+challenge and PID. The receipt requires ORT 1.28.0, linked wrapper ownership,
 exact output `[1,4,9,16,25,36]`, active CPU, full
 assignment, and double close. Process settlement and uninstall are part of the
 same bounded lifecycle.
@@ -409,7 +411,7 @@ python3 -B tool/ci/audit_apple_application.py \
   --app build/macos/Build/Products/Release/example.app \
   --platform macos \
   --application-minimum-os 14.0 \
-  --reference-runtime /absolute/verified/libonnxruntime.1.27.1.dylib \
+  --reference-runtime /absolute/verified/libonnxruntime.1.dylib \
   --run-cpu-probe test/fixtures/mul_1.onnx
 ```
 
@@ -429,7 +431,7 @@ runs the same final audit and CPU probe:
 python3 -B tool/ci/run_macos_application_gate.py \
   --flutter /absolute/flutter/bin/flutter \
   --artifact-cache /absolute/offline/cache \
-  --reference-runtime /absolute/verified/libonnxruntime.1.27.1.dylib \
+  --reference-runtime /absolute/verified/libonnxruntime.1.dylib \
   --work-dir /absolute/new/fonix-macos-application-gate
 ```
 
@@ -448,7 +450,7 @@ python3 -B tool/ci/run_macos_reference_app_gate.py \
   --repository /absolute/path/to/fonix \
   --flutter /absolute/flutter/bin/flutter \
   --artifact-cache /absolute/offline/cache \
-  --reference-runtime /absolute/verified/libonnxruntime.1.27.1.dylib \
+  --reference-runtime /absolute/verified/libonnxruntime.1.dylib \
   --work-dir /absolute/new/fonix-macos-reference-app-gate
 ```
 
@@ -582,7 +584,7 @@ that packaged hash and requires every ordered `PT_LOAD` segment to match the
 lock-selected source runtime.
 
 With a named AVD, each profile's audited APK must emit the exact selected receipt.
-The CPU profile reports ORT 1.27.1, application-owned bundled CPU, active
+The CPU profile reports ORT 1.28.0, application-owned bundled CPU, active
 provider `cpu`, full assignment, output `[1,4,9,16,25,36]`, and idempotent
 double close. The XNNPACK profile uses a deterministic static-weight MatMul and
 requires one-node full assignment across six runs in two sessions, exact CPU
@@ -590,7 +592,8 @@ parity at `[7,10,15,22,23,34]`, explicit report and strict rejection of a
 CPU-only fallback model, post-rejection recovery, five total sessions,
 idempotent double close, and removal of every private profile root. Independent
 2026-08-07 runs of both profiles passed on an API 35 arm64 emulator with a
-queried 4096-byte page size. The XNNPACK receipt is a functional checkpoint,
+queried 4096-byte page size, with ONNX Runtime 1.27.1; neither profile has been
+run since the lock moved to 1.28.0. The XNNPACK receipt is a functional checkpoint,
 not physical-device, performance, thermal, or provider-qualification evidence.
 API 24 remains only the manifest/build floor: these receipts do not prove API
 24 execution, an actual 16 KiB runtime, a physical device, x86_64, an installed

@@ -41,9 +41,9 @@ const int _qualificationSessionCount = 5;
 
 const String _expectedShimBuildId =
     'android-owner-application-source-bundled-artifact-'
-    'onnxruntime-1.27.1-android-arm64-v8a-cpu';
+    'onnxruntime-1.28.0-android-arm64-v8a-cpu';
 const String _expectedArtifactSha256 =
-    '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383';
+    '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db';
 
 /// Canonical JSON accepted by the Android host and external package gate.
 final String androidXnnpackExpectedReceiptJson = jsonEncode(_expectedReceipt);
@@ -875,7 +875,7 @@ const Map<String, Object?> _expectedReceipt = <String, Object?>{
   'status': 'passed',
   'smokeProfile': androidXnnpackQualificationProfile,
   'runtime': <String, Object?>{
-    'version': '1.27.1',
+    'version': '1.28.0',
     'source': 'bundled',
     'owner': 'application',
     'artifactFlavor': 'cpu',

@@ -155,7 +155,7 @@ def _model_bytes() -> bytes:
     graph += _message(12, _value_info("output", OUTPUT_SHAPE))
 
     # ModelProto and OperatorSetIdProto. An omitted opset domain is the ONNX
-    # default domain. IR v8 and opset 17 are supported by locked ORT 1.27.1.
+    # default domain. IR v8 and opset 17 are supported by ORT 1.27.1 and later.
     model = _integer(1, IR_VERSION)
     model += _string(2, "fonix-reference-fixtures")
     model += _string(3, GENERATOR_VERSION)

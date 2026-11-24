@@ -13,7 +13,7 @@ void main() {
       'official ONNX Runtime CPU fixture is provisioned',
       () {},
       skip:
-          'Set FONIX_TEST_REAL_ORT_PATH to an absolute ONNX Runtime v1.27.1 '
+          'Set FONIX_TEST_REAL_ORT_PATH to an absolute ONNX Runtime v1.28.0 '
           'library path.',
     );
     return;
@@ -121,7 +121,7 @@ void main() {
           36,
         ]);
         currentResult.dispose();
-        expect(runDiagnostics.runtimeVersion, '1.27.1');
+        expect(runDiagnostics.runtimeVersion, '1.28.0');
         expect(() => result!.tensor('Y'), throwsA(isA<OrtDisposedException>()));
         runtime.dispose();
         expect(retainedOutput.copyFloat32Data(), <double>[1, 4, 9, 16, 25, 36]);

@@ -51,23 +51,23 @@ BUNDLETOOL_SHA256 = (
 )
 APPLICATION_ID = "dev.fonix.fonix_reference"
 APPLICATION_COMPONENT = f"{APPLICATION_ID}/.MainActivity"
-ARTIFACT_ID = "onnxruntime-1.27.1-android-arm64-v8a-cpu"
+ARTIFACT_ID = "onnxruntime-1.28.0-android-arm64-v8a-cpu"
 ARTIFACT_SOURCE_SHA256 = (
-    "9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383"
+    "769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db"
 )
-ARTIFACT_SOURCE_SIZE = 135_152_698
+ARTIFACT_SOURCE_SIZE = 139_145_017
 ARTIFACT_CONTAINER_PATH = "runtimes/android/native/onnxruntime.aar"
 ARTIFACT_CONTAINER_SHA256 = (
-    "6c4390433cf5ad9c38aa7e515f4e22d405613f3b872c0ed2b7d27cf1a714f32d"
+    "f351a0638696f54b35184290dbc001d66daae17281ad0b548d2c70347d53b8a9"
 )
-ARTIFACT_CONTAINER_SIZE = 44_522_169
+ARTIFACT_CONTAINER_SIZE = 45_634_470
 ORT_ARCHIVE_PATH = "jni/arm64-v8a/libonnxruntime.so"
-ORT_SHA256 = "a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2"
-ORT_SIZE_BYTES = 27_983_536
+ORT_SHA256 = "f826d8efb03adf0a84f10e7ba408f9d4cd11b0a2ccd8d08aeb0f7451fb50cacc"
+ORT_SIZE_BYTES = 28_637_280
 MODEL_SHA256 = "71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10"
 EXPECTED_SHIM_BUILD_ID = (
     "android-owner-application-source-bundled-artifact-"
-    "onnxruntime-1.27.1-android-arm64-v8a-cpu"
+    "onnxruntime-1.28.0-android-arm64-v8a-cpu"
 )
 
 CPU_SMOKE_PROFILE = "cpu"
@@ -125,7 +125,7 @@ GENERATED_EXCLUSIONS = frozenset(
 EXPECTED_RECEIPT: dict[str, object] = {
     "schemaVersion": 1,
     "status": "passed",
-    "runtimeVersion": "1.27.1",
+    "runtimeVersion": "1.28.0",
     "runtimeSource": "bundled",
     "runtimeOwner": "application",
     "artifactFlavor": "cpu",
@@ -149,7 +149,7 @@ EXPECTED_XNNPACK_RECEIPT: dict[str, object] = {
     "status": "passed",
     "smokeProfile": XNNPACK_SMOKE_PROFILE,
     "runtime": {
-        "version": "1.27.1",
+        "version": "1.28.0",
         "source": "bundled",
         "owner": "application",
         "artifactFlavor": "cpu",
@@ -760,7 +760,7 @@ def _load_archive(lock_path: Path) -> PinnedArchive:
         or parsed.netloc != "api.nuget.org"
         or parsed.query
         or parsed.fragment
-        or basename != "microsoft.ml.onnxruntime.1.27.1.nupkg"
+        or basename != "microsoft.ml.onnxruntime.1.28.0.nupkg"
         or source.get("sha256") != ARTIFACT_SOURCE_SHA256
         or source.get("size_bytes") != ARTIFACT_SOURCE_SIZE
     ):

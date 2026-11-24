@@ -49,8 +49,8 @@ training, ONNX Runtime GenAI, and the web.
 
 ## Platforms
 
-All rows use ONNX Runtime 1.27.1 (C API 27). "Runtime" is where the ONNX
-Runtime library comes from by default.
+All rows use ONNX Runtime 1.28.0, and Fonix asks it for C API 27. "Runtime" is
+where the ONNX Runtime library comes from by default.
 
 | Target | Minimum | Runtime | Tested so far |
 | --- | --- | --- | --- |
@@ -60,9 +60,17 @@ Runtime library comes from by default.
 | Linux x86_64, arm64 | glibc 2.27 | Supplied by the app, or bundled | Cross-built and audited, not run |
 | Windows x64 | Windows 10 | Supplied by the app, or bundled | Cross-built, not run |
 
-Nothing has been run on a physical device yet. The
+Nothing has been run on a physical device yet. The app-level results in the
+last column come from the reference gates, which last ran with ONNX Runtime
+1.27.1. With 1.28.0, functional checks of the packaged macOS app, the iOS
+Simulator app, and the Android emulator app passed, outside those gates. The
 [support matrix](doc/13-support-matrix-and-migration.md) lists the exact
 evidence and what is still missing for every row and provider.
+
+Fonix pins 1.28.0 because it is the newest official ONNX Runtime release
+without Microsoft's telemetry SDK; official builds from 1.29.0 on include it,
+turned on by default. [ADR-016](doc/11-decisions-and-open-questions.md#adr-016-packaged-runtime-is-the-newest-official-release-without-the-telemetry-sdk)
+records the decision and what it leaves out.
 
 ## Add Fonix to an app
 
@@ -74,23 +82,19 @@ dart pub add fonix
 
 Fonix is a pre-release, so this adds `fonix: ^0.1.0-dev.1`.
 
-### 2. Fetch the pinned ONNX Runtime archives
+### 2. Fetch the pinned ONNX Runtime archive
 
-The build hook never downloads. Put the archives your targets need into a
-directory (the *artifact cache*), using the file names from the lock file's
-`source.url` entries:
+The build hook never downloads. Put the archive into a directory (the
+*artifact cache*) under the file name from the lock file's `source.url`
+entries. Every target takes its library from the same official NuGet package:
 
-| Targets | Archive |
-| --- | --- |
-| iOS, Android | `microsoft.ml.onnxruntime.1.27.1.nupkg` |
-| macOS arm64 | `onnxruntime-osx-arm64-1.27.1.tgz` |
-| Linux x86_64 | `onnxruntime-linux-x64-1.27.1.tgz` |
-| Linux arm64 | `onnxruntime-linux-aarch64-1.27.1.tgz` |
-| Windows x64 | `onnxruntime-win-x64-1.27.1.zip` |
+| Targets | Archive | Size |
+| --- | --- | --- |
+| iOS, macOS arm64, Android, Linux x86_64 and arm64, Windows x64 | [`microsoft.ml.onnxruntime.1.28.0.nupkg`](https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.28.0/microsoft.ml.onnxruntime.1.28.0.nupkg) | 139.1 MB |
 
-The hook rejects any archive whose SHA-256 differs from the lock file. Only
-targets that link or bundle the runtime need an archive; a sherpa-owned Android
-build or an external desktop build needs none.
+The hook rejects an archive whose SHA-256 differs from the lock file. Only
+targets that link or bundle the runtime need the archive; a sherpa-owned
+Android build or an external desktop build needs none.
 
 ### 3. Configure the build hook
 

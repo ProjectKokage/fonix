@@ -735,7 +735,7 @@ class AppleApplicationMetadataAuditTest(unittest.TestCase):
         notice_path.write_bytes(notice)
         manifest = {
             "schema": 2,
-            "artifactId": "onnxruntime-1.27.1-macos-arm64-cpu",
+            "artifactId": "onnxruntime-1.28.0-macos-arm64-cpu",
             "claimBoundary": audit_apple_application._CLAIM_BOUNDARY,
             "lock": {
                 "path": "native/versions.lock.yaml",

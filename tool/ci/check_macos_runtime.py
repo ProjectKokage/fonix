@@ -139,8 +139,8 @@ def parse_nm_exports(source: str) -> frozenset[str]:
 
 def validate_provider_probe_output(source: str) -> None:
     lines = [line.strip() for line in source.splitlines() if line.strip()]
-    if not lines or lines[0] != "runtimeVersion=1.27.1":
-        raise MacOsRuntimeError("provider probe did not report runtime 1.27.1")
+    if not lines or lines[0] != "runtimeVersion=1.28.0":
+        raise MacOsRuntimeError("provider probe did not report runtime 1.28.0")
     providers = lines[1:]
     if len(providers) != len(set(providers)):
         raise MacOsRuntimeError("provider probe returned duplicate provider names")

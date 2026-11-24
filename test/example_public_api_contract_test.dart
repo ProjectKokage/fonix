@@ -6,9 +6,8 @@ import 'package:test/test.dart';
 
 const String _modelSha256 =
     '71f431c4e9321ec6fbeb158d02ed240459a7dcc98673fa79a4f439ce42efaf10';
+// macOS and Android stage the same notices file from the one NuGet package.
 const String _noticeSha256 =
-    '0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2';
-const String _androidNoticeSha256 =
     'fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866';
 
 void main() {
@@ -69,7 +68,7 @@ void main() {
         ),
       );
       expect(manifest['schema'], 2);
-      expect(manifest['artifactId'], 'onnxruntime-1.27.1-macos-arm64-cpu');
+      expect(manifest['artifactId'], 'onnxruntime-1.28.0-macos-arm64-cpu');
       expect(_object(manifest['target']), <String, Object?>{
         'os': 'macos',
         'architecture': 'arm64',
@@ -85,7 +84,7 @@ void main() {
       final File notice = File('$directory/ThirdPartyNotices.txt');
       expect(
         sha256.convert(notice.readAsBytesSync()).toString(),
-        _androidNoticeSha256,
+        _noticeSha256,
       );
 
       final Map<String, Object?> manifest = _object(
@@ -98,7 +97,7 @@ void main() {
       expect(manifest['schema'], 2);
       expect(
         manifest['artifactId'],
-        'onnxruntime-1.27.1-android-arm64-v8a-cpu',
+        'onnxruntime-1.28.0-android-arm64-v8a-cpu',
       );
       expect(_object(manifest['target']), <String, Object?>{
         'os': 'android',
@@ -111,7 +110,7 @@ void main() {
       final Map<String, Object?> source = _object(manifest['source']);
       expect(
         source['sha256'],
-        '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383',
+        '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
       );
       final List<Object?> payloads =
           (manifest['payloadFiles'] as List<Object?>);
@@ -120,8 +119,8 @@ void main() {
         'archivePath': 'jni/arm64-v8a/libonnxruntime.so',
         'stagedPath': 'libonnxruntime.so',
         'sha256':
-            'a7579e85ecc5465840d352c35f355e5b7418d36901670d36afd46555304458c2',
-        'sizeBytes': 27983536,
+            'f826d8efb03adf0a84f10e7ba408f9d4cd11b0a2ccd8d08aeb0f7451fb50cacc',
+        'sizeBytes': 28637280,
       });
     });
 

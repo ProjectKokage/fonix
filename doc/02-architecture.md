@@ -172,7 +172,7 @@ Startup sequence:
 6. Verify the shim ABI requested by Dart.
 7. Initialize the shared environment and provider diagnostics.
 
-The base shim in this snapshot targets C API 27 so it can coexist with the observed sherpa-onnx 1.27.x runtime while still running against newer ORT versions that support API 27. Features introduced only in later C APIs belong in a separately negotiated extension or a future shim ABI; do not access function pointers beyond the negotiated API contract.
+The base shim in this snapshot targets C API 27 so it can coexist with the sherpa-onnx runtimes observed so far (1.27.x on 2026-08-06, 1.28.2 on 2026-11-23) while still running against newer ORT versions that support API 27. The floor does not follow the packaged runtime; [ADR-009](11-decisions-and-open-questions.md#adr-009-c-api-27-compatibility-floor-in-this-snapshot) owns the decision. Features introduced only in later C APIs belong in a separately negotiated extension or a future shim ABI; do not access function pointers beyond the negotiated API contract.
 
 The runtime version string is informational and useful for allow/deny policies, but the C API negotiation is the binding compatibility gate. Provider ABI/dependency compatibility is checked separately.
 

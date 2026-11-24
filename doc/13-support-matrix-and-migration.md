@@ -24,7 +24,10 @@ separate product decision.
 
 ## 13.2 Baseline platform matrix
 
-The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
+The lock-selected baseline is ONNX Runtime 1.28.0 with C API 27 and shim ABI 1.
+Every dated result in this table and in 13.3 was obtained with the ONNX
+Runtime 1.27.1 artifacts; [the 1.28.0 evidence](#evidence-with-onnx-runtime-1280)
+below lists what has and has not been repeated.
 
 | Target | Locked baseline | Highest current evidence | Missing before a support claim |
 | --- | --- | --- | --- |
@@ -40,6 +43,68 @@ The lock-selected baseline is ONNX Runtime 1.27.1 with C API 27 and shim ABI 1.
 
 macOS x86_64, Windows arm64, Android armeabi-v7a, and every unlisted tuple
 have no locked baseline artifact and are not supported by this snapshot.
+
+### Evidence with ONNX Runtime 1.28.0
+
+The lock moved from 1.27.1 to 1.28.0 on 2026-11-23, and all nine tuples now
+take their library from the one NuGet package. On that date, on a macOS 27.0.1
+arm64 host, these ran against the 1.28.0 artifacts and passed:
+
+- `tool/ci/check_macos_runtime.py` on the macOS library: bytes, Mach-O layout,
+  dependencies, exports, provider inventory, and embedded signature;
+- the 30 native POSIX CTests and both standalone Phase-3 fixture CTests
+  against the real macOS runtime;
+- the Dart suite with the real runtime, the built shim, the strict fake
+  runtimes, and the offline cache: 290 passed, 2 skipped (the Linux-host
+  `readelf` test and, in that run, the Zig cross-build). It covers CPU
+  inference, CoreML `CPUOnly` assignment and parity, worker isolates, the
+  bundled macOS and Android hooks, and the linked iOS hook for all three
+  tuples;
+- the Zig cross-build and static audit of the Linux x86_64/arm64 and Windows
+  x64 bundles, run separately;
+- the example application's 78 Flutter tests.
+
+The reference-application gates pin Flutter 3.47.0-0.1.pre (the iOS gate also
+Xcode 26.6). That host had Flutter 3.50.0 and Xcode 27.2, so the gates refused
+to run. The example was instead built from an external copy with that
+toolchain and exercised by hand. These are functional checks, not
+reference-gate results:
+
+- macOS: a Release build passed `tool/ci/audit_apple_application.py` with its
+  CPU probe (`signature-verified-package-audit`, `cpuInference: passed`).
+- iOS Simulator: a Debug build on an iPhone 17 Pro / iOS 26.5 arm64 simulator
+  returned the passing receipt for a fresh challenge and its process ID:
+  ORT 1.28.0, linked, wrapper-owned, CPU, output `[1,4,9,16,25,36]`, full
+  assignment, double close.
+- Android emulator: a Debug APK on an API 35 arm64 emulator with 16384-byte
+  pages returned the passing CPU receipt: ORT 1.28.0, application-owned
+  bundled, output `[1,4,9,16,25,36]`, full assignment, double close. A
+  one-off byte comparison of the APK's `libonnxruntime.so` with the locked
+  library found every `PT_LOAD` segment identical; the Android auditor, which
+  owns that check, was not run.
+
+The Android XNNPACK profile failed in that same Debug/16 KiB/Flutter 3.50
+setup with `OrtProviderEvidenceException`. A control build from the 1.27.1
+lock failed identically, so the failure does not come from the runtime move.
+Its cause is in the example: the strict-fallback step caught the exception
+type a rejected fallback had before worker protocol version 5, so the
+rejection it requires ended the run. That fix is a separate change, and the
+profile has not been re-run on 1.28.0 with it.
+
+Not repeated with 1.28.0: the macOS, iOS, and Android reference-application
+gates under their pinned toolchains (Release and R8 builds, AAB, the exact
+install-identity and signature audits), the iOS device static audit, the
+Android XNNPACK functional profile, and the Linux gate. The sherpa-owned
+Android evidence does not depend on the packaged runtime, because that mode
+uses sherpa's library. Until the gates run again, the rows above describe
+1.27.1, and no reference-gate or provider result may be claimed for 1.28.0.
+
+The iOS gate also pins two digests of the linked shim's section bytes
+(`_IOS_NORMALIZED_RUNTIME_FIELDS_SHA256` in
+`tool/ci/run_ios_reference_app_gate.py`). They were measured with 1.27.1 and
+change with the linked runtime, so the gate fails closed until both are
+re-pinned from a gate build under its pinned toolchain. The Apple auditor's
+dependency and load-command digests were not re-measured either.
 
 The [September 28 SDK 27.0 consumer qualification](evidence/2026-09-28-ios27-consumer.md)
 adds a strict arm64 iOS 27.0 Simulator CPU receipt and an unsigned Kokage
@@ -164,7 +229,9 @@ records, an AAB audit, or aligned/QNN build output cannot fill that gap.
 - Shim ABI: 1. An incompatible C boundary must increment the ABI and retain an
   explicit mismatch error.
 - Required ORT API: 27. Raising it requires a new sherpa compatibility window
-  and migration record.
+  and migration record. Moving the packaged runtime to a newer ONNX Runtime
+  release does not raise it; see
+  [ADR-009](11-decisions-and-open-questions.md#adr-009-c-api-27-compatibility-floor-in-this-snapshot).
 - Native artifact lock and staged artifact manifest: schema 2.
 - Embedded shim build manifest: schema 3. It is an internal protocol and can
   evolve independently of the C ABI, but stale generated native assets are

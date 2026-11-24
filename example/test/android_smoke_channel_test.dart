@@ -69,9 +69,9 @@ void main() {
         platform: 'android',
         architecture: 'arm64-v8a',
         shimBuildId:
-            'android-owner-application-source-bundled-artifact-onnxruntime-1.27.1-android-arm64-v8a-cpu',
+            'android-owner-application-source-bundled-artifact-onnxruntime-1.28.0-android-arm64-v8a-cpu',
         artifactSha256:
-            '9359e46eba4482ded00e678c98f22b68f51bb411d7934f5516d64050edfa3383',
+            '769d1d3ea8ab6cd69f737c9dd4d4462aa4ad0ccfa106eaf506efc40d7bead5db',
       ),
       run: fakeRunReceipt(),
     );

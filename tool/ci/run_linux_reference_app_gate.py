@@ -84,7 +84,7 @@ REQUIRED_XVFB_PACKAGE_VERSION = "2:1.19.6-1ubuntu4.15"
 REQUIRED_PYTHON_VERSION = "3.11.9"
 
 ARTIFACT_ID = _AUDITOR.ARTIFACT_ID
-ARCHIVE_BASENAME = "onnxruntime-linux-x64-1.27.1.tgz"
+ARCHIVE_BASENAME = _AUDITOR.ARTIFACT_ARCHIVE_NAME
 ARCHIVE_SHA256 = _AUDITOR.ARTIFACT_SHA256
 ARCHIVE_SIZE_BYTES = _AUDITOR.ARTIFACT_SIZE_BYTES
 ARCHIVE_SOURCE_REVISION = _AUDITOR.ARTIFACT_SOURCE_REVISION
@@ -96,7 +96,7 @@ REFERENCE_RECEIPT_PREFIX = "FONIX_REFERENCE_RECEIPT="
 EXPECTED_REFERENCE_RECEIPT: dict[str, object] = {
     "schemaVersion": 1,
     "status": "passed",
-    "runtimeVersion": "1.27.1",
+    "runtimeVersion": "1.28.0",
     "runtimeSource": "bundled",
     "runtimeOwner": "wrapper",
     "artifactFlavor": "cpu",
@@ -688,7 +688,7 @@ def _load_pinned_archive(lock_path: Path) -> PinnedArchive:
         or artifact.get("runtime_mode") != "bundled"
         or target.get("min_os") != "glibc-2.27"
         or not isinstance(source, dict)
-        or source.get("archive") != "tgz"
+        or source.get("archive") != "zip"
         or source.get("url") != ARCHIVE_URL
         or source.get("source_revision") != ARCHIVE_SOURCE_REVISION
         or source.get("sha256") != ARCHIVE_SHA256

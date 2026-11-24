@@ -54,7 +54,7 @@ void main() {
             .map((artifact) => artifact.expectedFiles.first.sha256)
             .toSet(),
         <String>{
-          'c89260dbff67795fc3a96e40e389a38e52e29f0e2f5660ae202f670b9c79af0f',
+          '92e18f750ff819f5df5b5f9cdfaf85ddeb8cc0553d0a42b40b1ec443a1e9e07c',
         },
       );
 
@@ -256,12 +256,39 @@ void main() {
       );
     });
 
+    // No active artifact declares a symlink, so both cases add their own
+    // beside the macOS runtime member.
+    test('accepts a symlink that resolves to an expected regular file', () {
+      final value = _activeValue();
+      _macosArtifact(value)['expected_symlinks'] = <Object?>[
+        <String, Object?>{
+          'path': 'runtimes/osx-arm64/native/libonnxruntime.1.dylib',
+          'target': 'libonnxruntime.dylib',
+        },
+      ];
+
+      final lock = _parse(value);
+
+      expect(
+        lock.artifacts
+            .singleWhere(
+              (artifact) => artifact.target.operatingSystem == 'macos',
+            )
+            .expectedSymlinks
+            .single
+            .target,
+        'libonnxruntime.dylib',
+      );
+    });
+
     test('rejects a symlink to an unlisted regular file', () {
       final value = _activeValue();
-      final symlink = _object(
-        _list(_macosArtifact(value)['expected_symlinks']).single,
-      );
-      symlink['target'] = 'unlisted.dylib';
+      _macosArtifact(value)['expected_symlinks'] = <Object?>[
+        <String, Object?>{
+          'path': 'runtimes/osx-arm64/native/libonnxruntime.1.dylib',
+          'target': 'unlisted.dylib',
+        },
+      ];
 
       expect(
         () => _parse(value),
